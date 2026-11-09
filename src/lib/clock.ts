@@ -16,6 +16,11 @@ export function addDays(date: string, days: number): string {
   return value.toISOString().slice(0, 10);
 }
 
+/** Whole days from one date to a later one. Negative if `to` is earlier. */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000);
+}
+
 /** The same day n months away, or the last day of that month if it is shorter. */
 export function addMonths(date: string, months: number): string {
   const [year, month, day] = date.split("-").map(Number) as [number, number, number];

@@ -19,8 +19,10 @@ function detail(row: BookRow) {
 
 function href(row: BookRow) {
   if (row.payment_id) return `/payments/${row.payment_id}`;
+  if (row.deposit_id) return `/deposits/${row.deposit_id}`;
   if (row.advance_id) return `/expenses/${row.advance_id}`;
   if (row.loan_id) return `/loans/${row.loan_id}`;
+  if (row.transfer_id) return "/transfers";
   return "#";
 }
 
@@ -64,9 +66,12 @@ export default async function CashBookPage({
         <button className="col-span-2 min-h-11 rounded-lg bg-ink px-4 font-semibold text-gold-light sm:col-span-1">Show</button>
       </form>
       <div className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Side title="Cash" side={book.cash} />
           <Side title="Bank, transfer and POS" side={book.bank} />
+          {book.owner.moneyIn + book.owner.moneyOut > 0 ? (
+            <Side title="Owner (received less paid in)" side={book.owner} />
+          ) : null}
         </div>
         {book.truncated ? <p className="text-sm text-muted">Showing the latest 400 entries. The totals cover everything. Narrow the dates to see older entries.</p> : null}
         {book.rows.length === 0 ? (
@@ -80,7 +85,7 @@ export default async function CashBookPage({
                     <div className="font-semibold">{BOOK_LABELS[row.source_type] ?? row.source_type}</div>
                     <div className="break-words text-sm">{detail(row)}</div>
                     <div className="text-sm text-muted">
-                      {formatDateTime(new Date(row.at))} · {row.account === "cash" ? row.custodian : "Bank"}
+                      {formatDateTime(new Date(row.at))} · {row.account === "cash" ? row.custodian : row.account === "owner" ? "Owner" : "Bank"}
                     </div>
                   </div>
                   <span className={`shrink-0 font-semibold tabular-nums ${row.amount < 0 ? "text-danger" : "text-ok"}`}>

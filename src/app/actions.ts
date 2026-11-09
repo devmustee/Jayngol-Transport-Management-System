@@ -10,7 +10,11 @@ import { changeRate, issueTricycle, returnTricycle } from "@/services/assignment
 import { login } from "@/services/auth";
 import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
-import { addNonCollectionDay, closeCash, removeNonCollectionDay } from "@/services/finance";
+import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
+import { recordDeposit, reverseDeposit } from "@/services/deposits";
+import { addNonCollectionDay, checkCashClose, closeCash, removeNonCollectionDay } from "@/services/finance";
+import { markMyNoticesRead } from "@/services/notices";
+import { acceptTransfer, createTransfer, rejectTransfer, voidTransfer } from "@/services/transfers";
 import {
   addExpenseLine,
   cancelAdvance,
@@ -208,6 +212,22 @@ export async function reversePaymentAction(id: string, _: FormState, data: FormD
   return perform((ctx) => reversePayment(ctx, id, values(data)), "Payment reversed.");
 }
 
+export async function recordDepositAction(_: FormState, data: FormData): Promise<FormState> {
+  const ctx = await requireCtx();
+  let id: string;
+  try {
+    id = (await recordDeposit(ctx, values(data))).id;
+  } catch (error) {
+    return toState(error);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/deposits/${id}`);
+}
+
+export async function reverseDepositAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => reverseDeposit(ctx, id, values(data)), "Deposit reversed.");
+}
+
 export async function closeCashAction(_: FormState, data: FormData) {
   return perform((ctx) => closeCash(ctx, values(data)), "Cash closed.");
 }
@@ -365,4 +385,44 @@ export async function approveAwardAction(id: string, _: FormState, data: FormDat
 
 export async function rejectAwardAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => rejectAward(ctx, id, values(data)), "Award rejected.");
+}
+
+export async function checkCashCloseAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => checkCashClose(ctx, id, values(data)), "Count checked.");
+}
+
+export async function createTransferAction(_: FormState, data: FormData) {
+  return perform((ctx) => createTransfer(ctx, values(data)), "Saved.");
+}
+
+export async function acceptTransferAction(id: string, _state: FormState, _data: FormData) {
+  return perform((ctx) => acceptTransfer(ctx, id), "Handover accepted.");
+}
+
+export async function rejectTransferAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => rejectTransfer(ctx, id, values(data)), "Handover refused.");
+}
+
+export async function voidTransferAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => voidTransfer(ctx, id, values(data)), "Move reversed.");
+}
+
+export async function confirmBankDepositAction(id: string, _state: FormState, _data: FormData) {
+  return perform((ctx) => confirmBankDeposit(ctx, id), "Confirmed.");
+}
+
+export async function confirmBankPaymentAction(id: string, _state: FormState, _data: FormData) {
+  return perform((ctx) => confirmBankPayment(ctx, id), "Confirmed.");
+}
+
+export async function setOpeningBalanceAction(_: FormState, data: FormData) {
+  return perform((ctx) => setOpeningBalance(ctx, values(data)), "Opening balance saved.");
+}
+
+export async function recordReconciliationAction(_: FormState, data: FormData) {
+  return perform((ctx) => recordReconciliation(ctx, values(data)), "Reconciliation saved.");
+}
+
+export async function markNoticesReadAction(_state: FormState, _data: FormData) {
+  return perform((ctx) => markMyNoticesRead(ctx), "Marked as read.");
 }

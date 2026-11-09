@@ -3,15 +3,7 @@
 import { useState } from "react";
 import { recordPaymentAction } from "@/app/actions";
 import { ActionForm, Field, FieldError, SubmitButton, TextareaField } from "@/components/form";
-
-const METHODS = [
-  { value: "cash", label: "Cash" },
-  { value: "pos", label: "POS" },
-  { value: "transfer", label: "Transfer" },
-];
-
-const CHOICE =
-  "flex min-h-11 flex-1 cursor-pointer items-center justify-center rounded-lg border border-line bg-card px-3 font-semibold has-checked:border-ink has-checked:bg-ink has-checked:text-gold-light";
+import { CHOICE, METHODS } from "./money-choices";
 
 export function PaymentForm({
   operatorId,
@@ -56,6 +48,14 @@ export function PaymentForm({
         </div>
         <FieldError name="method" />
       </fieldset>
+      {method === "transfer" || method === "pos" ? (
+        <Field
+          name="reference"
+          label={method === "pos" ? "POS reference" : "Transfer reference"}
+          autoComplete="off"
+          hint="Copy it exactly from the bank alert or POS slip. The same reference cannot be used twice."
+        />
+      ) : null}
       {askTricycle ? (
         <fieldset>
           <legend className="text-sm font-semibold">Did the operator bring the tricycle?</legend>
@@ -99,7 +99,7 @@ export function PaymentForm({
           </div>
         </details>
       ) : null}
-      <SubmitButton>Save and send receipt</SubmitButton>
+      <SubmitButton>Save and issue receipt</SubmitButton>
     </ActionForm>
   );
 }

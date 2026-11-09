@@ -193,11 +193,15 @@ export const REPORTS = {
       { key: "counted", label: "Counted", kind: "naira", total: true },
       { key: "difference", label: "Difference", kind: "naira", total: true },
       { key: "explanation", label: "Explanation", kind: "text" },
+      { key: "checked", label: "Checked by", kind: "text" },
     ],
     query: (range) => sql`
       SELECT c.business_date::text AS day, u.name, c.expected_kobo::float8 AS expected, c.counted_kobo::float8 AS counted,
-        (c.counted_kobo - c.expected_kobo)::float8 AS difference, COALESCE(c.explanation, '') AS explanation
+        (c.counted_kobo - c.expected_kobo)::float8 AS difference, COALESCE(c.explanation, '') AS explanation,
+        COALESCE(ck.name, '') AS checked
       FROM cash_closes c JOIN users u ON u.id = c.custodian_id
+      LEFT JOIN cash_close_checks k ON k.close_id = c.id
+      LEFT JOIN users ck ON ck.id = k.checked_by
       WHERE ${between(sql`c.business_date`, range)}
       ORDER BY c.business_date DESC, u.name`,
   },

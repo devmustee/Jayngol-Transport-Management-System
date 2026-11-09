@@ -48,7 +48,7 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
             rows={[
               ["Collected", formatDate(advance.collectedOn)],
               ["Collected by", data.collectedByName],
-              ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : "Bank or owner"],
+              ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : "Bank"],
               ["Spent", formatNaira(spentKobo)],
               ["Still to account for", formatNaira(leftKobo)],
               ...(data.countersignedByName && advance.countersignedAt

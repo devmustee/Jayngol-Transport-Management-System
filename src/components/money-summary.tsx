@@ -10,6 +10,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
+import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import type { financeOverview } from "@/services/finance";
 
@@ -52,7 +53,11 @@ function AlertRow({
   );
 }
 
+const signedNaira = (kobo: number) => `${kobo < 0 ? "-" : ""}${formatNaira(Math.abs(kobo))}`;
+
 export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof financeOverview>> }) {
+  const deducted = money.loansKobo !== 0 || money.expensesKobo !== 0;
+  const leftKobo = money.collectedKobo - money.loansKobo - money.expensesKobo;
   const percentCollected =
     money.expectedKobo > 0
       ? Math.min(100, Math.round((money.collectedKobo / money.expectedKobo) * 100))
@@ -63,6 +68,9 @@ export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof finan
     money.sackingAlerts > 0 ||
     money.toConfirm > 0 ||
     money.awardsWaiting > 0 ||
+    money.cashNotClosed.length > 0 ||
+    money.handoversWaiting > 0 ||
+    money.closesToCheck > 0 ||
     money.advances.open > 0 ||
     money.advances.submitted > 0;
 
@@ -97,6 +105,36 @@ export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof finan
               icon={Scale}
               title={`${money.toConfirm} offence${money.toConfirm === 1 ? "" : "s"} to confirm`}
               count={money.toConfirm}
+              tone="warning"
+            />
+          ) : null}
+
+          {money.cashNotClosed.map((person) => (
+            <AlertRow
+              key={person.name}
+              href="/cash"
+              icon={Wallet}
+              title={`${person.name} has not closed cash since ${formatDate(person.since)}`}
+              tone="danger"
+            />
+          ))}
+
+          {money.handoversWaiting > 0 ? (
+            <AlertRow
+              href="/transfers"
+              icon={Wallet}
+              title={`${money.handoversWaiting} cash handover${money.handoversWaiting === 1 ? "" : "s"} waiting to be accepted`}
+              count={money.handoversWaiting}
+              tone="warning"
+            />
+          ) : null}
+
+          {money.closesToCheck > 0 ? (
+            <AlertRow
+              href="/cash"
+              icon={Wallet}
+              title={`${money.closesToCheck} cash count${money.closesToCheck === 1 ? "" : "s"} waiting for a second check`}
+              count={money.closesToCheck}
               tone="warning"
             />
           ) : null}
@@ -146,9 +184,20 @@ export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof finan
               <span>Financial Pulse • Today</span>
             </div>
             <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
-              {formatNaira(money.collectedKobo)}
+              {signedNaira(leftKobo)}
             </div>
+            {deducted ? (
+              <div className="mt-1 text-sm text-paper/75">
+                Left after {signedNaira(money.loansKobo)} loans and {signedNaira(money.expensesKobo)} expenses
+              </div>
+            ) : null}
             <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-paper/75">
+              {deducted ? (
+                <>
+                  <span>Collected: {formatNaira(money.collectedKobo)}</span>
+                  <span>•</span>
+                </>
+              ) : null}
               <span>Target: {formatNaira(money.expectedKobo)}</span>
               <span>•</span>
               <span className="font-semibold text-paper/90">{percentCollected}% collected</span>

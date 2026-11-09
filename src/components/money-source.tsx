@@ -14,7 +14,8 @@ export function MoneySourceField({
           Cash held by {person.name} ({formatNaira(person.availableKobo)} today)
         </option>
       ))}
-      <option value="bank">Bank or owner</option>
+      <option value="bank">Bank</option>
+      <option value="owner">Owner&apos;s own money</option>
     </SelectField>
   );
 }

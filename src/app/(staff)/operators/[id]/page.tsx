@@ -2,14 +2,18 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { issueTricycleAction, markOperatorLeftAction, setOperatorPinAction } from "@/app/actions";
+import { AwardJourneyCard } from "@/components/award-tracker";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, Disclosure, Empty, LinkButton, operatorTone, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { isUuid } from "@/lib/fields";
-import { BALANCE_HINT, CLOSED_REASON_LABELS, formatDate, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { BALANCE_HINT, CLOSED_REASON_LABELS, formatDate, METHOD_LABELS, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
+import { getOperatorJourney } from "@/services/award-tracker";
+import { operatorDepositsFor } from "@/services/deposits";
 import { getOperator } from "@/services/operators";
 import { listInStockTricycles } from "@/services/tricycles";
 
@@ -26,6 +30,8 @@ export default async function OperatorPage({ params }: { params: Promise<{ id: s
   const holdsTricycle = history.some((h) => h.assignment.returnedOn === null);
   const canIssue = can(ctx.actor.role, "assignment.manage") && operator.status === "active" && !holdsTricycle;
   const inStock = canIssue ? await listInStockTricycles(ctx) : [];
+  const journey = operator.status === "active" ? await getOperatorJourney(ctx, id) : null;
+  const deposits = can(ctx.actor.role, "finance.view") ? await operatorDepositsFor(ctx, id) : null;
 
   return (
     <>
@@ -57,6 +63,41 @@ export default async function OperatorPage({ params }: { params: Promise<{ id: s
             ]}
           />
         </Card>
+
+        {journey ? <AwardJourneyCard operatorId={id} progress={journey.progress} /> : null}
+
+        {deposits ? (
+          <Card
+            title="Deposit"
+            subtitle={`Held for this operator: ${formatNaira(deposits.heldKobo)}`}
+            action={
+              operator.status === "active" && can(ctx.actor.role, "payment.record") ? (
+                <LinkButton href={`/deposits/new?operator=${id}`}>Record deposit</LinkButton>
+              ) : undefined
+            }
+          >
+            {deposits.items.length === 0 ? (
+              <p className="text-sm text-muted">No deposit recorded yet.</p>
+            ) : (
+              <ul className="divide-y divide-line">
+                {deposits.items.map((deposit) => (
+                  <li key={deposit.id}>
+                    <Link href={`/deposits/${deposit.id}`} className="flex min-h-11 items-center justify-between gap-3 py-2 hover:text-gold-deep">
+                      <span className="min-w-0 text-sm">
+                        {deposit.receiptNumber} · {METHOD_LABELS[deposit.method]} · {formatDate(deposit.businessDate)}
+                      </span>
+                      {deposit.reversedAt ? (
+                        <Badge tone="bad">Reversed</Badge>
+                      ) : (
+                        <span className="shrink-0 font-semibold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                      )}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : null}
 
         {can(ctx.actor.role, "finance.view") ? (
           <div className="flex flex-wrap gap-2">

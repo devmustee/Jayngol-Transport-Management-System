@@ -20,6 +20,7 @@ export default async function AccountPage() {
     ...(can(actor.role, "meeting.view") ? [{ href: "/meetings", label: "Meetings" }] : []),
     ...(can(actor.role, "inspection.report") ? [{ href: "/inspections/report", label: "Inspection report" }] : []),
     ...(can(actor.role, "violation.view") ? [{ href: "/rules", label: "Rules and fines" }] : []),
+    ...(can(actor.role, "finance.view") ? [{ href: "/transfers", label: "Move money" }, { href: "/bank", label: "Bank check" }] : []),
     ...(can(actor.role, "finance.view") ? [{ href: "/reports", label: "Reports" }, { href: "/awards", label: "Awards" }] : []),
     ...(can(actor.role, "user.manage") ? [{ href: "/users", label: "Staff logins" }] : []),
     ...(can(actor.role, "audit.view") ? [{ href: "/audit", label: "Audit log" }] : []),

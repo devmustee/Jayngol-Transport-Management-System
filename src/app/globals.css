@@ -15,6 +15,17 @@
   --color-danger-wash: #fbe9e6;
   --color-ok: #2f6b3a;
   --color-ok-wash: #e6f2e7;
+  --color-ok-border: #b7d8bc;
+  --color-danger-border: #f0c2bb;
+  --color-warning: #9a5b00;
+  --color-warning-wash: #fdf1dc;
+  --color-warning-border: #efd39b;
+  --color-info: #1f5f8b;
+  --color-info-wash: #e5f0f8;
+  --color-info-border: #b9d6ea;
+  --color-card-subtle: #fdfaf2;
+  --color-ink-muted: #4a3f2a;
+  --color-line-strong: #d3c8ab;
 }
 
 html {

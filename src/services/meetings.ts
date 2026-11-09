@@ -7,7 +7,6 @@ import {
   meetingAttendance,
   meetings,
   operators,
-  smsOutbox,
   tricycles,
 } from "@/db/schema";
 import { businessDate } from "@/lib/clock";
@@ -16,6 +15,7 @@ import { idField, optionalText, requiredText } from "@/lib/fields";
 import { formatDateTime } from "@/lib/format";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
+import { notifyOperators } from "./notices";
 import { proposeViolation } from "./violations";
 
 const scheduleSchema = z.object({
@@ -72,12 +72,13 @@ export async function scheduleMeeting(ctx: Ctx, raw: unknown) {
       .returning({ id: meetings.id });
     const roster = await rosterOn(tx, businessDate(ctx.clock()));
     if (roster.length > 0) {
-      await tx.insert(smsOutbox).values(
+      await notifyOperators(
+        tx,
+        ctx.clock(),
         roster.map((person) => ({
-          toPhone: person.phone,
+          operatorId: person.operatorId,
           kind: "meeting_notice",
-          createdAt: ctx.clock(),
-          body: `Jayngol: General meeting "${input.title}" on ${formatDateTime(at)}. Attend with your tricycle. Absence is a fine.`,
+          body: `General meeting "${input.title}" on ${formatDateTime(at)}. Attend with your tricycle. Absence is a fine.`,
         })),
       );
     }

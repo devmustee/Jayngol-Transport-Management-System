@@ -86,7 +86,7 @@ One `charges` table gives each operator a single statement and removes the need 
 - `inspections`: tricycle, operator, supervisor, date, washed and polished (yes/no), sticker intact (yes/no), photos, location
 - `meetings`: title, scheduled for, created by, notice sent at, status
 - `meeting_attendance`: meeting, operator, status (`present_with_tricycle`, `present_without_tricycle`, `absent`, `excused`), reason
-- `award_rules`, `award_candidates` (with stored evidence), `awards` (what was given, when, cost, by whom)
+- `award_rules`, `award_candidates` (with stored evidence), `awards` (what was given, when, by whom)
 
 **Workshop and store**
 - `work_orders`: type (`service`, `maintenance`), tricycle, scheduled for, checked in at, completed at, fault, findings, labour cost, status
@@ -123,7 +123,7 @@ CREATE UNIQUE INDEX one_daily_balance
 2. The balance is due every day, including Sundays and public holidays. No charge is created on a date the Manager marks as a non-collection day, or when the tricycle is off-road for maintenance that day. A service morning is still charged.
 3. Payments go to the oldest unpaid balance first. A part payment leaves the rest outstanding. Money goes to penalties or a loan only when the cashier selects it.
 4. Payment time is set by the server. Only the Manager can backdate a payment, with a reason, because backdating could erase a fine.
-5. A receipt goes to the operator by SMS as soon as the payment is saved.
+5. A receipt appears in the operator's portal notices as soon as the payment is saved. SMS is off for now (decision 25).
 
 **Worked example of the 2-day rule:** an operator pays nothing from Monday 9 November.
 
@@ -203,7 +203,7 @@ R1 is confirmed automatically because it is pure arithmetic. All others are rais
 
 ### Awards
 
-The system runs on the 1st of each month and proposes candidates. The Manager approves, and the award is recorded with what was given and its cost.
+The system runs on the 1st of each month and proposes candidates. The Manager approves, and the award is recorded with what was given.
 
 | Award | Who qualifies | Prize |
 |---|---|---|
@@ -306,10 +306,10 @@ Estimated total: **about 13 weeks**. The company can start using the system at t
 ### Phase 6: Awards, portal and reports (weeks 10 to 11)
 - Award engine and approval, complete operator portal, notifications, dashboards and exports.
 - **Exit:** award results match a set of hand-checked test operators.
-- **Status:** built. The exit test covers hand-checked operators and the boundaries: exactly 6 months, exactly 80% inspection coverage, waived offences and reversed payments. Assumption to confirm: giving an award moves no money, so its cost is entered as an expense by hand, the same as decision 23.
+- **Status:** built. The exit test covers hand-checked operators and the boundaries: exactly 6 months, exactly 80% inspection coverage, waived offences and reversed payments. Giving an award moves no money and no cost is recorded (decision 30).
 
 ### Phase 7: Migration and go-live (weeks 11 to 13)
-- Import fleet, operators, debts, loans and written offence history through validated CSV templates, with a dry run first.
+- No data import: the company starts fresh (decision 29). Staff enter the fleet and operators through the normal screens.
 - Train staff in the field, security review, restore-from-backup drill.
 - Pilot with 10 to 20 tricycles, then run the paper book alongside the app for 2 weeks.
 - **Exit:** two consecutive weeks of cash closes match, then the paper book stops.
@@ -379,6 +379,16 @@ Confirmed on 9 November 2026.
 | 22 | Which days are free during a repair? | The day it goes in is charged. Each later day is free, including the day it is released. A repair finished the same day changes nothing. |
 | 23 | How do workshop labour and store purchases reach the cash book? | The Manager enters them by hand as expenses. Recording a repair or stock delivery moves no money, so nothing is counted twice. |
 | 24 | What comes off the Collected today card? | All loans and expense funds given out that day, whether from cash held, the bank or the owner. Change returned and cancellations are added back. The comparison with the amount due still uses the full amount collected. |
+| 25 | How are operators told about receipts, fines and meetings? | Through Notices on their portal. SMS is switched off for now, and its queue table is kept unused for when a provider is chosen. |
+| 26 | What happens to cash after it is collected? | It stays with the person until recorded leaving: bank deposit with teller number and photo, handover the receiver accepts, or payment to the owner. Each day starts from the last count. |
+| 27 | Who proves transfers, POS and counts? | Transfers and POS need a unique reference, confirmed against the statement by someone other than the person who recorded them. A second person recounts each cash close, and a different recount becomes the amount carried forward. |
+| 28 | How do bank and owner money differ? | They are separate sources. The bank has one opening balance and a reconciliation for each ended month. |
+| 29 | Is old data imported at go-live? | No. The company starts fresh, so there is no CSV import. |
+| 30 | Is the cost of an award recorded? | No. The Manager only records what was given, for example "Cash 50,000". |
+| 31 | How are operator deposits handled? | Each is saved with its own receipt, received by cash, POS or transfer. Cash stays with the person who received it, and POS and transfer go to the bank. A deposit is held money, so it is not a collection and pays no charge. A mistake is reversed by the Manager, never edited. Refunds are not built. |
+| 32 | How does cash reach the Owner? | In cash, recorded in Move Money from the person holding it to the Owner. No teller or bank reference is needed. |
+| 33 | Who covers a tricycle when its operator is away? | Relief riders are arranged manually when staff are alerted. The system does not track them. |
+| 34 | Are vehicle permits tracked? | Manually, outside the system. There are no permit records or expiry alerts. |
 
 **Still open:** the tracker vendor and what it can export. Staff enter R7 manually with a screenshot until this is known.
 
@@ -399,7 +409,7 @@ Confirmed on 9 November 2026.
 | Supervisor collusion or false reports | Unfair fines, unfair awards | Two-person confirmation, photos, inspection coverage report |
 | Poor network in the field | Inspections are skipped | Offline queue with safe resubmission |
 | Operators dispute fines | Conflict and lost trust | Evidence visible in the portal, Manager can waive with a reason |
-| Opening balances are wrong | Disputes from day one | Dry-run import, and each operator confirms their opening figures |
+| Opening balances are wrong | Disputes from day one | Starting fresh means no carried-over debts. The bank opening balance is set once, and each cash close is checked by a second person |
 | Manager controls money and the system | Fraud cannot be detected | Audit log, countersign, read-only owner access |
 | Scope grows during the build | The first release slips | Tracker integration and other extras wait until after go-live |
 

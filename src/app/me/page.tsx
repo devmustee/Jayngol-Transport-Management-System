@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { Award, Bike, CalendarDays, LogOut, ShieldAlert, Wrench } from "lucide-react";
-import { logoutAction } from "@/app/actions";
+import { Bell, BellRing, Bike, CalendarDays, LogOut } from "lucide-react";
+import { logoutAction, markNoticesReadAction } from "@/app/actions";
+import { ActionForm, SubmitButton } from "@/components/form";
 import { StatementView } from "@/components/statement";
+import { MyAwardJourney } from "@/components/my-awards";
 import { Badge, Card, Details, Empty, operatorTone } from "@/components/ui";
 import {
-  AWARD_LABELS,
-  AWARD_PRIZES,
   formatDate,
   formatDateTime,
+  METHOD_LABELS,
   OPERATOR_STATUS_LABELS,
   WORK_TYPE_LABELS,
 } from "@/lib/format";
@@ -25,7 +26,7 @@ export const metadata: Metadata = { title: "Driver Portal" };
 export default async function MyRecordsPage() {
   const ctx = await requireCtx();
   if (isStaff(ctx.actor.role)) redirect("/dashboard");
-  const { operator, current, dailyBalanceKobo, statement, compliance, service, awards } =
+  const { operator, current, dailyBalanceKobo, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits } =
     await getMyRecords(ctx);
 
   return (
@@ -65,6 +66,39 @@ export default async function MyRecordsPage() {
       </header>
 
       <div className="space-y-4">
+        {/* Notices */}
+        <Card
+          title="Notices"
+          subtitle={notices.unread > 0 ? `${notices.unread} new` : "You are up to date"}
+        >
+          {notices.items.length === 0 ? (
+            <p className="text-sm text-muted">Messages from Jayngol will appear here.</p>
+          ) : (
+            <ul className="divide-y divide-line">
+              {notices.items.map((notice) => (
+                <li key={notice.id} className="flex items-start gap-2.5 py-2.5 first:pt-0 last:pb-0">
+                  {notice.readAt ? (
+                    <Bell size={16} aria-hidden className="mt-0.5 shrink-0 text-muted" />
+                  ) : (
+                    <BellRing size={16} aria-label="New" className="mt-0.5 shrink-0 text-gold-deep" />
+                  )}
+                  <div className="min-w-0">
+                    <p className={`text-sm ${notice.readAt ? "" : "font-bold text-ink"}`}>{notice.body}</p>
+                    <p className="text-xs text-muted">{formatDateTime(notice.createdAt)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+          {notices.unread > 0 ? (
+            <ActionForm action={markNoticesReadAction} className="mt-3">
+              <SubmitButton tone="plain">Mark all as read</SubmitButton>
+            </ActionForm>
+          ) : null}
+        </Card>
+
+        <MyAwardJourney progress={journey} board={honourBoard} runAtRisk={runAtRisk} />
+
         {/* Tricycle Assignment */}
         {current ? (
           <Card title="Assigned Tricycle" subtitle="Active daily agreement">
@@ -96,6 +130,30 @@ export default async function MyRecordsPage() {
         ) : (
           <Empty>You do not have a tricycle assigned at the moment.</Empty>
         )}
+
+        {/* Deposits */}
+        {deposits.items.length > 0 ? (
+          <Card title="My deposit" subtitle="Held for you by Jayngol. It does not pay your daily balance.">
+            <div className="mb-3 text-2xl font-extrabold tabular-nums text-ink">{formatNaira(deposits.heldKobo)}</div>
+            <ul className="divide-y divide-line/60">
+              {deposits.items.map((deposit) => (
+                <li key={deposit.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
+                  <div className="min-w-0 text-sm">
+                    <div className="font-bold text-ink">{deposit.receiptNumber}</div>
+                    <div className="text-xs text-muted">
+                      {formatDate(deposit.businessDate)} · {METHOD_LABELS[deposit.method]}
+                    </div>
+                  </div>
+                  {deposit.reversedAt ? (
+                    <Badge tone="bad">Reversed</Badge>
+                  ) : (
+                    <span className="shrink-0 text-sm font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Card>
+        ) : null}
 
         {/* Upcoming Meetings */}
         {compliance.upcoming.length > 0 ? (
@@ -163,32 +221,6 @@ export default async function MyRecordsPage() {
               ))}
             </ul>
           )}
-        </Card>
-
-        {/* Award Progress */}
-        <Card title="Driver Excellence Bonus" subtitle="Quarterly incentive progress">
-          <ul className="divide-y divide-line/60">
-            {awards.map((award) => (
-              <li key={award.type} className="py-3 first:pt-0 last:pb-0">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="font-bold text-sm text-ink">
-                    {AWARD_LABELS[award.type]}{" "}
-                    <span className="font-normal text-xs text-muted">
-                      ({AWARD_PRIZES[award.type]})
-                    </span>
-                  </div>
-                  <Badge tone={award.blockers.length === 0 ? "good" : "gold"} dot>
-                    {award.blockers.length === 0 ? "On Track" : "Not Yet"}
-                  </Badge>
-                </div>
-                {award.blockers.map((blocker) => (
-                  <p key={blocker} className="mt-1 text-xs text-muted">
-                    • {blocker}
-                  </p>
-                ))}
-              </li>
-            ))}
-          </ul>
         </Card>
 
         {/* Workshop Service History */}

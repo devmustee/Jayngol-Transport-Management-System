@@ -7,7 +7,6 @@ import {
   operators,
   photos,
   rules,
-  smsOutbox,
   stickerIncidents,
   tricycles,
   users,
@@ -22,6 +21,7 @@ import { photoBytes, photoField } from "@/lib/photo";
 import { holderOn, offRoadOn } from "./assignments";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
+import { notifyOperators } from "./notices";
 import { applyCredit, voidCharge } from "./ledger";
 
 /** The fine for a rule on a date, read when the offence happens. */
@@ -114,13 +114,13 @@ export async function confirmViolation(ctx: Ctx, rawId: unknown) {
         decidedAt: ctx.clock(),
       })
       .where(eq(violations.id, id));
-    const [operator] = await tx.select({ phone: operators.phone }).from(operators).where(eq(operators.id, v.operatorId));
-    await tx.insert(smsOutbox).values({
-      toPhone: operator!.phone,
-      kind: "offence",
-      createdAt: ctx.clock(),
-      body: `Jayngol: Offence on ${formatDate(v.occurredOn)}: ${RULE_NAMES[v.ruleCode] ?? v.ruleCode}. Fine ${formatNaira(v.amountKobo)}.`,
-    });
+    await notifyOperators(tx, ctx.clock(), [
+      {
+        operatorId: v.operatorId,
+        kind: "offence",
+        body: `Offence on ${formatDate(v.occurredOn)}: ${RULE_NAMES[v.ruleCode] ?? v.ruleCode}. Fine ${formatNaira(v.amountKobo)}.`,
+      },
+    ]);
     await auditFrom(ctx, tx, {
       action: "violation.confirm",
       entityType: "operator",

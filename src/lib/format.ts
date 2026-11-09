@@ -118,12 +118,19 @@ export const LOAN_STATUS_LABELS = { active: "Active", cleared: "Cleared", cancel
 export const BOOK_LABELS: Record<string, string> = {
   payment: "Payment received",
   payment_reversal: "Payment reversed",
+  deposit: "Operator deposit received",
+  deposit_reversal: "Operator deposit reversed",
   expense_advance: "Expense funds collected",
   expense_advance_cancel: "Expense funds put back",
   expense_change: "Change returned",
   expense_change_void: "Change entry corrected",
   loan: "Loan given",
   loan_cancel: "Loan cancelled",
+  transfer_out: "Money moved out",
+  transfer_in: "Money moved in",
+  transfer_void_out: "Move reversed",
+  transfer_void_in: "Move reversed",
+  opening_balance: "Opening bank balance",
 };
 
 export const AWARD_LABELS = {

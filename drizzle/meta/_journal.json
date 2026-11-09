@@ -92,6 +92,55 @@
       "when": 1794193552923,
       "tag": "0012_awards_guarantees",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794253024987,
+      "tag": "0013_cash_trail",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1794253028351,
+      "tag": "0014_cash_trail_guarantees",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1794256958504,
+      "tag": "0015_award_milestones",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1794256960891,
+      "tag": "0016_award_milestones_guarantees",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1794261990502,
+      "tag": "0017_remove_award_cost",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1794262077443,
+      "tag": "0018_operator_deposits",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1794262086388,
+      "tag": "0019_operator_deposit_guarantees",
+      "breakpoints": true
     }
   ]
 }

@@ -65,15 +65,15 @@ async function makePortalOperator() {
 
 describe("tricycle register", () => {
   it("normalises identifiers and blocks duplicates", async () => {
-    const input = tricycleInput({ registrationNumber: "kja  101 xy", codeNumber: "jt-dup" });
+    const input = tricycleInput({ registrationNumber: "kja  101 xy", codeNumber: "gre 9001" });
     await createTricycle(manager, input);
     await expect(
-      createTricycle(manager, { ...tricycleInput(), registrationNumber: "KJA 101 XY" }),
+      createTricycle(manager, { ...tricycleInput(), registrationNumber: "KJA-101XY" }),
     ).rejects.toMatchObject({
       fieldErrors: { registrationNumber: expect.stringContaining("already exists") },
     });
     await expect(
-      createTricycle(manager, { ...tricycleInput(), codeNumber: "JT-DUP" }),
+      createTricycle(manager, { ...tricycleInput(), codeNumber: "GRE,9001" }),
     ).rejects.toMatchObject({
       fieldErrors: { codeNumber: expect.stringContaining("already exists") },
     });
@@ -276,3 +276,26 @@ describe("portal login when adding an operator", () => {
     expect(await operatorRow(user.phone)).toBeUndefined();
   });
 });
+
+describe("tricycle number formats", () => {
+  it("saves the company's formats, correcting spaces and case", async () => {
+    const created = await createTricycle(manager, tricycleInput({ registrationNumber: "wkr 275 vc", codeNumber: "gre 4055" }));
+    const listed = await listTricycles(manager);
+    const row = listed.find((item) => item.id === created!.id);
+    expect(row).toMatchObject({ registrationNumber: "WKR-275VC", codeNumber: "GRE,4055" });
+  });
+
+  it.each([
+    ["codeNumber", "JT-001"],
+    ["codeNumber", "GRE,405"],
+    ["codeNumber", "GR,4055"],
+    ["registrationNumber", "GME 101 TX1"],
+    ["registrationNumber", "WKR-27VC"],
+    ["registrationNumber", "WK-275VC"],
+  ])("refuses %s %s", async (field, value) => {
+    await expect(createTricycle(manager, tricycleInput({ [field]: value }))).rejects.toMatchObject({
+      fieldErrors: { [field]: expect.any(String) },
+    });
+  });
+});
+

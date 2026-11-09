@@ -665,7 +665,7 @@ export const stockMovements = pgTable(
   ],
 );
 
-/** Written with the payment, delivered afterwards, so a receipt is never lost. */
+/** Not written to while operators are told through their portal. Kept for when SMS returns. */
 export const smsOutbox = pgTable(
   "sms_outbox",
   {
@@ -702,10 +702,14 @@ export const expenseCategory = pgEnum("expense_category", [
 ]);
 
 // Money that did not pass through someone's hands as cash. Append-only (drizzle/0010).
+/** Company bank money, or the owner's own money that never passed through the company. */
+export const bankSide = pgEnum("bank_side", ["bank", "owner"]);
+
 export const bankMovements = pgTable(
   "bank_movements",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    account: bankSide("account").notNull().default("bank"),
     /** Positive is money in, negative is money out. */
     amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
     businessDate: date("business_date", { mode: "string" }).notNull(),
@@ -713,13 +717,17 @@ export const bankMovements = pgTable(
     sourceId: text("source_id").notNull(),
     at: timestamp("at", tz).notNull(),
   },
-  (t) => [index("bank_date_idx").on(t.businessDate)],
+  (t) => [
+    index("bank_date_idx").on(t.businessDate),
+    uniqueIndex("one_opening_balance").on(t.sourceType).where(sql`source_type = 'opening_balance'`),
+  ],
 );
 
 export const loans = pgTable(
   "loans",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    account: bankSide("account").notNull().default("bank"),
     operatorId: uuid("operator_id")
       .notNull()
       .references(() => operators.id),
@@ -750,6 +758,7 @@ export const expenseAdvances = pgTable(
   "expense_advances",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    account: bankSide("account").notNull().default("bank"),
     purpose: text("purpose").notNull(),
     amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
     status: advanceStatus("status").notNull().default("open"),
@@ -855,12 +864,179 @@ export const awards = pgTable(
       .notNull()
       .references(() => operators.id),
     given: text("given").notNull(),
-    costKobo: bigint("cost_kobo", { mode: "number" }).notNull(),
     givenOn: date("given_on", { mode: "string" }).notNull(),
     approvedBy: uuid("approved_by")
       .notNull()
       .references(() => users.id),
     createdAt: timestamp("created_at", tz).notNull(),
   },
-  (t) => [index("awards_operator_idx").on(t.operatorId), check("award_cost_positive", sql`cost_kobo > 0`)],
+  (t) => [index("awards_operator_idx").on(t.operatorId)],
 );
+
+/* ---------- Operator notices ---------- */
+
+export const operatorNotices = pgTable(
+  "operator_notices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    kind: text("kind").notNull(),
+    body: text("body").notNull(),
+    createdAt: timestamp("created_at", tz).notNull(),
+    readAt: timestamp("read_at", tz),
+    /** Set on notices that must only ever reach an operator once. */
+    dedupeKey: text("dedupe_key"),
+  },
+  (t) => [
+    index("operator_notices_idx").on(t.operatorId, t.createdAt),
+    uniqueIndex("operator_notices_once").on(t.operatorId, t.dedupeKey).where(sql`${t.dedupeKey} IS NOT NULL`),
+  ],
+);
+
+/** Which milestones have been celebrated. Progress itself is always worked out live. */
+export const awardMilestones = pgTable(
+  "award_milestones",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    code: text("code").notNull(),
+    reachedOn: date("reached_on", { mode: "string" }).notNull(),
+    evidence: jsonb("evidence").notNull(),
+    createdAt: timestamp("created_at", tz).notNull(),
+    voidedAt: timestamp("voided_at", tz),
+    voidReason: text("void_reason"),
+  },
+  (t) => [
+    uniqueIndex("award_milestones_once").on(t.operatorId, t.code).where(sql`${t.voidedAt} IS NULL`),
+  ],
+);
+
+/* ---------- The cash trail ---------- */
+
+/**
+ * Money an operator leaves with the company. It is held for them, so it is never
+ * income and never pays a charge. Append-only (drizzle/0019): a mistake is a reversal row.
+ */
+export const operatorDeposits = pgTable(
+  "operator_deposits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id").notNull().unique(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    method: paymentMethod("method").notNull(),
+    receiptNumber: text("receipt_number").notNull().unique(),
+    receivedBy: uuid("received_by")
+      .notNull()
+      .references(() => users.id),
+    receivedAt: timestamp("received_at", tz).notNull(),
+    businessDate: date("business_date", { mode: "string" }).notNull(),
+  },
+  (t) => [
+    index("operator_deposits_operator_idx").on(t.operatorId, t.receivedAt),
+    check("operator_deposit_positive", sql`amount_kobo > 0`),
+  ],
+);
+
+export const operatorDepositReversals = pgTable("operator_deposit_reversals", {
+  depositId: uuid("deposit_id")
+    .primaryKey()
+    .references(() => operatorDeposits.id),
+  reversedBy: uuid("reversed_by")
+    .notNull()
+    .references(() => users.id),
+  reason: text("reason").notNull(),
+  reversedAt: timestamp("reversed_at", tz).notNull(),
+});
+
+/**
+ * The bank's reference for a transfer or POS payment or deposit. One table, so a
+ * reference can only be live once across both. A reversal frees it for re-entry.
+ */
+export const paymentReferences = pgTable(
+  "payment_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    paymentId: uuid("payment_id")
+      .unique()
+      .references(() => payments.id),
+    depositId: uuid("deposit_id")
+      .unique()
+      .references(() => operatorDeposits.id),
+    reference: text("reference").notNull(),
+    releasedAt: timestamp("released_at", tz),
+    confirmedBy: uuid("confirmed_by").references(() => users.id),
+    confirmedAt: timestamp("confirmed_at", tz),
+  },
+  (t) => [
+    uniqueIndex("one_live_reference").on(t.reference).where(sql`released_at IS NULL`),
+    check("reference_has_one_owner", sql`num_nonnulls(payment_id, deposit_id) = 1`),
+  ],
+);
+
+export const moneyPlace = pgEnum("money_place", ["cash", "bank", "owner"]);
+export const transferStatus = pgEnum("money_transfer_status", ["pending", "done", "rejected", "voided"]);
+
+/** Money moving between staff, the bank and the owner. */
+export const moneyTransfers = pgTable(
+  "money_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fromPlace: moneyPlace("from_place").notNull(),
+    fromCustodian: uuid("from_custodian").references(() => users.id),
+    toPlace: moneyPlace("to_place").notNull(),
+    toCustodian: uuid("to_custodian").references(() => users.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    reference: text("reference"),
+    photoId: uuid("photo_id").references(() => photos.id),
+    note: text("note"),
+    status: transferStatus("status").notNull().default("done"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", tz).notNull(),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", tz),
+    reason: text("reason"),
+  },
+  (t) => [
+    index("money_transfers_status_idx").on(t.status, t.createdAt),
+    check("transfer_amount_positive", sql`amount_kobo > 0`),
+    check(
+      "transfer_cash_has_person",
+      sql`(from_place = 'cash') = (from_custodian IS NOT NULL) AND (to_place = 'cash') = (to_custodian IS NOT NULL)`,
+    ),
+  ],
+);
+
+// Append-only (drizzle/0014).
+export const cashCloseChecks = pgTable("cash_close_checks", {
+  closeId: uuid("close_id")
+    .primaryKey()
+    .references(() => cashCloses.id),
+  /** Empty only for days closed before second checks began. */
+  checkedBy: uuid("checked_by").references(() => users.id),
+  recountedKobo: bigint("recounted_kobo", { mode: "number" }),
+  note: text("note"),
+  checkedAt: timestamp("checked_at", tz).notNull(),
+});
+
+// Append-only (drizzle/0014).
+export const bankReconciliations = pgTable("bank_reconciliations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  month: date("month", { mode: "string" }).notNull().unique(),
+  statementKobo: bigint("statement_kobo", { mode: "number" }).notNull(),
+  bookKobo: bigint("book_kobo", { mode: "number" }).notNull(),
+  unconfirmedKobo: bigint("unconfirmed_kobo", { mode: "number" }).notNull(),
+  explanation: text("explanation"),
+  recordedBy: uuid("recorded_by")
+    .notNull()
+    .references(() => users.id),
+  createdAt: timestamp("created_at", tz).notNull(),
+});

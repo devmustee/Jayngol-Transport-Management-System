@@ -13,6 +13,7 @@ import {
 } from "@/db/schema";
 import { addDays, businessDate, type Clock } from "@/lib/clock";
 import { rateOn } from "./assignments";
+import { recordAwardProgress } from "./award-tracker";
 import { recordAudit } from "./audit";
 import { proposeAwards } from "./awards";
 import { applyCredit, unpaidDaysAsOf } from "./ledger";
@@ -71,7 +72,9 @@ export async function processDay(date: string, clock: Clock): Promise<boolean> {
     await scheduleServices(tx, date, now);
     if (date.endsWith("-01")) await proposeAwards(tx, date, now);
     // A catch-up must not message people about days long past.
-    if (date === businessDate(now)) await queueDayNotices(tx, date, now);
+    const isToday = date === businessDate(now);
+    const runs = await recordAwardProgress(tx, date, now, isToday);
+    if (isToday) await queueDayNotices(tx, date, now, runs);
     await tx.insert(jobRuns).values({ job: JOB, businessDate: date, finishedAt: now });
     return true;
   });

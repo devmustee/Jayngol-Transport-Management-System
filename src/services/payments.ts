@@ -11,7 +11,7 @@ import {
   paymentAllocations,
   paymentReversals,
   payments,
-  smsOutbox,
+  paymentReferences,
   tricycles,
   users,
 } from "@/db/schema";
@@ -33,6 +33,13 @@ import { requirePermission, type Ctx } from "./context";
 import { cashDate } from "./cash-book";
 import { allocate, applyCredit, openCharges, syncLoanStatus } from "./ledger";
 import { proposeViolation } from "./violations";
+import { notifyOperators } from "./notices";
+
+/** Spaces are ignored and letters uppercased, so the same reference always matches itself. */
+export const bankReferenceField = z.preprocess(
+  (value) => (typeof value === "string" ? value.replace(/\s+/g, "").toUpperCase() || undefined : value),
+  z.string().regex(/^[A-Z0-9/-]{4,40}$/, "Enter the reference exactly as the bank or POS shows it").optional(),
+);
 
 const paymentSchema = z.object({
   operatorId: idField("operator"),
@@ -44,6 +51,7 @@ const paymentSchema = z.object({
   loanAmount: optionalNairaField("Amount for the loan"),
   backdateTo: z.preprocess((v) => (v === "" ? undefined : v), dateField("Payment date").optional()),
   backdateReason: optionalText(),
+  reference: bankReferenceField,
 });
 
 export async function recordPayment(ctx: Ctx, raw: unknown) {
@@ -71,6 +79,9 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
   }
 
   const paymentDate = input.backdateTo ?? today;
+  if (input.method !== "cash" && !input.reference) {
+    throw fieldError("reference", "Enter the bank or POS reference");
+  }
 
   try {
     return await db.transaction(async (tx) => {
@@ -134,6 +145,10 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
         })
         .returning();
 
+      if (input.method !== "cash") {
+        await tx.insert(paymentReferences).values({ paymentId: payment!.id, reference: input.reference! });
+      }
+
       await allocate(tx, payment!.id, penalties, penaltyAmount);
       const balances = await openCharges(tx, operator.id, "daily_balance");
       await allocate(tx, payment!.id, loanCharges, loanAmount);
@@ -170,12 +185,13 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
       }
 
       const owed = balances.reduce((sum, c) => sum + c.outstandingKobo, 0);
-      await tx.insert(smsOutbox).values({
-        toPhone: operator.phone,
-        kind: "receipt",
-        createdAt: now,
-        body: `Jayngol: ${formatNaira(input.amount)} received on ${formatDate(paymentDate)}. Receipt ${payment!.receiptNumber}. Balance still owed: ${formatNaira(owed)}.`,
-      });
+      await notifyOperators(tx, now, [
+        {
+          operatorId: operator.id,
+          kind: "receipt",
+          body: `${formatNaira(input.amount)} received on ${formatDate(paymentDate)}. Receipt ${payment!.receiptNumber}. Balance still owed: ${formatNaira(owed)}.`,
+        },
+      ]);
 
       await auditFrom(ctx, tx, {
         action: input.backdateTo ? "payment.record_backdated" : "payment.record",
@@ -192,6 +208,9 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
       return { id: payment!.id };
     });
   } catch (error) {
+    if (asPgError(error)?.constraint_name === "one_live_reference") {
+      throw fieldError("reference", "This reference has already been used on another payment or deposit");
+    }
     // Two identical submissions raced: the winner's payment is the answer.
     if (asPgError(error)?.constraint_name === "payments_client_unique") {
       const [winner] = await db
@@ -231,6 +250,8 @@ export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
       reason,
       reversedAt: now,
     });
+
+    await tx.update(paymentReferences).set({ releasedAt: now }).where(eq(paymentReferences.paymentId, id));
 
     if (found.method === "cash") {
       await tx.insert(cashMovements).values({
@@ -361,4 +382,9 @@ export async function paymentContext(ctx: Ctx, operatorId: string) {
     penaltiesOwedKobo: penalties.reduce((s, c) => s + c.outstandingKobo, 0),
     loanOwedKobo: loanCharges.reduce((s, c) => s + c.outstandingKobo, 0),
   };
+}
+
+export async function paymentReferenceOf(paymentId: string) {
+  const [row] = await db.select().from(paymentReferences).where(eq(paymentReferences.paymentId, paymentId));
+  return row ?? null;
 }

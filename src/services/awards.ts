@@ -1,24 +1,32 @@
-import { and, count, desc, eq, sql } from "drizzle-orm";
+import { count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
-import { awardCandidates, awards, operators, smsOutbox } from "@/db/schema";
+import { assignments, awardCandidates, awards, operators } from "@/db/schema";
+import { AWARD_TYPES, MIN_COVERAGE_PERCENT, SERVICE_MONTHS, serviceStart, type AwardType } from "@/lib/award-progress";
 import { addDays, addMonths, businessDate } from "@/lib/clock";
 import { DomainError, parseInput } from "@/lib/errors";
-import { idField, positiveNairaField, requiredText } from "@/lib/fields";
+import { idField, requiredText } from "@/lib/fields";
 import { AWARD_LABELS } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { auditFrom, recordAudit } from "./audit";
 import { requirePermission, type Ctx } from "./context";
+import { notifyOperators } from "./notices";
 
-export type AwardType = keyof typeof AWARD_LABELS;
-export const AWARD_TYPES = Object.keys(AWARD_LABELS) as AwardType[];
+export { AWARD_TYPES, type AwardType };
 
-const SERVICE_MONTHS = 6;
-const MIN_COVERAGE_PERCENT = 80;
+/**
+ * A balance (alias `c`) not fully paid by the end of its due date, using only
+ * money that was not later reversed. The tracker uses this same test.
+ */
+export const LATE_BALANCE = sql`c.amount_kobo > COALESCE((
+  SELECT SUM(e.amount_kobo) FROM effective_allocations e WHERE e.charge_id = c.id
+    AND e.received_at < ((c.due_on + 1)::timestamp AT TIME ZONE 'Africa/Lagos')), 0)`;
 
 export type AwardFacts = {
   status: string;
   firstIssuedOn: string | null;
+  /** When the latest unbroken service began. Leaving or being sacked restarts it. */
+  serviceStartedOn: string | null;
   periodFrom: string;
   periodTo: string;
   workingDays: number;
@@ -61,10 +69,7 @@ export async function awardFacts(
                       AND c.type = 'daily_balance' AND c.business_date = i.business_date)) AS inspected_days,
       (SELECT COUNT(*)::int FROM valid_charges c
         WHERE c.operator_id = o.id AND c.type = 'daily_balance' AND c.business_date ${inPeriod}
-          AND c.due_on < ${lateBefore}::date
-          AND c.amount_kobo > COALESCE((
-            SELECT SUM(e.amount_kobo) FROM effective_allocations e WHERE e.charge_id = c.id
-              AND e.received_at < ((c.due_on + 1)::timestamp AT TIME ZONE 'Africa/Lagos')), 0)) AS late,
+          AND c.due_on < ${lateBefore}::date AND ${LATE_BALANCE}) AS late,
       ${offences(sql`v.status = 'confirmed' AND v.occurred_on >= ${periodFrom}::date`)} AS in_period,
       ${offences(sql`v.status = 'confirmed'`)} AS ever,
       ${offences(sql`v.status = 'confirmed' AND v.rule_code = 'R2'`)} AS washing,
@@ -87,9 +92,18 @@ export async function awardFacts(
   }[];
   const row = rows[0];
   if (!row) throw new DomainError("Operator not found.");
+  const stints = await exec
+    .select({
+      issuedOn: assignments.issuedOn,
+      returnedOn: assignments.returnedOn,
+      returnReason: assignments.returnReason,
+    })
+    .from(assignments)
+    .where(eq(assignments.operatorId, operatorId));
   return {
     status: row.status,
     firstIssuedOn: row.first_issued,
+    serviceStartedOn: serviceStart(stints),
     periodFrom,
     periodTo,
     workingDays: row.working_days,
@@ -109,7 +123,7 @@ export async function awardFacts(
 export function awardBlockers(type: AwardType, facts: AwardFacts): string[] {
   const reasons: string[] = [];
   if (facts.status !== "active") reasons.push("Only active operators can win awards.");
-  if (!facts.firstIssuedOn || facts.firstIssuedOn > facts.periodFrom) reasons.push("Needs at least 6 months of service.");
+  if (!facts.serviceStartedOn || facts.serviceStartedOn > facts.periodFrom) reasons.push("Needs at least 6 months of service.");
   // Compared in whole numbers so exactly 80% passes and 79.9% does not.
   if (facts.inspectedDays * 100 < facts.workingDays * MIN_COVERAGE_PERCENT || facts.workingDays === 0) {
     reasons.push(`Inspected on ${facts.coveragePercent}% of working days. Needs at least ${MIN_COVERAGE_PERCENT}%.`);
@@ -175,10 +189,7 @@ async function lockCandidate(tx: Tx, id: string) {
   return candidate;
 }
 
-const approveSchema = z.object({
-  given: requiredText("What was given", 200),
-  cost: positiveNairaField("Cost"),
-});
+const approveSchema = z.object({ given: requiredText("What was given", 200) });
 
 /** The record is checked again now: an offence may have been confirmed since the proposal. */
 export async function approveAward(ctx: Ctx, rawId: unknown, raw: unknown) {
@@ -202,23 +213,22 @@ export async function approveAward(ctx: Ctx, rawId: unknown, raw: unknown) {
       candidateId: id,
       operatorId: candidate.operatorId,
       given: input.given,
-      costKobo: input.cost,
       givenOn: businessDate(now),
       approvedBy: ctx.actor.userId,
       createdAt: now,
     });
-    const [operator] = await tx.select({ phone: operators.phone }).from(operators).where(eq(operators.id, candidate.operatorId));
-    await tx.insert(smsOutbox).values({
-      toPhone: operator!.phone,
-      kind: "award",
-      createdAt: now,
-      body: `Jayngol: Congratulations! You have won the ${AWARD_LABELS[candidate.type]} award: ${input.given}.`,
-    });
+    await notifyOperators(tx, now, [
+      {
+        operatorId: candidate.operatorId,
+        kind: "award",
+        body: `Congratulations! You have won the ${AWARD_LABELS[candidate.type]} award: ${input.given}.`,
+      },
+    ]);
     await auditFrom(ctx, tx, {
       action: "award.approve",
       entityType: "operator",
       entityId: candidate.operatorId,
-      after: { type: candidate.type, given: input.given, costKobo: input.cost },
+      after: { type: candidate.type, given: input.given },
     });
   });
 }
@@ -248,6 +258,17 @@ export async function awardsToDecide() {
   return row?.value ?? 0;
 }
 
+/** Shown when deciding, so waiving offences cannot quietly win someone a prize. */
+async function waivedInPeriod(candidate: { operatorId: string; periodFrom: string; periodTo: string }) {
+  const [row] = (await db.execute(sql`
+    SELECT COUNT(*)::int AS total, STRING_AGG(DISTINCT u.name, ', ') AS names
+    FROM violations v LEFT JOIN users u ON u.id = v.decided_by
+    WHERE v.operator_id = ${candidate.operatorId} AND v.status = 'waived'
+      AND v.occurred_on BETWEEN ${candidate.periodFrom}::date AND ${candidate.periodTo}::date
+  `)) as unknown as { total: number; names: string | null }[];
+  return row!;
+}
+
 export async function listAwards(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const [waiting, given] = await Promise.all([
@@ -262,7 +283,6 @@ export async function listAwards(ctx: Ctx) {
         id: awards.id,
         type: awardCandidates.type,
         given: awards.given,
-        costKobo: awards.costKobo,
         givenOn: awards.givenOn,
         operatorName: operators.name,
       })
@@ -272,29 +292,10 @@ export async function listAwards(ctx: Ctx) {
       .orderBy(desc(awards.givenOn))
       .limit(200),
   ]);
+  const waived = await Promise.all(waiting.map((row) => waivedInPeriod(row.candidate)));
   return {
-    waiting: waiting.map((row) => ({ ...row, facts: row.candidate.evidence as AwardFacts })),
+    waiting: waiting.map((row, index) => ({ ...row, facts: row.candidate.evidence as AwardFacts, waived: waived[index]! })),
     given,
     canApprove: can(ctx.actor.role, "award.approve"),
   };
-}
-
-/** The operator comes only from the login session. */
-export async function getMyAwardProgress(ctx: Ctx) {
-  requirePermission(ctx, "portal.viewOwn");
-  const operatorId = ctx.actor.operatorId;
-  if (!operatorId) throw new DomainError("This login is not linked to an operator.");
-  const today = businessDate(ctx.clock());
-  const facts = await awardFacts(db, operatorId, addDays(today, 1), today);
-  const won = await db
-    .select({ type: awardCandidates.type, periodTo: awardCandidates.periodTo })
-    .from(awardCandidates)
-    .where(and(eq(awardCandidates.operatorId, operatorId), eq(awardCandidates.status, "approved")));
-  return AWARD_TYPES.map((type) => {
-    const blockers = awardBlockers(type, facts);
-    if (won.some((row) => row.type === type && row.periodTo >= facts.periodFrom)) {
-      blockers.push("You won this recently. The next 6 months are counting.");
-    }
-    return { type, blockers };
-  });
 }

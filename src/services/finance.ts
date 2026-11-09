@@ -1,13 +1,13 @@
-import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
+  cashCloseChecks,
   cashCloses,
   cashMovements,
   dismissals,
   nonCollectionDays,
   operators,
-  smsOutbox,
   users,
   violations,
 } from "@/db/schema";
@@ -18,7 +18,7 @@ import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { awardsToDecide } from "./awards";
-import { expectedCash, givenOutOn } from "./cash-book";
+import { cashAlerts, cashPosition, givenOutOn } from "./cash-book";
 import { advanceCounts } from "./expenses";
 import { openCharges, unallocatedPayments } from "./ledger";
 import { lastJobDate } from "./daily-job";
@@ -152,21 +152,82 @@ export async function listArrears(ctx: Ctx) {
 
 export async function cashDay(ctx: Ctx, date: string) {
   requirePermission(ctx, "finance.view");
-  const [custodians, closes] = await Promise.all([
+  const [custodians, closes, checks] = await Promise.all([
     db
       .select({ id: users.id, name: users.name })
       .from(users)
       .where(sql`${users.role} IN ('manager', 'assistant_manager') AND ${users.status} = 'active'`)
       .orderBy(asc(users.name)),
     db.select().from(cashCloses).where(eq(cashCloses.businessDate, date)),
+    db
+      .select({ check: cashCloseChecks, closeDate: cashCloses.businessDate })
+      .from(cashCloseChecks)
+      .innerJoin(cashCloses, eq(cashCloses.id, cashCloseChecks.closeId))
+      .where(eq(cashCloses.businessDate, date)),
   ]);
   return Promise.all(
-    custodians.map(async (person) => ({
-      ...person,
-      expectedKobo: await expectedCash(db, person.id, date),
-      close: closes.find((c) => c.custodianId === person.id) ?? null,
-    })),
+    custodians.map(async (person) => {
+      const { openingKobo, movedKobo } = await cashPosition(db, person.id, date);
+      const close = closes.find((c) => c.custodianId === person.id) ?? null;
+      return {
+        ...person,
+        openingKobo,
+        movedKobo,
+        expectedKobo: openingKobo + movedKobo,
+        close,
+        check: close ? (checks.find((row) => row.check.closeId === close.id)?.check ?? null) : null,
+      };
+    }),
   );
+}
+
+/** Counts still waiting for a second person, oldest first. */
+export async function uncheckedCloses(ctx: Ctx) {
+  requirePermission(ctx, "finance.view");
+  const rows = await db.execute(sql`
+    SELECT c.id, c.business_date::text AS date, u.name
+    FROM cash_closes c JOIN users u ON u.id = c.custodian_id
+    WHERE NOT EXISTS (SELECT 1 FROM cash_close_checks k WHERE k.close_id = c.id)
+    ORDER BY c.business_date LIMIT 60
+  `);
+  return rows as unknown as { id: string; date: string; name: string }[];
+}
+
+const checkSchema = z.object({ recounted: nairaField("Cash recounted"), note: optionalText() });
+
+/** The person who counted cannot also check. A different recount becomes the amount carried forward. */
+export async function checkCashClose(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "cash.close");
+  const id = parseInput(idField("cash count"), rawId);
+  const input = parseInput(checkSchema, raw);
+  await db.transaction(async (tx) => {
+    const [close] = await tx.select().from(cashCloses).where(eq(cashCloses.id, id));
+    if (!close) throw new DomainError("Cash count not found.");
+    if (close.closedBy === ctx.actor.userId) throw new DomainError("A different person must check this count.");
+    if (input.recounted !== close.countedKobo && !input.note) {
+      throw fieldError("note", "Explain why the recount is different");
+    }
+    const [row] = await tx
+      .insert(cashCloseChecks)
+      .values({
+        closeId: id,
+        checkedBy: ctx.actor.userId,
+        recountedKobo: input.recounted,
+        note: input.note ?? null,
+        checkedAt: ctx.clock(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: cashCloseChecks.closeId });
+    if (!row) throw new DomainError("This count has already been checked.");
+    await auditFrom(ctx, tx, {
+      action: "cash.check",
+      entityType: "cash_close",
+      entityId: id,
+      before: { countedKobo: close.countedKobo },
+      after: { recountedKobo: input.recounted },
+      reason: input.note,
+    });
+  });
 }
 
 const closeSchema = z.object({
@@ -187,7 +248,14 @@ export async function closeCash(ctx: Ctx, raw: unknown) {
   }
   try {
     await db.transaction(async (tx) => {
-      const expectedKobo = await expectedCash(tx, input.custodianId, input.businessDate);
+      const [later] = await tx
+        .select({ id: cashCloses.id })
+        .from(cashCloses)
+        .where(and(eq(cashCloses.custodianId, input.custodianId), gt(cashCloses.businessDate, input.businessDate)))
+        .limit(1);
+      if (later) throw new DomainError("A later day is already closed, so this day is covered by that count.");
+      const { openingKobo, movedKobo } = await cashPosition(tx, input.custodianId, input.businessDate);
+      const expectedKobo = openingKobo + movedKobo;
       if (input.counted !== expectedKobo && !input.explanation) {
         throw fieldError("explanation", "Explain why the cash does not match");
       }
@@ -266,13 +334,13 @@ export async function removeNonCollectionDay(ctx: Ctx, date: string) {
 export async function financeOverview(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
-  const [collections, arrears, toConfirm, alerts, lastRun, pendingSms, advances, awardsWaiting, givenOut] = await Promise.all([
+  const [collections, arrears, toConfirm, alerts, lastRun, trail, advances, awardsWaiting, givenOut] = await Promise.all([
     collectionsFor(ctx, today),
     listArrears(ctx),
     db.select({ value: count() }).from(violations).where(eq(violations.status, "proposed")),
     db.select({ value: count() }).from(dismissals).where(eq(dismissals.status, "flagged")),
     lastJobDate(),
-    db.select({ value: count() }).from(smsOutbox).where(eq(smsOutbox.status, "pending")),
+    cashAlerts(db, today),
     advanceCounts(),
     awardsToDecide(),
     givenOutOn(db, today),
@@ -285,7 +353,7 @@ export async function financeOverview(ctx: Ctx) {
     canCollect: can(ctx.actor.role, "payment.record"),
     toConfirm: toConfirm[0]?.value ?? 0,
     sackingAlerts: alerts[0]?.value ?? 0,
-    pendingSms: pendingSms[0]?.value ?? 0,
+    ...trail,
     advances,
     awardsWaiting,
     jobIsCurrent: lastRun === today,

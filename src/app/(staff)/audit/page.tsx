@@ -8,6 +8,14 @@ import { listAudit } from "@/services/audit";
 export const metadata: Metadata = { title: "Audit log" };
 
 const ACTIONS: Record<string, string> = {
+  "cash.check": "Checked a cash count",
+  "money.transfer": "Moved money",
+  "money.accept": "Accepted a cash handover",
+  "money.reject": "Refused a cash handover",
+  "money.void": "Reversed a money move",
+  "bank.confirm": "Confirmed a payment against the bank",
+  "bank.opening": "Set the opening bank balance",
+  "bank.reconcile": "Reconciled the bank",
   "award.propose": "Proposed an award",
   "award.approve": "Approved an award",
   "award.reject": "Rejected an award",

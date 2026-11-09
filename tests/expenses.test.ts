@@ -23,7 +23,7 @@ import {
 import { financeOverview, getStatement } from "@/services/finance";
 import { cancelLoan, getLoan, grantLoan, listLoans } from "@/services/loans";
 import { recordPayment, reversePayment } from "@/services/payments";
-import { makeOperator, makeTricycle, makeUser } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, nextReference } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
 const on = (ctx: Ctx, date: string, time?: string): Ctx => ({ ...ctx, clock: () => wat(date, time) });
@@ -42,7 +42,7 @@ beforeAll(async () => {
 
 const DAY = "2027-02-10";
 const pay = (ctx: Ctx, operatorId: string, amount: string, extra: Record<string, unknown> = {}) =>
-  recordPayment(ctx, { operatorId, amount, method: "transfer", clientId: randomUUID(), ...extra });
+  recordPayment(ctx, { operatorId, amount, method: "transfer", reference: nextReference(), clientId: randomUUID(), ...extra });
 /** Puts cash in the Manager's hands on the day. */
 async function cashIn(ctx: Ctx, amount: string) {
   const operator = await makeOperator(manager);
@@ -290,11 +290,11 @@ describe("the cash book, for a test month", () => {
 
     // In: ₦30,000 cash, ₦20,000 transfer, ₦5,000 POS.
     await pay(at(manager, "02"), a.id, "30,000", { method: "cash" });
-    await pay(at(assistant, "03"), b.id, "20,000", { method: "transfer" });
-    await pay(at(assistant, "04"), b.id, "5,000", { method: "pos" });
+    await pay(at(assistant, "03"), b.id, "20,000", { method: "transfer", reference: nextReference() });
+    await pay(at(assistant, "04"), b.id, "5,000", { method: "pos", reference: nextReference() });
     // A cash payment and a transfer later reversed: both directions must show.
     const wrongCash = (await pay(at(manager, "05"), a.id, "2,000", { method: "cash" }))!;
-    const wrongBank = (await pay(at(assistant, "05"), b.id, "3,000", { method: "transfer" }))!;
+    const wrongBank = (await pay(at(assistant, "05"), b.id, "3,000", { method: "transfer", reference: nextReference() }))!;
     await reversePayment(at(manager, "06"), wrongCash.id, { reason: "Duplicate" });
     await reversePayment(at(manager, "06"), wrongBank.id, { reason: "Duplicate" });
 
@@ -311,7 +311,7 @@ describe("the cash book, for a test month", () => {
 
     // Loan: ₦15,000 from the bank, ₦4,000 repaid by transfer as part of a payment.
     await grantLoan(at(manager, "15"), { operatorId: b.id, amount: "15,000", source: "bank" });
-    await pay(at(assistant, "16"), b.id, "4,000", { method: "transfer", loanAmount: "4,000" });
+    await pay(at(assistant, "16"), b.id, "4,000", { method: "transfer", reference: nextReference(), loanAmount: "4,000" });
 
     const book = await cashBook(manager, { from: first, to: last });
     expect(book.cash).toEqual({

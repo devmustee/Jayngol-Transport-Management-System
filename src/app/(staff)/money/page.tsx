@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Award,
   Banknote,
   BarChart3,
@@ -13,7 +14,7 @@ import {
   CreditCard,
   FileSpreadsheet,
   HandCoins,
-  MessageSquare,
+  Landmark,
   Plus,
   Receipt,
   Scale,
@@ -40,6 +41,12 @@ const FINANCE_SECTIONS = [
         icon: Receipt,
       },
       {
+        href: "/deposits",
+        label: "Operator Deposits",
+        desc: "Money held for operators, kept apart from collections",
+        icon: Wallet,
+      },
+      {
         href: "/cash",
         label: "Daily Cash Close",
         desc: "Count and balance physical cash drawer",
@@ -50,6 +57,18 @@ const FINANCE_SECTIONS = [
         label: "Cash Book Ledger",
         desc: "Chronological cash inflows & outflows",
         icon: BookOpen,
+      },
+      {
+        href: "/transfers",
+        label: "Move Money",
+        desc: "Banking cash, staff handovers and cash to the Owner",
+        icon: ArrowLeftRight,
+      },
+      {
+        href: "/bank",
+        label: "Bank Check",
+        desc: "Confirm transfers and reconcile each month",
+        icon: Landmark,
       },
       {
         href: "/expenses",
@@ -134,7 +153,7 @@ export default async function MoneyPage() {
 
       <MoneySummary money={money} />
 
-      {/* Collection Methods & SMS Alert Bar */}
+      {/* Collection Methods */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-wider text-muted">
@@ -157,11 +176,13 @@ export default async function MoneyPage() {
           )}
         </div>
 
-        {money.pendingSms > 0 ? (
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-warning">
-            <MessageSquare size={14} />
-            <span>{money.pendingSms} receipt SMS queued for provider</span>
-          </div>
+        {money.bankToCheck > 0 ? (
+          <Link href="/bank" className="flex items-center gap-1.5 text-xs font-semibold text-warning">
+            <Landmark size={14} />
+            <span>
+              {money.bankToCheck} transfer and POS payment{money.bankToCheck === 1 ? "" : "s"} to confirm against the bank
+            </span>
+          </Link>
         ) : null}
       </div>
 

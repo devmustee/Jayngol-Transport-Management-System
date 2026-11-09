@@ -47,7 +47,8 @@ export async function grantLoan(ctx: Ctx, raw: unknown) {
           operatorId: operator.id,
           chargeId: charge!.id,
           principalKobo: input.amount,
-          custodianId: input.source,
+          custodianId: input.source.custodianId,
+          account: input.source.account,
           note: input.note ?? null,
           disbursedOn: today,
           approvedBy: ctx.actor.userId,
@@ -55,7 +56,7 @@ export async function grantLoan(ctx: Ctx, raw: unknown) {
         })
         .returning({ id: loans.id });
       await takeMoneyOut(tx, {
-        custodianId: input.source,
+        ...input.source,
         amountKobo: input.amount,
         sourceType: "loan",
         sourceId: loan!.id,
@@ -92,6 +93,7 @@ export async function cancelLoan(ctx: Ctx, rawId: unknown, raw: unknown) {
     await voidCharge(tx, loan!.row.chargeId, { userId: ctx.actor.userId, at: now }, reason);
     await recordMovement(tx, {
       custodianId: loan!.row.custodianId,
+      account: loan!.row.account,
       amountKobo: loan!.row.principalKobo,
       sourceType: "loan_cancel",
       sourceId: id,

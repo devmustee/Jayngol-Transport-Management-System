@@ -17,6 +17,8 @@ export const fixedClock: Clock = () => NOW;
 let serial = Date.now() % 50_000_000;
 export const nextSerial = () => ++serial;
 
+export const nextReference = () => `TRF${nextSerial()}`;
+
 /** A valid, unique Nigerian mobile number. */
 export const uniquePhone = () => `080${10_000_000 + nextSerial()}`;
 
@@ -37,11 +39,19 @@ export async function makeUser(role: Exclude<Role, "operator">, clock: Clock = f
   return { user: user!, ctx };
 }
 
+function letters(value: number, count: number) {
+  let out = "";
+  for (let i = 0, rest = value; i < count; i++, rest = Math.floor(rest / 26)) {
+    out = String.fromCharCode(65 + (rest % 26)) + out;
+  }
+  return out;
+}
+
 export function tricycleInput(overrides: Record<string, unknown> = {}) {
   const n = nextSerial();
   return {
-    registrationNumber: `abc ${n}xy`,
-    codeNumber: `JT-${n}`,
+    registrationNumber: `${letters(Math.floor(n / 676_000), 3)}-${String(n % 1000).padStart(3, "0")}${letters(Math.floor(n / 1000), 2)}`,
+    codeNumber: `${letters(Math.floor(n / 10_000), 3)},${String(n % 10_000).padStart(4, "0")}`,
     purchasedOn: "2026-01-15",
     purchaseCost: "2,500,000",
     serviceInterval: "fortnightly",

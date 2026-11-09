@@ -54,14 +54,15 @@ export async function createAdvance(ctx: Ctx, raw: unknown) {
       .values({
         purpose: input.purpose,
         amountKobo: input.amount,
-        custodianId: input.source,
+        custodianId: input.source.custodianId,
+        account: input.source.account,
         collectedOn: businessDate(now),
         collectedBy: ctx.actor.userId,
         createdAt: now,
       })
       .returning({ id: expenseAdvances.id });
     await takeMoneyOut(tx, {
-      custodianId: input.source,
+      ...input.source,
       amountKobo: input.amount,
       sourceType: "expense_advance",
       sourceId: advance!.id,
@@ -125,6 +126,7 @@ export async function addExpenseLine(ctx: Ctx, rawId: unknown, raw: unknown) {
     if (input.kind === "change") {
       await recordMovement(tx, {
         custodianId: advance.custodianId,
+        account: advance.account,
         amountKobo: input.amount,
         sourceType: "expense_change",
         sourceId: line!.id,
@@ -159,6 +161,7 @@ export async function voidExpenseLine(ctx: Ctx, rawId: unknown, raw: unknown) {
     if (line.kind === "change") {
       await takeMoneyOut(tx, {
         custodianId: advance.custodianId,
+        account: advance.account,
         amountKobo: line.amountKobo,
         sourceType: "expense_change_void",
         sourceId: id,
@@ -242,6 +245,7 @@ export async function cancelAdvance(ctx: Ctx, rawId: unknown, raw: unknown) {
     await tx.update(expenseAdvances).set({ status: "cancelled", cancelReason: reason }).where(eq(expenseAdvances.id, id));
     await recordMovement(tx, {
       custodianId: advance.custodianId,
+      account: advance.account,
       amountKobo: advance.amountKobo,
       sourceType: "expense_advance_cancel",
       sourceId: id,
@@ -310,6 +314,7 @@ export async function getAdvance(ctx: Ctx, id: string) {
     collectedByName: nameOf(advance.collectedBy),
     countersignedByName: nameOf(advance.countersignedBy),
     sourceName: nameOf(advance.custodianId),
+    sourceAccount: advance.account,
     canRecord: can(ctx.actor.role, "expense.record"),
     canCountersign: can(ctx.actor.role, "expense.countersign"),
   };

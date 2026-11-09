@@ -24,8 +24,8 @@ export function TricycleForm({
   return (
     <ActionForm action={action}>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field name="registrationNumber" label="Registration number" defaultValue={values?.registrationNumber} autoCapitalize="characters" />
-        <Field name="codeNumber" label="Code number" defaultValue={values?.codeNumber} autoCapitalize="characters" />
+        <Field name="registrationNumber" label="Registration number" defaultValue={values?.registrationNumber} autoCapitalize="characters" hint="Like WKR-275VC" />
+        <Field name="codeNumber" label="Code number" defaultValue={values?.codeNumber} autoCapitalize="characters" hint="Like GRE,4055" />
         <Field name="purchasedOn" label="Date purchased" type="date" max={today} defaultValue={values?.purchasedOn} />
         <Field
           name="purchaseCost"

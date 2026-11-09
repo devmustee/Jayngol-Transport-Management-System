@@ -38,6 +38,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   }
   if (can(actor.role, "finance.view")) {
     items.push({ href: "/reports", label: "Reports", icon: "reports", primary: false });
+  }
+  if (can(actor.role, "awards.track")) {
     items.push({ href: "/awards", label: "Awards", icon: "awards", primary: false });
   }
   if (can(actor.role, "user.manage")) {

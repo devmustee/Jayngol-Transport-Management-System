@@ -19,6 +19,23 @@ export const optionalText = (max = 500) =>
 export const identifier = (label: string) =>
   requiredText(label, 40).transform((v) => v.toUpperCase().replace(/\s+/g, " "));
 
+/** Saved as GRE,4055. A space or lower case is corrected rather than refused. */
+export const tricycleCodeField = z
+  .string("Enter the code number, like GRE,4055")
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}[\s,.-]*\d{4}$/, "Enter the code number like GRE,4055")
+  .transform((value) => `${value.slice(0, 3)},${value.slice(-4)}`);
+
+/** Saved as WKR-275VC. Spaces, missing dashes and lower case are corrected rather than refused. */
+export const tricycleRegistrationField = z
+  .string("Enter the registration number, like WKR-275VC")
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z]{3}[\s-]*\d{3}[\s-]*[A-Z]{2}$/, "Enter the registration number like WKR-275VC")
+  .transform((value) => value.replace(/[\s-]/g, ""))
+  .transform((value) => `${value.slice(0, 3)}-${value.slice(3)}`);
+
 export const optionalIdentifier = () =>
   z.preprocess(
     blankToUndefined,

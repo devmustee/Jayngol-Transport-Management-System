@@ -24,7 +24,9 @@ import {
   createAdvance,
   submitAdvance,
 } from "../services/expenses";
-import { cashDay, closeCash } from "../services/finance";
+import { cashDay, checkCashClose, closeCash } from "../services/finance";
+import { setOpeningBalance } from "../services/bank";
+import { createTransfer } from "../services/transfers";
 import { recordInspection } from "../services/inspections";
 import {
   closeMeeting,
@@ -42,6 +44,7 @@ import { confirmViolation, raiseLateWork, rejectViolation } from "../services/vi
 import { checkInService, completeWorkOrder, reportFault } from "../services/workshop";
 
 const SAMPLE_DATABASE = "jayngol_sample";
+const TELLER_PHOTO = "data:image/jpeg;base64,/9j/4AAQSkZJRg==";
 const OPERATOR_PIN = "482615";
 const DAYS = 32;
 const PHOTO =
@@ -51,18 +54,18 @@ type Habit = "steady" | "sometimes" | "part" | "late" | "stops";
 type Bike = { code: string; reg: string; rate: number; interval: "fortnightly" | "monthly"; firstService: number; name: string; habit: Habit };
 
 const FLEET: Bike[] = [
-  { code: "JT-001", reg: "GME 101 TX", rate: 12_000, interval: "fortnightly", firstService: 2, name: "Musa Abdullahi", habit: "steady" },
-  { code: "JT-002", reg: "GME 102 TX", rate: 10_000, interval: "monthly", firstService: 5, name: "Ibrahim Sani", habit: "steady" },
-  { code: "JT-003", reg: "GME 103 TX", rate: 12_000, interval: "fortnightly", firstService: 3, name: "Sadiq Bello", habit: "sometimes" },
-  { code: "JT-004", reg: "GME 104 TX", rate: 15_000, interval: "fortnightly", firstService: 4, name: "Yakubu Danjuma", habit: "steady" },
-  { code: "JT-005", reg: "GME 105 TX", rate: 12_000, interval: "monthly", firstService: 9, name: "Aliyu Umar", habit: "steady" },
-  { code: "JT-006", reg: "GME 106 TX", rate: 10_000, interval: "fortnightly", firstService: 6, name: "Haruna Isa", habit: "part" },
-  { code: "JT-007", reg: "GME 107 TX", rate: 12_000, interval: "fortnightly", firstService: 7, name: "Nasiru Lawal", habit: "sometimes" },
-  { code: "JT-008", reg: "GME 108 TX", rate: 15_000, interval: "monthly", firstService: 11, name: "Tijjani Adamu", habit: "steady" },
-  { code: "JT-009", reg: "GME 109 TX", rate: 10_000, interval: "fortnightly", firstService: 8, name: "Sani Garba", habit: "late" },
-  { code: "JT-010", reg: "GME 110 TX", rate: 12_000, interval: "fortnightly", firstService: 10, name: "Bashir Ahmed", habit: "steady" },
-  { code: "JT-011", reg: "GME 111 TX", rate: 15_000, interval: "monthly", firstService: 13, name: "Kabiru Yahaya", habit: "sometimes" },
-  { code: "JT-012", reg: "GME 112 TX", rate: 12_000, interval: "fortnightly", firstService: 12, name: "Abubakar Tanko", habit: "stops" },
+  { code: "GRE,4001", reg: "WKR-101VC", rate: 12_000, interval: "fortnightly", firstService: 2, name: "Musa Abdullahi", habit: "steady" },
+  { code: "GRE,4002", reg: "WKR-102VC", rate: 10_000, interval: "monthly", firstService: 5, name: "Ibrahim Sani", habit: "steady" },
+  { code: "GRE,4003", reg: "WKR-103VC", rate: 12_000, interval: "fortnightly", firstService: 3, name: "Sadiq Bello", habit: "sometimes" },
+  { code: "GRE,4004", reg: "WKR-104VC", rate: 15_000, interval: "fortnightly", firstService: 4, name: "Yakubu Danjuma", habit: "steady" },
+  { code: "GRE,4005", reg: "WKR-105VC", rate: 12_000, interval: "monthly", firstService: 9, name: "Aliyu Umar", habit: "steady" },
+  { code: "GRE,4006", reg: "WKR-106VC", rate: 10_000, interval: "fortnightly", firstService: 6, name: "Haruna Isa", habit: "part" },
+  { code: "GRE,4007", reg: "WKR-107VC", rate: 12_000, interval: "fortnightly", firstService: 7, name: "Nasiru Lawal", habit: "sometimes" },
+  { code: "GRE,4008", reg: "WKR-108VC", rate: 15_000, interval: "monthly", firstService: 11, name: "Tijjani Adamu", habit: "steady" },
+  { code: "GRE,4009", reg: "WKR-109VC", rate: 10_000, interval: "fortnightly", firstService: 8, name: "Sani Garba", habit: "late" },
+  { code: "GRE,4010", reg: "WKR-110VC", rate: 12_000, interval: "fortnightly", firstService: 10, name: "Bashir Ahmed", habit: "steady" },
+  { code: "GRE,4011", reg: "WKR-111VC", rate: 15_000, interval: "monthly", firstService: 13, name: "Kabiru Yahaya", habit: "sometimes" },
+  { code: "GRE,4012", reg: "WKR-112VC", rate: 12_000, interval: "fortnightly", firstService: 12, name: "Abubakar Tanko", habit: "stops" },
 ];
 
 type Part = "engine" | "gear" | "tyre";
@@ -194,6 +197,7 @@ async function main() {
     return ctxOf(row!, role);
   };
   await createStaff(manager, { name: "Sample Owner", phone: "08000001900", role: "owner", password });
+  await setOpeningBalance(manager, { amount: "500,000", date: start });
   const assistant = await staff("Amina Yusuf", "08000001901", "assistant_manager");
   const supervisors = [
     await staff("Bello Usman", "08000001902", "supervisor"),
@@ -245,8 +249,8 @@ async function main() {
     bikes.push({ ...bike, tricycleId: tricycle!.id, operatorId: operator!.id, cycleStart: dayOf(bike.firstService) });
   }
   await createTricycle(manager, {
-    registrationNumber: "GME 113 TX",
-    codeNumber: "JT-013",
+    registrationNumber: "WKR-113VC",
+    codeNumber: "GRE,4013",
     purchasedOn: addDays(start, -3),
     purchaseCost: "2,750,000",
     serviceInterval: "fortnightly",
@@ -395,6 +399,7 @@ async function main() {
         clientId: randomUUID(),
         amount: naira(amount + penalty),
         method,
+        reference: `TRF${randomUUID().slice(0, 8).toUpperCase()}`,
         tricyclePresent: chance(0.015) ? "no" : "yes",
         penaltyAmount: penalty ? naira(penalty) : undefined,
       });
@@ -412,7 +417,7 @@ async function main() {
       if (index === loan.day) await grantLoan(manager, { operatorId, amount: loan.amount, source: "bank" });
       for (const [day, amount] of loan.repay) {
         if (index === day) {
-          await recordPayment(assistant, { operatorId, clientId: randomUUID(), amount, method: "transfer", loanAmount: amount });
+          await recordPayment(assistant, { operatorId, clientId: randomUUID(), amount, method: "transfer", reference: `TRF${randomUUID().slice(0, 8).toUpperCase()}`, loanAmount: amount });
         }
       }
     }
@@ -450,6 +455,23 @@ async function main() {
           counted: naira(person.expectedKobo - (short ? 50_000 : 0)),
           explanation: short ? "₦500 short, gave wrong change to an operator" : undefined,
         });
+      }
+
+      // The other office person recounts, and cash goes to the bank every third day.
+      for (const person of await cashDay(manager, date)) {
+        if (!person.close) continue;
+        const held = person.id === assistant.actor.userId ? assistant : manager;
+        const other = person.id === assistant.actor.userId ? manager : assistant;
+        await checkCashClose(other, person.close.id, { recounted: naira(person.close.countedKobo) });
+        if (index % 3 === 2 && person.close.countedKobo > 0) {
+          await createTransfer(held, {
+            from: person.id,
+            to: "bank",
+            amount: naira(person.close.countedKobo),
+            reference: `TELLER-${date}`,
+            photo: TELLER_PHOTO,
+          });
+        }
       }
     }
     process.stdout.write(`${date} done\n`);

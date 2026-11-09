@@ -6,7 +6,8 @@ import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import {
   dateField,
-  identifier,
+  tricycleCodeField,
+  tricycleRegistrationField,
   idField,
   optionalIdentifier,
   optionalNairaField,
@@ -17,8 +18,8 @@ import { likePattern, requirePermission, type Ctx } from "./context";
 import { currentRate, ratesFor } from "./assignments";
 
 const tricycleSchema = z.object({
-  registrationNumber: identifier("Registration number"),
-  codeNumber: identifier("Code number"),
+  registrationNumber: tricycleRegistrationField,
+  codeNumber: tricycleCodeField,
   chassisNumber: optionalIdentifier(),
   engineNumber: optionalIdentifier(),
   purchasedOn: dateField("Date purchased"),

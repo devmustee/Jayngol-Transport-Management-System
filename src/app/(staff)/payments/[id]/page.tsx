@@ -9,7 +9,7 @@ import { CHARGE_LABELS, formatDate, formatDateTime, METHOD_LABELS } from "@/lib/
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
-import { getPayment } from "@/services/payments";
+import { getPayment, paymentReferenceOf } from "@/services/payments";
 
 export const metadata: Metadata = { title: "Receipt" };
 
@@ -20,6 +20,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
   if (!data) notFound();
   const { payment, operatorName, receivedByName, lines, creditKobo, reversalReason } = data;
 
+  const reference = await paymentReferenceOf(payment.id);
   return (
     <>
       <PageHeader
@@ -35,6 +36,7 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
               ["Operator", <Link key="o" href={`/operators/${payment.operatorId}/statement`} className="text-gold-deep underline">{operatorName}</Link>],
               ["Received", formatDateTime(payment.receivedAt)],
               ["Method", METHOD_LABELS[payment.method]],
+              ...(reference ? ([["Reference", reference.reference]] as [string, string][]) : []),
               ["Received by", receivedByName],
               ...(payment.tricyclePresent === null
                 ? []

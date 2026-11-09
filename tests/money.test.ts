@@ -8,7 +8,7 @@ import {
   jobRuns,
   operators,
   payments,
-  smsOutbox,
+  operatorNotices,
   tricycles,
   violations,
 } from "@/db/schema";
@@ -20,10 +20,9 @@ import { runDailyJob } from "@/services/daily-job";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
 import { addNonCollectionDay, cashDay, closeCash, getStatement } from "@/services/finance";
 import { recordPayment, reversePayment } from "@/services/payments";
-import { deliverSms } from "@/services/sms";
 import { listInStockTricycles } from "@/services/tricycles";
 import { confirmViolation, rejectViolation, waiveViolation } from "@/services/violations";
-import { makeOperator, makeTricycle, makeUser } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, nextReference } from "./helpers";
 
 const at = (date: string, time = "00:05") => new Date(`${date}T${time}:00+01:00`);
 const clockAt = (date: string, time?: string) => () => at(date, time);
@@ -68,7 +67,7 @@ const pay = (ctx: Ctx, operatorId: string, amount: string, extra: Record<string,
   recordPayment(ctx, {
     operatorId,
     amount,
-    method: "transfer",
+    method: "transfer", reference: nextReference(),
     clientId: randomUUID(),
     ...extra,
   });
@@ -219,7 +218,7 @@ describe("payments", () => {
     await baseline("2026-11-08");
     const { operatorId } = await operatorFrom("2026-11-09");
     const clientId = randomUUID();
-    const input = { operatorId, amount: "12000", method: "transfer", clientId };
+    const input = { operatorId, amount: "12000", method: "transfer", reference: nextReference(), clientId };
     const [a, b] = await Promise.all([
       recordPayment(on(manager, "2026-11-09"), input),
       recordPayment(on(manager, "2026-11-09"), input),
@@ -270,7 +269,7 @@ describe("payments", () => {
   it("does not ask about a tricycle on a remote transfer or for a sacked operator", async () => {
     await baseline("2026-11-08");
     const { operatorId, assignmentId } = await operatorFrom("2026-11-09");
-    await pay(on(manager, "2026-11-09"), operatorId, "1000", { method: "transfer" });
+    await pay(on(manager, "2026-11-09"), operatorId, "1000", { method: "transfer", reference: nextReference() });
     await returnTricycle(on(manager, "2026-11-09"), assignmentId, { returnedOn: "2026-11-09", reason: "other" });
     await expect(
       pay(on(manager, "2026-11-09"), operatorId, "1000", { method: "cash" }),
@@ -280,7 +279,7 @@ describe("payments", () => {
   it("lets a rejected R8 charge nothing", async () => {
     await baseline("2026-11-08");
     const { operatorId } = await operatorFrom("2026-11-09");
-    await pay(on(assistant, "2026-11-09"), operatorId, "1000", { method: "pos", tricyclePresent: "no" });
+    await pay(on(assistant, "2026-11-09"), operatorId, "1000", { method: "pos", reference: nextReference(), tricyclePresent: "no" });
     const [raised] = await db.select().from(violations).where(eq(violations.operatorId, operatorId));
     await rejectViolation(manager, raised!.id, { reason: "Entered in error" });
     expect((await getStatement(manager, operatorId)).penaltiesOwedKobo).toBe(0);
@@ -323,18 +322,13 @@ describe("payments", () => {
     expect((await getStatement(manager, operatorId)).unpaidDays).toBe(1);
   });
 
-  it("queues a receipt SMS and delivers through a provider", async () => {
+  it("posts the receipt to the operator's notices", async () => {
     await baseline("2026-11-08");
     const { operatorId } = await operatorFrom("2026-11-09");
     await pay(on(manager, "2026-11-09"), operatorId, "12000");
-    const [operator] = await db.select().from(operators).where(eq(operators.id, operatorId));
-    const queued = await db.select().from(smsOutbox).where(eq(smsOutbox.toPhone, operator!.phone));
-    expect(queued[0]).toMatchObject({ status: "pending", kind: "receipt" });
+    const queued = await db.select().from(operatorNotices).where(eq(operatorNotices.operatorId, operatorId));
+    expect(queued[0]).toMatchObject({ kind: "receipt", readAt: null });
     expect(queued[0]!.body).toContain("₦12,000");
-
-    const sent: string[] = [];
-    await deliverSms({ send: async (to) => void sent.push(to) }, clockAt("2026-11-09"), 10_000);
-    expect(sent).toContain(operator!.phone);
   });
 
   it("cannot be edited or deleted in the database", async () => {
@@ -437,7 +431,7 @@ describe("cash close", () => {
     const { operatorId } = await operatorFrom("2026-11-09");
     const ctx = on(custodian.ctx, "2026-11-09");
     await pay(ctx, operatorId, "12000", { method: "cash", tricyclePresent: "yes" });
-    await pay(ctx, operatorId, "5000", { method: "transfer" }); // not physical cash
+    await pay(ctx, operatorId, "5000", { method: "transfer", reference: nextReference() }); // not physical cash
 
     const form = { custodianId: custodian.user.id, businessDate: "2026-11-09" };
     await expect(closeCash(ctx, { ...form, counted: "11000" })).rejects.toMatchObject({
@@ -452,7 +446,7 @@ describe("cash close", () => {
     // Cash after closing counts towards the next day.
     await pay(on(custodian.ctx, "2026-11-09", "18:00"), operatorId, "1000", { method: "cash", tricyclePresent: "yes" });
     const next = await cashDay(ctx, "2026-11-10");
-    expect(next.find((d) => d.id === custodian.user.id)).toMatchObject({ expectedKobo: 100_000 });
+    expect(next.find((d) => d.id === custodian.user.id)).toMatchObject({ openingKobo: 1_200_000, movedKobo: 100_000 });
   });
 
   it("lets only the Manager close another person's cash", async () => {
@@ -500,7 +494,7 @@ describe("simulated month", () => {
               : p.naira;
         const isCash = random() < 0.6;
         await pay(on(custodian.ctx, date, "11:30"), p.operatorId, amount.toFixed(2), {
-          method: isCash ? "cash" : "transfer",
+          method: isCash ? "cash" : "transfer", reference: nextReference(),
           ...(isCash ? { tricyclePresent: "yes" } : {}),
         });
         p.paid += Math.round(amount * 100);

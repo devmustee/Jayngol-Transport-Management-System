@@ -11,10 +11,12 @@ import {
   Users,
   Wrench,
 } from "lucide-react";
+import { AwardRaceCard } from "@/components/award-tracker";
 import { MoneySummary } from "@/components/money-summary";
 import { LinkButton, PageHeader, StatTile } from "@/components/ui";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { getAwardRace } from "@/services/award-tracker";
 import { financeOverview } from "@/services/finance";
 import { inspectionToday } from "@/services/inspections";
 import { lowStock } from "@/services/store";
@@ -25,11 +27,12 @@ export const metadata: Metadata = { title: "Dashboard" };
 
 export default async function DashboardPage() {
   const ctx = await requirePage("dashboard.view");
-  const [counts, workshop, low, inspections] = await Promise.all([
+  const [counts, workshop, low, inspections, race] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
     can(ctx.actor.role, "inspection.record") ? inspectionToday(ctx) : null,
+    getAwardRace(ctx),
   ]);
   const money = can(ctx.actor.role, "finance.view") ? await financeOverview(ctx) : null;
 
@@ -152,6 +155,10 @@ export default async function DashboardPage() {
           tone="plain"
           subtext="Awaiting assignment"
         />
+      </div>
+
+      <div className="mt-6">
+        <AwardRaceCard operators={race.operators} />
       </div>
     </>
   );

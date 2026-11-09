@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { assignments, charges, inspections, operators, smsOutbox, violations } from "@/db/schema";
+import { assignments, charges, inspections, operatorNotices, operators, violations } from "@/db/schema";
 import { DomainError, ForbiddenError } from "@/lib/errors";
 import { issueTricycle, returnTricycle } from "@/services/assignments";
 import type { Ctx } from "@/services/context";
@@ -407,8 +407,7 @@ describe("meetings, R5 and R6", () => {
       scheduleMeeting(on(manager, TODAY), { title: "X", scheduledFor: `${TODAY}T08:00` }),
     ).rejects.toBeInstanceOf(DomainError);
     const meeting = await meetingToday();
-    const [{ phone } = { phone: "" }] = await db.select({ phone: operators.phone }).from(operators).where(eq(operators.id, operator.id));
-    const sent = await db.select().from(smsOutbox).where(and(eq(smsOutbox.toPhone, phone), eq(smsOutbox.kind, "meeting_notice")));
+    const sent = await db.select().from(operatorNotices).where(and(eq(operatorNotices.operatorId, operator.id), eq(operatorNotices.kind, "meeting_notice")));
     expect(sent.length).toBeGreaterThan(0);
     await expect(cancelMeeting(on(assistant, TODAY), meeting.id, { reason: "x" })).rejects.toBeInstanceOf(ForbiddenError);
     await cancelMeeting(on(manager, TODAY), meeting.id, { reason: "Rain" });
