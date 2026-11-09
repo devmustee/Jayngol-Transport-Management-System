@@ -1,0 +1,46 @@
+{
+  "name": "jayngol-tms",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3100",
+    "build": "next build",
+    "start": "next start -p 3100",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "tsx --env-file=.env.local src/db/migrate.ts",
+    "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
+    "db:sample": "tsx --env-file=.env.local src/db/sample-data.ts",
+    "job:daily": "tsx --env-file=.env.local src/jobs/daily-cli.ts",
+    "audit:prepare": "DATABASE_URL=postgres://localhost:5432/jayngol_audit tsx --env-file=.env.local e2e/prepare.ts",
+    "audit:build": "cp next-env.d.ts next-env.d.ts.keep; NEXT_DIST_DIR=.next-audit next build; status=$?; mv next-env.d.ts.keep next-env.d.ts; exit $status",
+    "audit:serve": "NEXT_DIST_DIR=.next-audit DATABASE_URL=postgres://localhost:5432/jayngol_audit next start -p 3200",
+    "audit": "playwright test",
+    "audit:lighthouse": "tsx e2e/lighthouse.ts"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "drizzle-orm": "^0.45.4",
+    "lucide-react": "^1.70.0",
+    "next": "^16.4.5",
+    "postgres": "^3.4.9",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
+    "@playwright/test": "^1.65.0",
+    "@tailwindcss/postcss": "^4.3.5",
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "drizzle-kit": "^0.31.11",
+    "lighthouse": "^12.8.2",
+    "tailwindcss": "^4.3.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "vitest": "^5.1.0"
+  }
+}

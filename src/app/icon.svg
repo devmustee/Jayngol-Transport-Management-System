@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Jayngol Transport Services">
+  <defs>
+    <linearGradient id="gold" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F2CF6B"/>
+      <stop offset=".5" stop-color="#C9971C"/>
+      <stop offset="1" stop-color="#8A6410"/>
+    </linearGradient>
+  </defs>
+  <circle cx="256" cy="256" r="244" fill="url(#gold)"/>
+  <circle cx="256" cy="256" r="218" fill="#FFFBF0"/>
+  <g fill="url(#gold)">
+    <path d="M256 54 276 82H264V106L306 150 350 118 330 180H182L162 118 206 150 248 106V82H236Z"/>
+    <rect x="182" y="188" width="148" height="12" rx="2"/>
+    <g transform="translate(-8 16)">
+      <path d="M216 200H392V238H324V372L295 412 266 372V238H216Z"/>
+      <path d="M136 250H254V354A59 59 0 0 1 136 354V328H186V354A9 9 0 0 0 204 354V286H136Z"/>
+    </g>
+  </g>
+</svg>

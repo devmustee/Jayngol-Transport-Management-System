@@ -1,0 +1,2 @@
+CREATE TRIGGER awards_append_only BEFORE UPDATE OR DELETE ON awards
+  FOR EACH ROW EXECUTE FUNCTION forbid_change();
