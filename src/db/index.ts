@@ -10,8 +10,9 @@ const cache = globalThis as unknown as { __jayngolPg?: Client };
 
 // Production must use Supabase's Session pooler (port 5432): the dashboard hangs
 // on the Transaction pooler (6543). That pooler has a limited total of
-// connections shared by every server instance, so each one takes only 5.
-const client = cache.__jayngolPg ?? postgres(url, { prepare: false, max: 5 });
+// connections shared by every server instance, so each one takes only 3 and
+// gives them back after 10 idle seconds.
+const client = cache.__jayngolPg ?? postgres(url, { prepare: false, max: 3, idle_timeout: 10 });
 if (process.env.NODE_ENV !== "production") cache.__jayngolPg = client;
 
 export const db: PostgresJsDatabase<typeof schema> = drizzle(client, { schema });
