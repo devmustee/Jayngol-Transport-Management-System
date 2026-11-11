@@ -92,7 +92,7 @@ export function PaymentForm({
       ) : null}
       {canBackdate ? (
         <details className="rounded-lg border border-line p-3">
-          <summary className="font-semibold">Backdate this payment</summary>
+          <summary className="-m-3 flex min-h-11 items-center p-3 font-semibold">Backdate this payment</summary>
           <div className="mt-3 space-y-3">
             <Field name="backdateTo" label="Date money was received" type="date" max={today} />
             <TextareaField name="backdateReason" label="Reason" />

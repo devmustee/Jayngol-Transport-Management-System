@@ -14,9 +14,9 @@ export function PageHeader({
   action?: ReactNode;
 }) {
   return (
-    <header className="mb-6">
+    <header className="mb-5 sm:mb-6">
       {back ? (
-        <div className="mb-2">
+        <div className="mb-1 -ml-2.5">
           <Link
             href={back.href}
             className="group inline-flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-semibold text-gold-deep transition-all duration-150 hover:bg-gold-wash"
@@ -26,16 +26,16 @@ export function PageHeader({
           </Link>
         </div>
       ) : null}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold tracking-tight text-ink md:text-3xl break-words">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0 flex-[1_1_16rem]">
+          <h1 className="text-[1.6rem] leading-tight font-extrabold tracking-tight text-ink md:text-3xl">
             {title}
           </h1>
           {subtitle ? (
-            <div className="mt-1 text-sm font-medium text-muted md:text-base">{subtitle}</div>
+            <div className="mt-1 text-sm font-medium leading-snug text-muted md:text-base">{subtitle}</div>
           ) : null}
         </div>
-        {action ? <div className="flex items-center gap-2">{action}</div> : null}
+        {action ? <div className="flex flex-wrap items-center gap-2">{action}</div> : null}
       </div>
     </header>
   );
@@ -55,12 +55,12 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-line bg-card p-5 shadow-premium ${className}`}>
+    <section className={`rounded-2xl border border-line bg-card p-4 shadow-premium sm:p-5 ${className}`}>
       {title ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3">
-          <div>
-            <h2 className="text-lg font-bold tracking-tight text-ink">{title}</h2>
-            {subtitle ? <p className="text-xs text-muted mt-0.5">{subtitle}</p> : null}
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold leading-snug tracking-tight text-ink">{title}</h2>
+            {subtitle ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{subtitle}</p> : null}
           </div>
           {action}
         </div>
@@ -200,7 +200,7 @@ export function StatTile({
         {subtext ? <div className="mt-1 text-xs font-medium text-muted">{subtext}</div> : null}
       </div>
 
-      <div className="mt-3 flex items-center gap-1 text-xs font-bold text-gold-deep opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+      <div className="mt-3 hidden items-center gap-1 text-xs font-bold text-gold-deep opacity-0 transition-opacity duration-150 group-hover:opacity-100 md:flex">
         <span>View details</span>
         <span aria-hidden>→</span>
       </div>
@@ -213,8 +213,8 @@ export function Details({ rows }: { rows: [string, ReactNode][] }) {
     <dl className="divide-y divide-line/70 rounded-xl border border-line/60 bg-card-subtle/50 px-4">
       {rows.map(([label, value]) => (
         <div key={label} className="flex justify-between gap-4 py-3">
-          <dt className="text-sm font-medium text-muted">{label}</dt>
-          <dd className="text-right text-sm font-semibold text-ink break-words">{value ?? "—"}</dd>
+          <dt className="shrink-0 text-sm font-medium text-muted">{label}</dt>
+          <dd className="min-w-0 text-right text-sm font-semibold text-ink [overflow-wrap:anywhere]">{value ?? "—"}</dd>
         </div>
       ))}
     </dl>
@@ -229,7 +229,7 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line bg-card/60 p-8 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line bg-card/60 px-5 py-8 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold-wash text-gold-deep mb-3">
         <Search size={22} />
       </div>
@@ -243,13 +243,13 @@ export function Empty({
 export function Disclosure({ label, children }: { label: string; children: ReactNode }) {
   return (
     <details className="group rounded-2xl border border-line bg-card shadow-premium transition-colors">
-      <summary className="flex min-h-12 items-center justify-between px-5 py-3 font-bold text-ink hover:bg-gold-wash/50 rounded-2xl transition-colors">
-        <span>{label}</span>
-        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-line/50 text-gold-deep transition-transform duration-200 group-open:rotate-180">
-          <ChevronDown size={18} />
+      <summary className="flex min-h-12 items-center justify-between gap-3 rounded-2xl px-4 py-3 font-bold text-ink transition-colors hover:bg-gold-wash/50 group-open:rounded-b-none sm:px-5">
+        <span className="min-w-0">{label}</span>
+        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-line/50 text-gold-deep transition-transform duration-200 group-open:rotate-180">
+          <ChevronDown size={18} aria-hidden />
         </div>
       </summary>
-      <div className="border-t border-line/70 p-5">{children}</div>
+      <div className="border-t border-line/70 p-4 sm:p-5">{children}</div>
     </details>
   );
 }

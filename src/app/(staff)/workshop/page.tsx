@@ -16,7 +16,7 @@ function Order({ row, checkIn, note }: { row: Row; checkIn: boolean; note: strin
   return (
     <li className="flex flex-wrap items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
       <div className="min-w-0">
-        <Link href={`/workshop/${row.id}`} className="font-bold text-gold-deep underline">{row.code}</Link>
+        <Link href={`/workshop/${row.id}`} className="inline-flex min-h-11 items-center font-bold text-gold-deep underline">{row.code}</Link>
         <div className="text-sm text-muted">{note}</div>
         {row.fault ? <div className="text-sm">{row.fault}</div> : null}
       </div>
@@ -38,10 +38,14 @@ export default async function WorkshopPage() {
       <PageHeader
         title="Workshop"
         subtitle="Services run 8:00 to 10:00 am"
-        action={can(ctx.actor.role, "workorder.manage") ? <LinkButton href="/workshop/new">Take in for repair</LinkButton> : undefined}
+        action={
+          <>
+            {can(ctx.actor.role, "workorder.manage") ? <LinkButton href="/workshop/new" variant="gold">Take in for repair</LinkButton> : null}
+            <LinkButton href="/workshop/history" variant="secondary">History</LinkButton>
+          </>
+        }
       />
       <div className="space-y-4">
-        <LinkButton href="/workshop/history">Service and repair history</LinkButton>
         <Card title={`Due today (${dueToday.length})`}>
           {dueToday.length === 0 ? (
             <Empty>No services due today.</Empty>
@@ -74,7 +78,7 @@ export default async function WorkshopPage() {
             <ul className="divide-y divide-line">
               {upcoming.map((row) => (
                 <li key={row.id} className="flex items-center justify-between gap-3 py-2">
-                  <Link href={`/workshop/${row.id}`} className="font-semibold text-gold-deep underline">{row.code}</Link>
+                  <Link href={`/workshop/${row.id}`} className="inline-flex min-h-11 items-center font-semibold text-gold-deep underline">{row.code}</Link>
                   <Badge tone="plain">{formatDate(row.scheduledFor!)}</Badge>
                 </li>
               ))}

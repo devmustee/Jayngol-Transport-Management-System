@@ -88,7 +88,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
               <div className="text-sm font-bold text-paper truncate group-hover:text-gold-light">
                 {actor.name}
               </div>
-              <div className="inline-block rounded-full bg-gold/15 px-2 py-0.2 text-[10px] font-bold uppercase tracking-wider text-gold-light">
+              <div className="inline-block rounded-full bg-gold/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-gold-light">
                 {roleLabel}
               </div>
             </div>
@@ -113,10 +113,11 @@ export default async function StaffLayout({ children }: { children: React.ReactN
 
           <Link
             href="/account"
-            className="flex items-center gap-2 rounded-full border border-gold/30 bg-ink-soft px-3 py-1 text-xs font-bold text-gold-light active:scale-95 transition-transform"
+            aria-label={`Account: ${actor.name}`}
+            className="flex min-h-10 max-w-[45vw] items-center gap-2 rounded-full border border-gold/30 bg-ink-soft px-3.5 text-xs font-bold text-gold-light active:scale-95 transition-transform"
           >
-            <span>{actor.name.split(" ")[0]}</span>
-            <span className="h-1.5 w-1.5 rounded-full bg-ok" />
+            <span className="truncate">{actor.name.split(" ")[0]}</span>
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
           </Link>
         </header>
 

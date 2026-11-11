@@ -25,6 +25,28 @@ import { RULE_NAMES } from "@/services/violations";
 
 export const metadata: Metadata = { title: "Driver Portal" };
 
+type Notice = Awaited<ReturnType<typeof getMyRecords>>["notices"]["items"][number];
+
+function NoticeList({ items }: { items: Notice[] }) {
+  return (
+    <ul className="divide-y divide-line">
+      {items.map((notice) => (
+        <li key={notice.id} className="flex items-start gap-2.5 py-2.5 first:pt-0">
+          {notice.readAt ? (
+            <Bell size={16} aria-hidden className="mt-0.5 shrink-0 text-muted" />
+          ) : (
+            <BellRing size={16} aria-label="New" className="mt-0.5 shrink-0 text-gold-deep" />
+          )}
+          <div className="min-w-0">
+            <p className={`text-sm leading-snug ${notice.readAt ? "text-ink-muted" : "font-bold text-ink"}`}>{notice.body}</p>
+            <p className="mt-0.5 text-xs text-muted">{formatDateTime(notice.createdAt)}</p>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ balance?: string }> }) {
   const ctx = await requireCtx();
   if (isStaff(ctx.actor.role)) redirect("/dashboard");
@@ -35,7 +57,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
   ] = await Promise.all([getMyRecords(ctx), myBalancePeriods(ctx)]);
 
   return (
-    <div className="mx-auto max-w-lg p-4 sm:p-6 pb-24">
+    <main className="mx-auto max-w-lg p-4 pb-[calc(env(safe-area-inset-bottom)+4rem)] sm:p-6">
       {/* Driver Header */}
       <header className="mb-6 flex items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-premium">
         <div className="flex min-w-0 items-center gap-3.5">
@@ -48,8 +70,8 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
             className="shrink-0 drop-shadow-sm"
           />
           <div className="min-w-0">
-            <h1 className="truncate text-base font-extrabold text-ink">{operator.name}</h1>
-            <div className="mt-0.5 flex items-center gap-2">
+            <h1 className="text-base leading-snug font-extrabold text-ink">{operator.name}</h1>
+            <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               <Badge tone={operatorTone(operator.status)} dot>
                 {OPERATOR_STATUS_LABELS[operator.status]}
               </Badge>
@@ -79,21 +101,19 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
           {notices.items.length === 0 ? (
             <p className="text-sm text-muted">Messages from Jayngol will appear here.</p>
           ) : (
-            <ul className="divide-y divide-line">
-              {notices.items.map((notice) => (
-                <li key={notice.id} className="flex items-start gap-2.5 py-2.5 first:pt-0 last:pb-0">
-                  {notice.readAt ? (
-                    <Bell size={16} aria-hidden className="mt-0.5 shrink-0 text-muted" />
-                  ) : (
-                    <BellRing size={16} aria-label="New" className="mt-0.5 shrink-0 text-gold-deep" />
-                  )}
-                  <div className="min-w-0">
-                    <p className={`text-sm ${notice.readAt ? "" : "font-bold text-ink"}`}>{notice.body}</p>
-                    <p className="text-xs text-muted">{formatDateTime(notice.createdAt)}</p>
-                  </div>
-                </li>
-              ))}
-            </ul>
+            <>
+              {/* New notices always show; otherwise the latest three, so the page stays short on a phone. */}
+              <NoticeList items={notices.items.slice(0, Math.max(3, notices.unread))} />
+              {notices.items.length > Math.max(3, notices.unread) ? (
+                <details className="group mt-2 border-t border-line">
+                  <summary className="flex min-h-11 items-center gap-1.5 text-sm font-semibold text-gold-deep">
+                    <span className="group-open:hidden">Show {notices.items.length - Math.max(3, notices.unread)} older notices</span>
+                    <span className="hidden group-open:inline">Hide older notices</span>
+                  </summary>
+                  <NoticeList items={notices.items.slice(Math.max(3, notices.unread))} />
+                </details>
+              ) : null}
+            </>
           )}
           {notices.unread > 0 ? (
             <ActionForm action={markNoticesReadAction} className="mt-3">
@@ -259,6 +279,6 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
           }
         />
       </div>
-    </div>
+    </main>
   );
 }

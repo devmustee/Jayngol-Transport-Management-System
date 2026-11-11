@@ -38,9 +38,9 @@ function AlertRow({
       href={href}
       className={`group flex min-h-12 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all duration-150 hover:shadow-sm ${styles[tone]}`}
     >
-      <div className="flex items-center gap-2.5 min-w-0">
-        <Icon size={18} className="shrink-0" />
-        <span className="truncate">{title}</span>
+      <div className="flex min-w-0 items-center gap-2.5">
+        <Icon size={18} className="shrink-0" aria-hidden />
+        <span className="min-w-0 leading-snug">{title}</span>
       </div>
       <div className="flex items-center gap-1.5 shrink-0">
         {count !== undefined ? (
@@ -322,7 +322,7 @@ function PeriodProgress({ data }: { data: FleetPeriod }) {
         {balances.owedKobo > 0 ? (
           <Link
             href={`/arrears?from=${period.soFar.from}&to=${period.soFar.to}`}
-            className="font-semibold text-paper/85 underline underline-offset-2 hover:text-gold-light"
+            className="inline-flex min-h-11 items-center font-semibold text-paper/85 underline underline-offset-2 hover:text-gold-light"
           >
             {formatNaira(balances.owedKobo)} still owed for {which}
           </Link>

@@ -33,9 +33,9 @@ export default async function DepositsPage() {
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
             {items.map((deposit) => (
               <li key={deposit.id}>
-                <Link href={`/deposits/${deposit.id}`} className="flex items-center justify-between gap-3 p-3 hover:bg-gold-wash">
+                <Link href={`/deposits/${deposit.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-gold-wash">
                   <div className="min-w-0">
-                    <div className="truncate font-bold">{deposit.operatorName}</div>
+                    <div className="font-bold leading-snug [overflow-wrap:anywhere]">{deposit.operatorName}</div>
                     <div className="text-sm text-muted">
                       {deposit.receiptNumber} · {METHOD_LABELS[deposit.method]} · {formatDateTime(deposit.receivedAt)}
                     </div>

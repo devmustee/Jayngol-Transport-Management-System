@@ -185,7 +185,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         </div>
 
         {money.bankToCheck > 0 ? (
-          <Link href="/bank" className="flex items-center gap-1.5 text-xs font-semibold text-warning">
+          <Link href="/bank" className="flex min-h-11 items-center gap-1.5 text-xs font-semibold text-warning">
             <Landmark size={14} />
             <span>
               {money.bankToCheck} transfer and POS payment{money.bankToCheck === 1 ? "" : "s"} to confirm against the bank
@@ -220,7 +220,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
                         <div className="font-extrabold text-sm text-ink group-hover:text-gold-deep transition-colors">
                           {item.label}
                         </div>
-                        <div className="truncate text-xs text-muted mt-0.5">{item.desc}</div>
+                        <div className="mt-0.5 text-xs leading-snug text-muted">{item.desc}</div>
                       </div>
                     </div>
                     <ChevronRight

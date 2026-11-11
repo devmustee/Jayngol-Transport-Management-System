@@ -156,7 +156,7 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
               {work.orders.map((order) => (
                 <li key={order.id} className="py-2">
                   <div className="flex items-start justify-between gap-3">
-                    <Link href={`/workshop/${order.id}`} className="font-semibold text-gold-deep underline">
+                    <Link href={`/workshop/${order.id}`} className="inline-flex min-h-11 items-center font-semibold text-gold-deep underline">
                       {WORK_TYPE_LABELS[order.type]}, {formatDate(order.date)}
                     </Link>
                     <span className="shrink-0 text-sm text-muted">{WORK_STATUS_LABELS[order.status]}</span>

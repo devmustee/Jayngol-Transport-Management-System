@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Award,
   BarChart3,
@@ -128,6 +128,21 @@ export function BottomNav({ items }: { items: NavItem[] }) {
 
   const isAnySecondaryActive = secondaryItems.some((item) => isActive(item.href));
 
+  // While the menu is open the page behind it stays still, and Escape closes it.
+  useEffect(() => {
+    if (!moreOpen) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoreOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = previous;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [moreOpen]);
+
   return (
     <>
       {/* Mobile Bottom Bar */}
@@ -185,7 +200,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
         <div className="fixed inset-0 z-50 flex flex-col justify-end md:hidden">
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-black/60 backdrop-blur-sm transition-opacity"
+            className="fixed inset-0 animate-fade-in bg-black/60 backdrop-blur-sm"
             onClick={() => setMoreOpen(false)}
             aria-hidden
           />
@@ -193,25 +208,26 @@ export function BottomNav({ items }: { items: NavItem[] }) {
           {/* Sheet Drawer */}
           <div
             role="dialog"
-            aria-label="All Navigation Items"
-            className="relative z-10 max-h-[85vh] overflow-y-auto rounded-t-3xl border-t border-gold-deep/30 bg-ink p-5 pb-12 shadow-2xl animate-in slide-in-from-bottom duration-200"
+            aria-modal="true"
+            aria-label="Menu"
+            className="relative z-10 max-h-[85dvh] animate-sheet-up overflow-y-auto overscroll-contain rounded-t-3xl border-t border-gold-deep/30 bg-ink p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] shadow-2xl"
           >
             {/* Drag handle */}
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-paper/20" />
 
             <div className="flex items-center justify-between border-b border-paper/10 pb-3">
-              <h3 className="text-base font-extrabold text-gold-light">All Modules & Tools</h3>
+              <h2 className="text-base font-extrabold text-gold-light">Menu</h2>
               <button
                 type="button"
                 onClick={() => setMoreOpen(false)}
-                className="flex h-10 w-10 items-center justify-center rounded-full bg-ink-soft text-paper/80 hover:text-paper"
+                className="flex h-11 w-11 items-center justify-center rounded-full bg-ink-soft text-paper/80 hover:text-paper"
                 aria-label="Close menu"
               >
                 <X size={20} />
               </button>
             </div>
 
-            <div className="mt-4 grid grid-cols-1 gap-2">
+            <div className="mt-4 grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
               {secondaryItems.map((item) => {
                 const Icon = ICONS[item.icon];
                 const active = isActive(item.href);

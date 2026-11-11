@@ -175,7 +175,7 @@ export function SubmitButton({
     <button
       type="submit"
       disabled={pending}
-      className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-6 py-3 font-bold text-sm tracking-wide transition-all duration-150 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed ${style} ${className}`}
+      className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold tracking-wide transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${style} ${className}`}
     >
       {pending ? (
         <>

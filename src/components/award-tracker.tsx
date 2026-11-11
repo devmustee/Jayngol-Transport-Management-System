@@ -107,7 +107,7 @@ export function RaceRow({ row, type }: { row: RaceOperator; type: AwardType }) {
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="truncate font-bold text-ink">{row.name}</div>
+            <div className="font-bold leading-snug text-ink">{row.name}</div>
             <div className="text-xs font-medium text-muted">
               {row.tricycleCode ?? "No tricycle"} · run {days(row.progress.currentRunDays)}
             </div>

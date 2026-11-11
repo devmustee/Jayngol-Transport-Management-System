@@ -73,7 +73,7 @@ export function HistoryFilters({
       </label>
       <div className="col-span-2 flex items-center gap-4 sm:col-span-1">
         <button className="min-h-11 rounded-lg bg-ink px-4 font-semibold text-gold-light">Show</button>
-        <Link href={clearHref} className="font-medium text-gold-deep underline">Clear</Link>
+        <Link href={clearHref} className="inline-flex min-h-11 items-center px-1 font-medium text-gold-deep underline">Clear</Link>
       </div>
     </form>
   );

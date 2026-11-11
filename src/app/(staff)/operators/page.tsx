@@ -50,43 +50,34 @@ export default async function OperatorsPage({
               <li key={o.id}>
                 <Link
                   href={`/operators/${o.id}`}
-                  className="group flex min-h-16 items-center justify-between gap-3 p-4 transition-all duration-150 hover:bg-gold-wash/40"
+                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-all duration-150 hover:bg-gold-wash/40"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-ink-soft border border-gold-deep/20 text-gold-light font-bold text-sm transition-transform group-hover:scale-105">
-                      {o.name.charAt(0)}
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-deep/20 bg-ink-soft text-sm font-bold text-gold-light transition-transform group-hover:scale-105" aria-hidden>
+                    {o.name.charAt(0)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="min-w-0 text-base font-extrabold leading-snug tracking-tight text-ink">{o.name}</span>
+                      <Badge tone={operatorTone(o.status)} dot>
+                        {OPERATOR_STATUS_LABELS[o.status]}
+                      </Badge>
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-ink text-base tracking-tight truncate">
-                          {o.name}
+                    <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs font-medium text-muted">
+                      {o.tricycleCode ? (
+                        <span className="rounded-md border border-gold-light/40 bg-gold-wash px-2 py-0.5 font-bold text-gold-deep">
+                          {o.tricycleCode}
                         </span>
-                        {o.tricycleCode ? (
-                          <span className="rounded-md bg-gold-wash border border-gold-light/40 px-2 py-0.5 text-xs font-bold text-gold-deep">
-                            {o.tricycleCode}
-                          </span>
-                        ) : (
-                          <span className="rounded-md bg-line/50 px-2 py-0.5 text-xs font-semibold text-muted">
-                            Unassigned
-                          </span>
-                        )}
-                      </div>
-                      <div className="truncate text-xs font-medium text-muted mt-0.5">
-                        Tel: <span className="text-ink">{formatPhone(o.phone)}</span>
-                      </div>
+                      ) : (
+                        <span className="rounded-md bg-line/50 px-2 py-0.5 font-semibold">No tricycle</span>
+                      )}
+                      <span className="tabular-nums text-ink">{formatPhone(o.phone)}</span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Badge tone={operatorTone(o.status)} dot>
-                      {OPERATOR_STATUS_LABELS[o.status]}
-                    </Badge>
-                    <ChevronRight
-                      size={18}
-                      className="text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-gold-deep"
-                      aria-hidden
-                    />
-                  </div>
+                  <ChevronRight
+                    size={18}
+                    className="shrink-0 text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-gold-deep"
+                    aria-hidden
+                  />
                 </Link>
               </li>
             ))}

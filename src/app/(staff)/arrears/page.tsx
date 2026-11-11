@@ -40,15 +40,15 @@ export default async function ArrearsPage({
         <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
           {rows.map((r) => (
             <li key={r.id}>
-              <Link href={`/operators/${r.id}/statement`} className="flex items-center justify-between gap-3 p-3 hover:bg-gold-wash">
+              <Link href={`/operators/${r.id}/statement`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-gold-wash">
                 <div className="min-w-0">
-                  <div className="truncate font-bold">{r.name}</div>
+                  <div className="font-bold leading-snug [overflow-wrap:anywhere]">{r.name}</div>
                   <div className="text-sm text-muted">
                     {formatPhone(r.phone)} · since {formatDate(r.oldest)}
                   </div>
                   {r.status !== "active" ? <Badge tone="bad">{OPERATOR_STATUS_LABELS[r.status]}</Badge> : null}
                 </div>
-                <div className="text-right">
+                <div className="shrink-0 text-right">
                   <div className="font-bold tabular-nums">{formatNaira(r.owed)}</div>
                   <Badge tone={r.days >= 3 ? "bad" : "gold"}>
                     {r.days} day{r.days === 1 ? "" : "s"}

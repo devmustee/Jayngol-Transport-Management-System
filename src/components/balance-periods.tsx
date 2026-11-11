@@ -82,13 +82,16 @@ function Column({ data }: { data: FleetPeriod }) {
 function TakingsTile({ label, money }: { label: string; money: MoneyReceived }) {
   return (
     <div className="min-w-0 rounded-xl border border-line bg-card-subtle p-3.5">
-      <div className="text-xs font-bold uppercase tracking-wider text-muted">{label}</div>
-      <div className="mt-1 text-xl font-black tabular-nums text-ink">{formatNaira(money.totalKobo)}</div>
-      <dl className="mt-2 space-y-0.5 text-xs text-muted">
+      {/* A phone shows the label and total on one line, then the three methods side by side. */}
+      <div className="flex items-baseline justify-between gap-3 sm:block">
+        <div className="text-xs font-bold uppercase tracking-wider text-muted">{label}</div>
+        <div className="text-xl font-black tabular-nums text-ink sm:mt-1">{formatNaira(money.totalKobo)}</div>
+      </div>
+      <dl className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted sm:grid-cols-1 sm:gap-0.5">
         {(["cash", "pos", "transfer"] as const).map((method) => (
-          <div key={method} className="flex justify-between gap-2">
+          <div key={method} className="min-w-0 sm:flex sm:justify-between sm:gap-2">
             <dt>{METHOD_LABELS[method]}</dt>
-            <dd className="tabular-nums font-semibold text-ink">{formatNaira(money.byMethod[method])}</dd>
+            <dd className="font-semibold tabular-nums text-ink">{formatNaira(money.byMethod[method])}</dd>
           </div>
         ))}
       </dl>
@@ -100,7 +103,7 @@ function TakingsTile({ label, money }: { label: string; money: MoneyReceived }) 
 export function MyCollectionsCard({ data }: { data: Awaited<ReturnType<typeof myCollections>> }) {
   return (
     <Card title="My collections" subtitle="Money you recorded yourself, leaving out reversed payments">
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3 sm:gap-3">
         <TakingsTile label="Today" money={data.day} />
         <TakingsTile label="This week" money={data.week} />
         <TakingsTile label="This month" money={data.month} />
@@ -116,7 +119,23 @@ export function CashierTakingsCard({ rows }: { rows: CashierTakings[] }) {
       {rows.length === 0 ? (
         <Empty>Nobody has recorded money this month.</Empty>
       ) : (
-        <div className="-mx-1 overflow-x-auto">
+        <>
+        {/* On a phone each cashier is a small block, so nothing scrolls sideways. */}
+        <ul className="divide-y divide-line sm:hidden">
+          {rows.map((row) => (
+            <li key={row.userId} className="py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="min-w-0 font-semibold text-ink">{row.name}</span>
+                <span className="shrink-0 font-bold tabular-nums text-ink">{formatNaira(row.monthKobo)}</span>
+              </div>
+              <div className="mt-0.5 flex flex-wrap justify-between gap-x-3 text-xs text-muted">
+                <span>Today {formatNaira(row.dayKobo)} · This week {formatNaira(row.weekKobo)}</span>
+                <span>This month</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+        <div className="-mx-1 hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[20rem] text-sm">
             <thead>
               <tr className="text-left text-xs font-bold uppercase tracking-wider text-muted">
@@ -138,6 +157,7 @@ export function CashierTakingsCard({ rows }: { rows: CashierTakings[] }) {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </Card>
   );

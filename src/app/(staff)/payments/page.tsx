@@ -38,14 +38,14 @@ export default async function PaymentsPage({
         <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
           {rows.map((p) => (
             <li key={p.id}>
-              <Link href={`/payments/${p.id}`} className="flex items-center justify-between gap-3 p-3 hover:bg-gold-wash">
+              <Link href={`/payments/${p.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-gold-wash">
                 <div className="min-w-0">
-                  <div className="truncate font-bold">{p.operatorName}</div>
+                  <div className="font-bold leading-snug [overflow-wrap:anywhere]">{p.operatorName}</div>
                   <div className="text-sm text-muted">
                     {p.receiptNumber} · {METHOD_LABELS[p.method]} · {formatDateTime(p.receivedAt)}
                   </div>
                 </div>
-                {p.reversed ? <Badge tone="bad">Reversed</Badge> : <span className="font-bold tabular-nums">{formatNaira(p.amountKobo)}</span>}
+                {p.reversed ? <Badge tone="bad">Reversed</Badge> : <span className="shrink-0 font-bold tabular-nums">{formatNaira(p.amountKobo)}</span>}
               </Link>
             </li>
           ))}

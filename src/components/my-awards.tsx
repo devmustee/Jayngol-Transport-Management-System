@@ -154,11 +154,11 @@ function HonourBoard({ rows, daysToBoard }: { rows: BoardRow[]; daysToBoard: num
                 {index === 0 ? <Crown size={16} aria-label="First" /> : index + 1}
               </span>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-bold text-ink">
+                <div className="text-sm leading-snug font-bold text-ink">
                   {row.name}
                   {row.isYou ? " (you)" : ""}
                 </div>
-                <div className="truncate text-xs font-medium text-muted">{[row.tricycleCode, ...row.badges].filter(Boolean).join(" · ")}</div>
+                <div className="text-xs leading-snug font-medium text-muted">{[row.tricycleCode, ...row.badges].filter(Boolean).join(" · ")}</div>
               </div>
               <span className="shrink-0 text-sm font-extrabold tabular-nums text-ink">{days(row.runDays)}</span>
             </li>

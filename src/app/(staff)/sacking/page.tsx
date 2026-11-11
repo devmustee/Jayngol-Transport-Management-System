@@ -32,7 +32,7 @@ export default async function SackingPage() {
             return (
               <Card key={row.id}>
                 <div className="flex items-start justify-between gap-3">
-                  <Link href={`/operators/${row.operatorId}/statement`} className="font-bold text-gold-deep underline">
+                  <Link href={`/operators/${row.operatorId}/statement`} className="inline-flex min-h-11 items-center font-bold text-gold-deep underline">
                     {row.operatorName}
                   </Link>
                   <Badge tone="bad">{row.status === "flagged" ? "Needs decision" : "Sacked"}</Badge>

@@ -49,44 +49,38 @@ export default async function TricyclesPage({
               <li key={t.id}>
                 <Link
                   href={`/tricycles/${t.id}`}
-                  className="group flex min-h-16 items-center justify-between gap-3 p-4 transition-all duration-150 hover:bg-gold-wash/40"
+                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-all duration-150 hover:bg-gold-wash/40"
                 >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gold-wash/40 border border-gold-light/40 text-gold-deep transition-transform group-hover:scale-105">
-                      <Bike size={20} />
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-extrabold text-ink text-base tracking-tight">
-                          {t.codeNumber}
-                        </span>
-                        <span className="rounded-md bg-line/50 px-2 py-0.5 text-xs font-semibold text-muted">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-light/40 bg-gold-wash/40 text-gold-deep transition-transform group-hover:scale-105" aria-hidden>
+                    <Bike size={20} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="flex flex-wrap items-center gap-2">
+                        <span className="text-base font-extrabold tracking-tight text-ink">{t.codeNumber}</span>
+                        <span className="rounded-md bg-line/50 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-muted">
                           {t.registrationNumber}
                         </span>
-                      </div>
-                      <div className="truncate text-xs font-medium text-muted mt-0.5">
-                        {t.operatorName ? (
-                          <span>
-                            Driver: <strong className="text-ink">{t.operatorName}</strong> • Since{" "}
-                            {formatDate(t.issuedOn!)}
-                          </span>
-                        ) : (
-                          <span>In depot • Purchased {formatDate(t.purchasedOn)}</span>
-                        )}
-                      </div>
+                      </span>
+                      <Badge tone={tricycleTone(t.status)} dot>
+                        {TRICYCLE_STATUS_LABELS[t.status]}
+                      </Badge>
+                    </div>
+                    <div className="mt-1 text-xs font-medium leading-snug text-muted">
+                      {t.operatorName ? (
+                        <>
+                          <strong className="text-ink">{t.operatorName}</strong> · since {formatDate(t.issuedOn!)}
+                        </>
+                      ) : (
+                        <>In depot · bought {formatDate(t.purchasedOn)}</>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3 shrink-0">
-                    <Badge tone={tricycleTone(t.status)} dot>
-                      {TRICYCLE_STATUS_LABELS[t.status]}
-                    </Badge>
-                    <ChevronRight
-                      size={18}
-                      className="text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-gold-deep"
-                      aria-hidden
-                    />
-                  </div>
+                  <ChevronRight
+                    size={18}
+                    className="shrink-0 text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-gold-deep"
+                    aria-hidden
+                  />
                 </Link>
               </li>
             ))}
