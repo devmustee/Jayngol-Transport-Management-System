@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   Award,
   ChevronRight,
+  HandCoins,
   Receipt,
   Scale,
   Sparkles,
@@ -255,16 +256,32 @@ export function MoneySummary({
         ) : (
           <div className="relative z-10 mt-5">
             <ProgressBar percent={percentCollected} />
-            <div className="mt-2 flex items-center justify-between text-xs text-paper/60">
-              <span>
-                {money.overdueOperators > 0
-                  ? `${money.overdueOperators} operator${money.overdueOperators === 1 ? "" : "s"} with unpaid balances`
-                  : "All expected balances settled"}
-              </span>
+            <div className="mt-2 flex items-center justify-between gap-3 text-xs text-paper/60">
+              {money.overdueOperators > 0 ? (
+                <Link
+                  href="/arrears"
+                  className="group/owed inline-flex min-h-11 items-center gap-1 font-semibold text-paper/85 underline underline-offset-2 hover:text-gold-light"
+                >
+                  {money.overdueOperators} working operator{money.overdueOperators === 1 ? "" : "s"} owe {formatNaira(money.overdueOwedKobo)}
+                  <ChevronRight size={14} aria-hidden className="transition-transform group-hover/owed:translate-x-0.5" />
+                </Link>
+              ) : (
+                <span>All expected balances settled</span>
+              )}
               <span className="font-bold text-gold-light">{percentCollected}%</span>
             </div>
           </div>
         )}
+        {money.loansActive > 0 ? (
+          <Link
+            href="/loans"
+            className="group/loans relative z-10 mt-1 inline-flex min-h-11 items-center gap-1.5 text-xs font-semibold text-paper/85 underline underline-offset-2 hover:text-gold-light"
+          >
+            <HandCoins size={14} aria-hidden />
+            Loans to collect: {formatNaira(money.loansOwedKobo)} from {money.loansActive} operator{money.loansActive === 1 ? "" : "s"}
+            <ChevronRight size={14} aria-hidden className="transition-transform group-hover/loans:translate-x-0.5" />
+          </Link>
+        ) : null}
       </div>
     </div>
   );

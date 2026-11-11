@@ -82,7 +82,7 @@ const FINANCE_SECTIONS = [
       {
         href: "/loans",
         label: "Operator Loans",
-        desc: "Disbursed loans and recovery schedules",
+        desc: "Money lent to operators and what is left to collect",
         icon: HandCoins,
       },
     ],

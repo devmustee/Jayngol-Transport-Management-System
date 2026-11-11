@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { HandCoins } from "lucide-react";
 import { notFound } from "next/navigation";
 import { cancelLoanAction } from "@/app/actions";
 import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
@@ -42,7 +43,10 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
           />
         </Card>
         {data.canCollect && loan.status === "active" ? (
-          <LinkButton href={`/payments/new?operator=${loan.operatorId}`}>Take a repayment</LinkButton>
+          <LinkButton href={`/payments/new?operator=${loan.operatorId}&for=loan`} variant="gold">
+            <HandCoins size={16} aria-hidden />
+            Take loan repayment
+          </LinkButton>
         ) : null}
         <Card title="Repayments">
           {repayments.length === 0 ? (

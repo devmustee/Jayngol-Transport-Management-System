@@ -23,6 +23,7 @@ import { cashAlerts, cashPosition, givenOutOn } from "./cash-book";
 import { advanceCounts } from "./expenses";
 import { openCharges, unallocatedPayments } from "./ledger";
 import { lastJobDate } from "./daily-job";
+import { loansToCollect } from "./loans";
 
 /* ---------- Statements ---------- */
 
@@ -337,7 +338,7 @@ export async function removeNonCollectionDay(ctx: Ctx, date: string) {
 export async function financeOverview(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
-  const [collections, arrears, toConfirm, alerts, lastRun, trail, advances, awardsWaiting, givenOut] = await Promise.all([
+  const [collections, arrears, toConfirm, alerts, lastRun, trail, advances, awardsWaiting, givenOut, loansOwed] = await Promise.all([
     collectionsFor(ctx, today),
     listArrears(ctx),
     db.select({ value: count() }).from(violations).where(eq(violations.status, "proposed")),
@@ -347,12 +348,16 @@ export async function financeOverview(ctx: Ctx) {
     advanceCounts(),
     awardsToDecide(),
     givenOutOn(db, today),
+    loansToCollect(db),
   ]);
+  const working = arrears.filter((a) => a.status === "active");
   return {
     today,
     ...collections,
     ...givenOut,
-    overdueOperators: arrears.filter((a) => a.status === "active").length,
+    overdueOperators: working.length,
+    overdueOwedKobo: working.reduce((sum, a) => sum + a.owed, 0),
+    ...loansOwed,
     canCollect: can(ctx.actor.role, "payment.record"),
     toConfirm: toConfirm[0]?.value ?? 0,
     sackingAlerts: alerts[0]?.value ?? 0,

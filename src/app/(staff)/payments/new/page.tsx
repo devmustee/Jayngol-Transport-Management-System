@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { PaymentForm } from "@/components/forms/payment-form";
+import { PaymentForm, type PaymentMode } from "@/components/forms/payment-form";
 import { Badge, Card, Details, Empty, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { isUuid } from "@/lib/fields";
@@ -25,11 +25,14 @@ export default async function TakePaymentPage({
   const params = await searchParams;
   const q = queryValue(params.q);
   const operatorId = queryValue(params.operator);
+  const forParam = queryValue(params.for);
+  const mode: PaymentMode = forParam === "loan" || forParam === "balance" ? forParam : null;
 
   if (operatorId) {
     const data = isUuid(operatorId) ? await paymentContext(ctx, operatorId) : null;
     if (!data) notFound();
     const { operator, current, balances } = data;
+    const today = businessDate(ctx.clock());
     return (
       <>
         <PageHeader
@@ -50,14 +53,22 @@ export default async function TakePaymentPage({
               ]}
             />
           </Card>
-          <Card title="Record payment">
+          <Card title={mode === "loan" ? "Take loan repayment" : "Record payment"}>
             <PaymentForm
               operatorId={operator.id}
               clientId={randomUUID()}
-              today={businessDate(ctx.clock())}
+              today={today}
               hasTricycle={!!current && current.status !== "off_road"}
-              penaltiesOwed={data.penaltiesOwedKobo > 0}
-              loanOwed={data.loanOwedKobo > 0}
+              owed={{
+                balanceKobo: data.balanceOwedKobo,
+                todayKobo: balances
+                  .filter((b) => b.businessDate === today)
+                  .reduce((sum, b) => sum + b.outstandingKobo, 0),
+                finesKobo: data.penaltiesOwedKobo,
+                loanKobo: data.loanOwedKobo,
+              }}
+              balances={balances.map((b) => ({ businessDate: b.businessDate, outstandingKobo: b.outstandingKobo }))}
+              mode={mode}
               canBackdate={can(ctx.actor.role, "payment.backdate")}
             />
           </Card>

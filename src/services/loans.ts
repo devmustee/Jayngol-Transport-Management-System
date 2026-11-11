@@ -1,8 +1,8 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "@/db";
+import { db, type Executor } from "@/db";
 import { charges, loans, operators, users } from "@/db/schema";
-import { businessDate } from "@/lib/clock";
+import { businessDate, daysBetween } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import { idField, optionalText, positiveNairaField, requiredText } from "@/lib/fields";
 import { can } from "@/lib/permissions";
@@ -114,21 +114,49 @@ const fields = {
   repaidKobo: repaid,
 };
 
+// The last day money that still counts went to this loan.
+const lastRepaidOn = sql<string | null>`(
+  SELECT MAX(p.business_date)::text FROM payment_allocations a
+  JOIN payments p ON p.id = a.payment_id
+  WHERE a.charge_id = loans.charge_id
+    AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id))`;
+
 export async function listLoans(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
+  const today = businessDate(ctx.clock());
   const rows = await db
-    .select(fields)
+    .select({ ...fields, lastRepaidOn })
     .from(loans)
     .innerJoin(operators, eq(operators.id, loans.operatorId))
     .orderBy(desc(loans.disbursedOn), desc(loans.createdAt))
     .limit(300);
-  const active = rows.filter((row) => row.status === "active");
+  // Loans to collect: the one quiet for longest comes first, so slow payers stand out.
+  const active = rows
+    .filter((row) => row.status === "active")
+    .map((row) => ({
+      ...row,
+      owedKobo: row.principalKobo - row.repaidKobo,
+      quietDays: daysBetween(row.lastRepaidOn ?? row.disbursedOn, today),
+    }))
+    .sort((a, b) => b.quietDays - a.quietDays || b.owedKobo - a.owedKobo);
   return {
     active,
     cleared: rows.filter((row) => row.status === "cleared"),
-    outstandingKobo: active.reduce((sum, row) => sum + row.principalKobo - row.repaidKobo, 0),
+    outstandingKobo: active.reduce((sum, row) => sum + row.owedKobo, 0),
     canApprove: can(ctx.actor.role, "loan.approve"),
+    canCollect: can(ctx.actor.role, "payment.record"),
   };
+}
+
+/** What is still owed on loans, for the money summary. */
+export async function loansToCollect(exec: Executor = db) {
+  const [row] = (await exec.execute(sql`
+    SELECT COUNT(*)::int AS loans,
+           COALESCE(SUM(l.principal_kobo - COALESCE((
+             SELECT SUM(e.amount_kobo) FROM effective_allocations e WHERE e.charge_id = l.charge_id), 0)), 0)::float8 AS owed
+    FROM loans l WHERE l.status = 'active'
+  `)) as unknown as { loans: number; owed: number }[];
+  return { loansActive: row?.loans ?? 0, loansOwedKobo: row?.owed ?? 0 };
 }
 
 /** Active operators free to take a loan. */
