@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Badge, Card, Details, Empty } from "@/components/ui";
 import { AWARD_LABELS, CHARGE_LABELS, formatDate, METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
@@ -5,7 +6,7 @@ import type { getStatement } from "@/services/finance";
 
 type Statement = Awaited<ReturnType<typeof getStatement>>;
 
-export function StatementView({ data }: { data: Statement }) {
+export function StatementView({ data, afterOwed }: { data: Statement; afterOwed?: ReactNode }) {
   return (
     <div className="space-y-4">
       <Card title="Owed now">
@@ -19,6 +20,7 @@ export function StatementView({ data }: { data: Statement }) {
           ]}
         />
       </Card>
+      {afterOwed}
       {data.awards.length > 0 ? (
         <Card title="Awards">
           <ul className="divide-y divide-line">

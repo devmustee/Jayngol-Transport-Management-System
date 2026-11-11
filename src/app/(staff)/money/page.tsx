@@ -21,11 +21,14 @@ import {
   ShieldAlert,
   Wallet,
 } from "lucide-react";
+import { BalancesByPeriod } from "@/components/balance-periods";
 import { MoneySummary } from "@/components/money-summary";
 import { LinkButton, PageHeader } from "@/components/ui";
 import { METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
+import { parsePulse } from "@/lib/periods";
 import { requirePage } from "@/lib/session";
+import { fleetPeriod } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Money" };
@@ -132,9 +135,14 @@ const FINANCE_SECTIONS = [
   },
 ];
 
-export default async function MoneyPage() {
+export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
   const ctx = await requirePage("finance.view");
-  const money = await financeOverview(ctx);
+  const pulse = parsePulse((await searchParams).pulse);
+  const [money, week, month] = await Promise.all([
+    financeOverview(ctx),
+    fleetPeriod(ctx, "week"),
+    fleetPeriod(ctx, "month"),
+  ]);
 
   return (
     <>
@@ -151,7 +159,7 @@ export default async function MoneyPage() {
         }
       />
 
-      <MoneySummary money={money} />
+      <MoneySummary money={money} period={pulse === "week" ? week : pulse === "month" ? month : null} basePath="/money" />
 
       {/* Collection Methods */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
@@ -185,6 +193,8 @@ export default async function MoneyPage() {
           </Link>
         ) : null}
       </div>
+
+      <BalancesByPeriod week={week} month={month} />
 
       {/* Financial Operations Grid */}
       <div className="space-y-6">

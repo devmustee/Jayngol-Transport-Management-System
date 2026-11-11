@@ -14,6 +14,7 @@ import {
 import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import { dateField, idField, nairaField, optionalText, requiredText } from "@/lib/fields";
+import type { DateRange } from "@/lib/periods";
 import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
@@ -121,14 +122,16 @@ export async function collectionsFor(ctx: Ctx, date: string) {
   };
 }
 
-export async function listArrears(ctx: Ctx) {
+/** Unpaid balances, optionally only for days in a range (a week or a month, for example). */
+export async function listArrears(ctx: Ctx, range?: DateRange) {
   requirePermission(ctx, "finance.view");
+  const inRange = range ? sql`AND c.business_date BETWEEN ${range.from}::date AND ${range.to}::date` : sql``;
   const rows = await db.execute(sql`
     WITH open AS (
       SELECT c.operator_id, c.business_date,
              c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
                                        WHERE e.charge_id = c.id), 0) AS owed
-      FROM valid_charges c WHERE c.type = 'daily_balance'
+      FROM valid_charges c WHERE c.type = 'daily_balance' ${inRange}
     )
     SELECT o.id, o.name, o.phone, o.status::text AS status,
            COUNT(*)::int AS days, SUM(open.owed)::float8 AS owed,

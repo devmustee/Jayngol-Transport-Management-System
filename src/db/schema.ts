@@ -264,6 +264,10 @@ export const charges = pgTable(
       .on(t.operatorId, t.tricycleId, t.businessDate)
       .where(sql`${t.type} = 'daily_balance'`),
     index("charges_operator_idx").on(t.operatorId, t.businessDate),
+    // Weekly and monthly totals across the whole fleet.
+    index("charges_balance_date_idx")
+      .on(t.businessDate)
+      .where(sql`${t.type} = 'daily_balance'`),
     check("charges_positive", sql`${t.amountKobo} > 0`),
   ],
 );
@@ -301,6 +305,8 @@ export const payments = pgTable(
   (t) => [
     index("payments_operator_idx").on(t.operatorId, t.receivedAt),
     index("payments_date_idx").on(t.businessDate),
+    // A cashier's own collections for a week or month.
+    index("payments_received_by_idx").on(t.receivedBy, t.businessDate),
     check("payments_positive", sql`${t.amountKobo} > 0`),
   ],
 );

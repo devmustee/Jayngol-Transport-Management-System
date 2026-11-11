@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { Bell, BellRing, Bike, CalendarDays, LogOut } from "lucide-react";
 import { logoutAction, markNoticesReadAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/form";
+import { OperatorBalanceCard } from "@/components/balance-periods";
 import { StatementView } from "@/components/statement";
 import { MyAwardJourney } from "@/components/my-awards";
 import { Badge, Card, Details, Empty, operatorTone } from "@/components/ui";
@@ -18,16 +19,20 @@ import { formatPhone } from "@/lib/phone";
 import { formatNaira } from "@/lib/money";
 import { isStaff } from "@/lib/permissions";
 import { requireCtx } from "@/lib/session";
+import { myBalancePeriods } from "@/services/balance-periods";
 import { getMyRecords } from "@/services/portal";
 import { RULE_NAMES } from "@/services/violations";
 
 export const metadata: Metadata = { title: "Driver Portal" };
 
-export default async function MyRecordsPage() {
+export default async function MyRecordsPage({ searchParams }: { searchParams: Promise<{ balance?: string }> }) {
   const ctx = await requireCtx();
   if (isStaff(ctx.actor.role)) redirect("/dashboard");
-  const { operator, current, dailyBalanceKobo, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits } =
-    await getMyRecords(ctx);
+  const balanceKind = (await searchParams).balance === "month" ? "month" : "week";
+  const [
+    { operator, current, dailyBalanceKobo, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits },
+    balancePeriods,
+  ] = await Promise.all([getMyRecords(ctx), myBalancePeriods(ctx)]);
 
   return (
     <div className="mx-auto max-w-lg p-4 sm:p-6 pb-24">
@@ -240,7 +245,19 @@ export default async function MyRecordsPage() {
         ) : null}
 
         {/* Financial Statement */}
-        <StatementView data={statement} />
+        <StatementView
+          data={statement}
+          afterOwed={
+            <div id="my-balance" className="scroll-mt-4">
+              <OperatorBalanceCard
+                title="My balance"
+                periods={balancePeriods}
+                kind={balanceKind}
+                hrefFor={(kind) => (kind === "week" ? "/me#my-balance" : `/me?balance=${kind}#my-balance`)}
+              />
+            </div>
+          }
+        />
       </div>
     </div>
   );

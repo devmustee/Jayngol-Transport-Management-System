@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { issueTricycleAction, markOperatorLeftAction, setOperatorPinAction } from "@/app/actions";
 import { AwardJourneyCard } from "@/components/award-tracker";
+import { OperatorBalanceCard } from "@/components/balance-periods";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, Disclosure, Empty, LinkButton, operatorTone, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
@@ -13,15 +14,23 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { getOperatorJourney } from "@/services/award-tracker";
+import { operatorBalancePeriods } from "@/services/balance-periods";
 import { operatorDepositsFor } from "@/services/deposits";
 import { getOperator } from "@/services/operators";
 import { listInStockTricycles } from "@/services/tricycles";
 
 export const metadata: Metadata = { title: "Operator" };
 
-export default async function OperatorPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function OperatorPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ balance?: string }>;
+}) {
   const ctx = await requirePage("operator.view");
   const { id } = await params;
+  const balanceKind = (await searchParams).balance === "month" ? "month" : "week";
   const detail = isUuid(id) ? await getOperator(ctx, id) : null;
   if (!detail) notFound();
 
@@ -31,7 +40,10 @@ export default async function OperatorPage({ params }: { params: Promise<{ id: s
   const canIssue = can(ctx.actor.role, "assignment.manage") && operator.status === "active" && !holdsTricycle;
   const inStock = canIssue ? await listInStockTricycles(ctx) : [];
   const journey = operator.status === "active" ? await getOperatorJourney(ctx, id) : null;
-  const deposits = can(ctx.actor.role, "finance.view") ? await operatorDepositsFor(ctx, id) : null;
+  const seesMoney = can(ctx.actor.role, "finance.view");
+  const [deposits, balancePeriods] = seesMoney
+    ? await Promise.all([operatorDepositsFor(ctx, id), operatorBalancePeriods(ctx, id)])
+    : [null, null];
 
   return (
     <>
@@ -64,6 +76,16 @@ export default async function OperatorPage({ params }: { params: Promise<{ id: s
           />
         </Card>
 
+        {balancePeriods ? (
+          <div id="balance" className="scroll-mt-20">
+            <OperatorBalanceCard
+              title="Balance this week and month"
+              periods={balancePeriods}
+              kind={balanceKind}
+              hrefFor={(kind) => (kind === "week" ? `/operators/${id}#balance` : `/operators/${id}?balance=${kind}#balance`)}
+            />
+          </div>
+        ) : null}
         {journey ? <AwardJourneyCard operatorId={id} progress={journey.progress} /> : null}
 
         {deposits ? (

@@ -12,33 +12,87 @@ export type Column = {
 };
 
 type Range = { from: string; to: string };
-type Report = { title: string; ranged: boolean; columns: Column[]; query: (range: Range) => SQL };
+
+/** How a groupable report adds up its rows. Weeks run Monday to Sunday. */
+export const GROUPINGS = ["day", "week", "month"] as const;
+export type Grouping = (typeof GROUPINGS)[number];
+export const GROUPING_LABELS: Record<Grouping, string> = { day: "Day", week: "Week", month: "Month" };
+export const parseGrouping = (value: unknown): Grouping =>
+  GROUPINGS.includes(value as Grouping) ? (value as Grouping) : "day";
+
+type Report = {
+  /** The name in the list of reports. */
+  title: string;
+  /** The heading once a grouping is chosen, when it differs from the title. */
+  heading?: (group: Grouping) => string;
+  ranged: boolean;
+  /** Only reports that can be added up by week or month offer the choice. */
+  groupable?: boolean;
+  columns: Column[] | ((group: Grouping) => Column[]);
+  query: (range: Range, group: Grouping) => SQL;
+};
 
 const between = (column: SQL, { from, to }: Range) => sql`${column} BETWEEN ${from}::date AND ${to}::date`;
 
+const COLLECTION_FIGURES: Column[] = [
+  { key: "due", label: "Balances due", kind: "naira", total: true },
+  { key: "paid", label: "Paid", kind: "naira", total: true },
+  { key: "owed", label: "Owed", kind: "naira", total: true },
+  { key: "cash", label: "Cash", kind: "naira", total: true },
+  { key: "transfer", label: "Transfer", kind: "naira", total: true },
+  { key: "pos", label: "POS", kind: "naira", total: true },
+  { key: "collected", label: "Total received", kind: "naira", total: true },
+];
+
+const STEP: Record<Grouping, SQL> = {
+  day: sql`interval '1 day'`,
+  week: sql`interval '7 days'`,
+  month: sql`interval '1 month'`,
+};
+
 export const REPORTS = {
   collections: {
-    title: "Daily collections",
+    title: "Collections by day, week or month",
+    heading: (group) => ({ day: "Daily collections", week: "Weekly collections", month: "Monthly collections" })[group],
     ranged: true,
-    columns: [
-      { key: "day", label: "Date", kind: "date" },
-      { key: "due", label: "Balances due", kind: "naira", total: true },
-      { key: "cash", label: "Cash", kind: "naira", total: true },
-      { key: "transfer", label: "Transfer", kind: "naira", total: true },
-      { key: "pos", label: "POS", kind: "naira", total: true },
-      { key: "collected", label: "Total received", kind: "naira", total: true },
-    ],
-    query: ({ from, to }) => sql`
-      SELECT d::date::text AS day,
-        COALESCE((SELECT SUM(c.amount_kobo) FROM valid_charges c WHERE c.type = 'daily_balance' AND c.business_date = d::date), 0)::float8 AS due,
-        COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'cash'), 0)::float8 AS cash,
-        COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'transfer'), 0)::float8 AS transfer,
-        COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'pos'), 0)::float8 AS pos,
-        COALESCE(SUM(p.amount_kobo), 0)::float8 AS collected
-      FROM generate_series(${from}::date, ${to}::date, interval '1 day') d
-      LEFT JOIN payments p ON p.business_date = d::date
-        AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
-      GROUP BY d ORDER BY d DESC`,
+    groupable: true,
+    columns: (group) =>
+      group === "day"
+        ? [{ key: "day", label: "Date", kind: "date" }, ...COLLECTION_FIGURES]
+        : [{ key: "day", label: "From", kind: "date" }, { key: "to", label: "To", kind: "date" }, ...COLLECTION_FIGURES],
+    // Same rules as src/services/balance-periods.ts, so the report and the screens agree.
+    // A week or month that runs past the chosen dates is cut to them, so the totals add up to the range.
+    query: ({ from, to }, group) => sql`
+      WITH periods AS (
+        SELECT GREATEST(g::date, ${from}::date) AS lo,
+               LEAST((g + ${STEP[group]} - interval '1 day')::date, ${to}::date) AS hi
+        FROM generate_series(
+          date_trunc(${group === "day" ? "day" : group}, ${from}::date::timestamp),
+          ${to}::date::timestamp,
+          ${STEP[group]}
+        ) g
+      )
+      SELECT periods.lo::text AS day, periods.hi::text AS "to",
+        b.due, b.paid, b.due - b.paid AS owed,
+        m.cash, m.transfer, m.pos, m.collected
+      FROM periods
+      CROSS JOIN LATERAL (
+        SELECT COALESCE(SUM(c.amount_kobo), 0)::float8 AS due,
+               COALESCE(SUM(LEAST(c.amount_kobo, COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
+                                                            WHERE e.charge_id = c.id), 0))), 0)::float8 AS paid
+        FROM valid_charges c
+        WHERE c.type = 'daily_balance' AND c.business_date BETWEEN periods.lo AND periods.hi
+      ) b
+      CROSS JOIN LATERAL (
+        SELECT COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'cash'), 0)::float8 AS cash,
+               COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'transfer'), 0)::float8 AS transfer,
+               COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'pos'), 0)::float8 AS pos,
+               COALESCE(SUM(p.amount_kobo), 0)::float8 AS collected
+        FROM payments p
+        WHERE p.business_date BETWEEN periods.lo AND periods.hi
+          AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
+      ) m
+      ORDER BY periods.lo DESC`,
   },
   arrears: {
     title: "Unpaid balances",
@@ -210,23 +264,26 @@ export const REPORTS = {
 export type ReportKey = keyof typeof REPORTS;
 export const isReportKey = (key: string): key is ReportKey => Object.hasOwn(REPORTS, key);
 
-export async function runReport(ctx: Ctx, key: ReportKey, range: Range) {
+export async function runReport(ctx: Ctx, key: ReportKey, range: Range, requested: Grouping = "day") {
   requirePermission(ctx, "finance.view");
   const report: Report = REPORTS[key];
-  const rows = (await db.execute(report.query(range))) as unknown as Record<string, string | number>[];
+  const group = report.groupable ? requested : "day";
+  const columns = typeof report.columns === "function" ? report.columns(group) : report.columns;
+  const title = report.heading ? report.heading(group) : report.title;
+  const rows = (await db.execute(report.query(range, group))) as unknown as Record<string, string | number>[];
   const totals = Object.fromEntries(
-    report.columns
+    columns
       .filter((column) => column.total)
       .map((column) => [column.key, rows.reduce((sum, row) => sum + Number(row[column.key] ?? 0), 0)]),
   );
-  return { title: report.title, ranged: report.ranged, columns: report.columns, rows, totals };
+  return { title, ranged: report.ranged, groupable: !!report.groupable, group, columns, rows, totals };
 }
 
 /** A spreadsheet runs a cell starting with these as a formula, so names are neutralised. */
 const neutralise = (text: string) => (/^[=+\-@\t\r]/.test(text) ? `'${text}` : text);
 const quote = (text: string) => (/[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text);
 
-export function reportCsv(report: Awaited<ReturnType<typeof runReport>>): string {
+export function reportCsv(report: Pick<Awaited<ReturnType<typeof runReport>>, "columns" | "rows">): string {
   const cell = (column: Column, value: string | number | undefined) => {
     if (value === undefined || value === null) return "";
     if (column.kind === "naira") return (Number(value) / 100).toFixed(2);

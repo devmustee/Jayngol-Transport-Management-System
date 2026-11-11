@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { checkCashCloseAction, closeCashAction } from "@/app/actions";
+import { CashierTakingsCard, MyCollectionsCard } from "@/components/balance-periods";
 import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
@@ -8,6 +9,7 @@ import { formatDate, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { collectionsByCashier, myCollections } from "@/services/balance-periods";
 import { cashDay, uncheckedCloses } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Cash close" };
@@ -21,7 +23,12 @@ export default async function CashPage({
   const requested = queryValue((await searchParams).date);
   const today = businessDate(ctx.clock());
   const date = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today ? requested : today;
-  const [people, unchecked] = await Promise.all([cashDay(ctx, date), uncheckedCloses(ctx)]);
+  const [people, unchecked, mine, byCashier] = await Promise.all([
+    cashDay(ctx, date),
+    uncheckedCloses(ctx),
+    can(ctx.actor.role, "payment.record") ? myCollections(ctx) : null,
+    collectionsByCashier(ctx),
+  ]);
 
   return (
     <>
@@ -31,6 +38,8 @@ export default async function CashPage({
         <button className="min-h-11 rounded-lg border border-line bg-card px-4 font-semibold">Show</button>
       </form>
       <div className="space-y-4">
+        {mine ? <MyCollectionsCard data={mine} /> : null}
+        <CashierTakingsCard rows={byCashier} />
         {unchecked.length > 0 ? (
           <Card title="Counts waiting for a second check">
             <ul className="divide-y divide-line">

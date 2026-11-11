@@ -3,11 +3,11 @@ import { notFound } from "next/navigation";
 import { PrintButton } from "@/components/print-button";
 import { Empty, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
-import { formatDate } from "@/lib/format";
+import { formatDate, queryValue } from "@/lib/format";
 import { readHistoryFilter } from "@/lib/history-filter";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
-import { isReportKey, runReport, type Column } from "@/services/reports";
+import { GROUPING_LABELS, GROUPINGS, isReportKey, parseGrouping, runReport, type Column } from "@/services/reports";
 
 export const metadata: Metadata = { title: "Report" };
 
@@ -37,10 +37,12 @@ export default async function ReportPage({
   const ctx = await requirePage("finance.view");
   const { key } = await params;
   if (!isReportKey(key)) notFound();
-  const filter = readHistoryFilter(await searchParams);
+  const query = await searchParams;
+  const filter = readHistoryFilter(query);
   const today = businessDate(ctx.clock());
   const [from, to] = [filter.from ?? `${today.slice(0, 8)}01`, filter.to ?? today].sort() as [string, string];
-  const report = await runReport(ctx, key, { from, to });
+  const report = await runReport(ctx, key, { from, to }, parseGrouping(queryValue(query.group)));
+  const csvHref = `/api/reports/${key}?from=${from}&to=${to}${report.groupable ? `&group=${report.group}` : ""}`;
 
   return (
     <>
@@ -51,7 +53,7 @@ export default async function ReportPage({
       />
       <div className="mb-4 space-y-3 print:hidden">
         {report.ranged ? (
-          <form className="grid grid-cols-2 items-end gap-3 sm:grid-cols-3">
+          <form className={`grid grid-cols-2 items-end gap-3 ${report.groupable ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
             <label className="min-w-0 font-medium">
               From
               <input type="date" name="from" defaultValue={from} className={INPUT} />
@@ -60,11 +62,23 @@ export default async function ReportPage({
               To
               <input type="date" name="to" defaultValue={to} className={INPUT} />
             </label>
+            {report.groupable ? (
+              <label className="col-span-2 min-w-0 font-medium sm:col-span-1">
+                Group by
+                <select name="group" defaultValue={report.group} className={INPUT}>
+                  {GROUPINGS.map((group) => (
+                    <option key={group} value={group}>
+                      {GROUPING_LABELS[group]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             <button className="col-span-2 min-h-11 rounded-lg bg-ink px-4 font-semibold text-gold-light sm:col-span-1">Show</button>
           </form>
         ) : null}
         <div className="flex flex-wrap gap-2">
-          <a href={`/api/reports/${key}?from=${from}&to=${to}`} className="inline-flex min-h-11 items-center rounded-lg border border-line bg-card px-4 font-semibold">
+          <a href={csvHref} className="inline-flex min-h-11 items-center rounded-lg border border-line bg-card px-4 font-semibold">
             Download CSV
           </a>
           <PrintButton />

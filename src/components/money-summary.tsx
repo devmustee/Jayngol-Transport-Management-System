@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
+import type { BalanceTotals, FleetPeriod } from "@/services/balance-periods";
 import type { financeOverview } from "@/services/finance";
 
 function AlertRow({
@@ -55,7 +56,17 @@ function AlertRow({
 
 const signedNaira = (kobo: number) => `${kobo < 0 ? "-" : ""}${formatNaira(Math.abs(kobo))}`;
 
-export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof financeOverview>> }) {
+export function MoneySummary({
+  money,
+  period = null,
+  basePath,
+}: {
+  money: Awaited<ReturnType<typeof financeOverview>>;
+  /** This week or this month. Null shows today. */
+  period?: FleetPeriod | null;
+  /** The page the period switch links back to. */
+  basePath: string;
+}) {
   const deducted = money.loansKobo !== 0 || money.expensesKobo !== 0;
   const leftKobo = money.collectedKobo - money.loansKobo - money.expensesKobo;
   const percentCollected =
@@ -177,32 +188,55 @@ export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof finan
         <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gold/10 blur-3xl" />
         <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-gold-deep/20 blur-3xl" />
 
+        <nav aria-label="Choose a period" className="relative z-10 mb-4 inline-flex rounded-xl border border-paper/15 bg-ink/40 p-1">
+          {PULSE_OPTIONS.map(([value, label]) => {
+            const active = (period?.period.kind ?? "today") === value;
+            return (
+              <Link
+                key={value}
+                href={value === "today" ? basePath : `${basePath}?pulse=${value}`}
+                scroll={false}
+                aria-current={active ? "true" : undefined}
+                className={`inline-flex min-h-11 items-center rounded-lg px-3.5 text-sm font-bold transition-colors ${
+                  active ? "bg-gold-light text-ink" : "text-paper/75 hover:bg-paper/10 hover:text-paper"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          })}
+        </nav>
+
         <div className="relative z-10 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-gold uppercase">
-              <TrendingUp size={15} />
-              <span>Financial Pulse • Today</span>
-            </div>
-            <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
-              {signedNaira(leftKobo)}
-            </div>
-            {deducted ? (
-              <div className="mt-1 text-sm text-paper/75">
-                Left after {signedNaira(money.loansKobo)} loans and {signedNaira(money.expensesKobo)} expenses
+          {period ? (
+            <PeriodFigures data={period} />
+          ) : (
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-gold uppercase">
+                <TrendingUp size={15} />
+                <span>Financial Pulse • Today</span>
               </div>
-            ) : null}
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-paper/75">
+              <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
+                {signedNaira(leftKobo)}
+              </div>
               {deducted ? (
-                <>
-                  <span>Collected: {formatNaira(money.collectedKobo)}</span>
-                  <span>•</span>
-                </>
+                <div className="mt-1 text-sm text-paper/75">
+                  Left after {signedNaira(money.loansKobo)} loans and {signedNaira(money.expensesKobo)} expenses
+                </div>
               ) : null}
-              <span>Target: {formatNaira(money.expectedKobo)}</span>
-              <span>•</span>
-              <span className="font-semibold text-paper/90">{percentCollected}% collected</span>
+              <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-paper/75">
+                {deducted ? (
+                  <>
+                    <span>Collected: {formatNaira(money.collectedKobo)}</span>
+                    <span>•</span>
+                  </>
+                ) : null}
+                <span>Target: {formatNaira(money.expectedKobo)}</span>
+                <span>•</span>
+                <span className="font-semibold text-paper/90">{percentCollected}% collected</span>
+              </div>
             </div>
-          </div>
+          )}
 
           {money.canCollect ? (
             <Link
@@ -216,23 +250,100 @@ export function MoneySummary({ money }: { money: Awaited<ReturnType<typeof finan
         </div>
 
         {/* Progress Bar */}
-        <div className="relative z-10 mt-5">
-          <div className="h-2.5 w-full overflow-hidden rounded-full bg-ink-muted/80">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-gold-deep via-gold to-gold-light transition-all duration-500"
-              style={{ width: `${percentCollected}%` }}
-            />
+        {period ? (
+          <PeriodProgress data={period} />
+        ) : (
+          <div className="relative z-10 mt-5">
+            <ProgressBar percent={percentCollected} />
+            <div className="mt-2 flex items-center justify-between text-xs text-paper/60">
+              <span>
+                {money.overdueOperators > 0
+                  ? `${money.overdueOperators} operator${money.overdueOperators === 1 ? "" : "s"} with unpaid balances`
+                  : "All expected balances settled"}
+              </span>
+              <span className="font-bold text-gold-light">{percentCollected}%</span>
+            </div>
           </div>
-          <div className="mt-2 flex items-center justify-between text-xs text-paper/60">
-            <span>
-              {money.overdueOperators > 0
-                ? `${money.overdueOperators} operator${money.overdueOperators === 1 ? "" : "s"} with unpaid balances`
-                : "All expected balances settled"}
-            </span>
-            <span className="font-bold text-gold-light">{percentCollected}%</span>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );
+}
+
+const PULSE_OPTIONS = [
+  ["today", "Today"],
+  ["week", "This week"],
+  ["month", "This month"],
+] as const;
+
+function ProgressBar({ percent }: { percent: number }) {
+  return (
+    <div className="h-2.5 w-full overflow-hidden rounded-full bg-ink-muted/80">
+      <div
+        className="h-full rounded-full bg-gradient-to-r from-gold-deep via-gold to-gold-light transition-all duration-500"
+        style={{ width: `${percent}%` }}
+      />
+    </div>
+  );
+}
+
+function PeriodFigures({ data }: { data: FleetPeriod }) {
+  const { balances, period } = data;
+  const label = period.kind === "week" ? "This week" : "This month";
+  return (
+    <div>
+      <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-gold uppercase">
+        <TrendingUp size={15} />
+        <span>
+          Financial Pulse • {label} since {formatDate(period.soFar.from)}
+        </span>
+      </div>
+      <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
+        {formatNaira(balances.paidKobo)}
+      </div>
+      <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-paper/75">
+        <span>Paid of {formatNaira(balances.dueKobo)} due</span>
+        <span>•</span>
+        <span className="font-semibold text-paper/90">{paidPercent(balances)}% paid</span>
+      </div>
+      <div className="mt-1 text-sm text-paper/75">{comparison(data)}</div>
+    </div>
+  );
+}
+
+function PeriodProgress({ data }: { data: FleetPeriod }) {
+  const { balances, period, received } = data;
+  const percent = paidPercent(balances);
+  const which = period.kind === "week" ? "this week" : "this month";
+  return (
+    <div className="relative z-10 mt-5">
+      <ProgressBar percent={percent} />
+      <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs text-paper/60">
+        {balances.owedKobo > 0 ? (
+          <Link
+            href={`/arrears?from=${period.soFar.from}&to=${period.soFar.to}`}
+            className="font-semibold text-paper/85 underline underline-offset-2 hover:text-gold-light"
+          >
+            {formatNaira(balances.owedKobo)} still owed for {which}
+          </Link>
+        ) : (
+          <span>Every balance for {which} is paid</span>
+        )}
+        <span>Money received {which}: {formatNaira(received.totalKobo)}</span>
+      </div>
+    </div>
+  );
+}
+
+/** Whole percent of the balances paid, never above 100. Nothing due counts as 100. */
+export const paidPercent = (balances: BalanceTotals) =>
+  balances.dueKobo > 0 ? Math.min(100, Math.floor((balances.paidKobo / balances.dueKobo) * 100)) : 100;
+
+/** Compared with the same point in the period before, for example Monday to Wednesday of last week. */
+export function comparison({ balances, previous, period }: FleetPeriod): string {
+  const last = period.kind === "week" ? "last week" : "last month";
+  if (previous.dueKobo === 0) return `Nothing to compare with ${last} yet`;
+  const difference = balances.paidKobo - previous.paidKobo;
+  if (difference === 0) return `The same as this time ${last}`;
+  return `${formatNaira(Math.abs(difference))} ${difference > 0 ? "more" : "less"} than this time ${last}`;
 }

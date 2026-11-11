@@ -1,0 +1,2 @@
+CREATE INDEX "charges_balance_date_idx" ON "charges" USING btree ("business_date") WHERE "charges"."type" = 'daily_balance';--> statement-breakpoint
+CREATE INDEX "payments_received_by_idx" ON "payments" USING btree ("received_by","business_date");

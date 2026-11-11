@@ -14,9 +14,11 @@ import {
 import { AwardRaceCard } from "@/components/award-tracker";
 import { MoneySummary } from "@/components/money-summary";
 import { LinkButton, PageHeader, StatTile } from "@/components/ui";
+import { parsePulse } from "@/lib/periods";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { getAwardRace } from "@/services/award-tracker";
+import { fleetPeriod } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 import { inspectionToday } from "@/services/inspections";
 import { lowStock } from "@/services/store";
@@ -25,8 +27,10 @@ import { listWorkshop } from "@/services/workshop";
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
   const ctx = await requirePage("dashboard.view");
+  const pulse = parsePulse((await searchParams).pulse);
+  const seesMoney = can(ctx.actor.role, "finance.view");
   const [counts, workshop, low, inspections, race] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
@@ -34,7 +38,9 @@ export default async function DashboardPage() {
     can(ctx.actor.role, "inspection.record") ? inspectionToday(ctx) : null,
     getAwardRace(ctx),
   ]);
-  const money = can(ctx.actor.role, "finance.view") ? await financeOverview(ctx) : null;
+  const [money, period] = seesMoney
+    ? await Promise.all([financeOverview(ctx), pulse === "today" ? null : fleetPeriod(ctx, pulse)])
+    : [null, null];
 
   const inspectionsLeft = inspections
     ? inspections.items.filter((item) => item.washed === null).length
@@ -61,7 +67,7 @@ export default async function DashboardPage() {
         }
       />
 
-      {money ? <MoneySummary money={money} /> : null}
+      {money ? <MoneySummary money={money} period={period} basePath="/dashboard" /> : null}
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-bold uppercase tracking-wider text-muted">

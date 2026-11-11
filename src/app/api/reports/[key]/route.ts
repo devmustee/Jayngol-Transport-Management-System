@@ -2,7 +2,7 @@ import { z } from "zod";
 import { businessDate, systemClock } from "@/lib/clock";
 import { ForbiddenError } from "@/lib/errors";
 import { getActor } from "@/lib/session";
-import { isReportKey, reportCsv, runReport } from "@/services/reports";
+import { isReportKey, parseGrouping, reportCsv, runReport } from "@/services/reports";
 
 const dateOr = (value: string | null, fallback: string) => (z.iso.date().safeParse(value).success ? value! : fallback);
 
@@ -15,11 +15,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ key:
   const today = businessDate(systemClock());
   const [from, to] = [dateOr(query.get("from"), `${today.slice(0, 8)}01`), dateOr(query.get("to"), today)].sort() as [string, string];
   try {
-    const report = await runReport({ actor, clock: systemClock }, key, { from, to });
+    const report = await runReport({ actor, clock: systemClock }, key, { from, to }, parseGrouping(query.get("group")));
+    const grouped = report.groupable ? `-by-${report.group}` : "";
     return new Response(reportCsv(report), {
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="${key}-${from}-to-${to}.csv"`,
+        "Content-Disposition": `attachment; filename="${key}${grouped}-${from}-to-${to}.csv"`,
         "Cache-Control": "private, no-store",
       },
     });

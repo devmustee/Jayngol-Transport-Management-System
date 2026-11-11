@@ -141,6 +141,13 @@
       "when": 1794262086388,
       "tag": "0019_operator_deposit_guarantees",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1794373909073,
+      "tag": "0020_balance_period_indexes",
+      "breakpoints": true
     }
   ]
 }

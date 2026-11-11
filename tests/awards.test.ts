@@ -744,9 +744,6 @@ describe("reports", () => {
 
   it("writes a safe CSV", () => {
     const csv = reportCsv({
-      title: "t",
-      ranged: false,
-      totals: {},
       columns: [
         { key: "name", label: "Name", kind: "text" },
         { key: "amount", label: "Amount", kind: "naira" },

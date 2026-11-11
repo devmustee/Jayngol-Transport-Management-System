@@ -280,7 +280,8 @@ describe("portal login when adding an operator", () => {
 describe("tricycle number formats", () => {
   it("saves the company's formats, correcting spaces and case", async () => {
     const created = await createTricycle(manager, tricycleInput({ registrationNumber: "wkr 275 vc", codeNumber: "gre 4055" }));
-    const listed = await listTricycles(manager);
+    // Search for it: the list is capped, and other test files add tricycles that sort first.
+    const listed = await listTricycles(manager, { q: "WKR-275VC" });
     const row = listed.find((item) => item.id === created!.id);
     expect(row).toMatchObject({ registrationNumber: "WKR-275VC", codeNumber: "GRE,4055" });
   });
