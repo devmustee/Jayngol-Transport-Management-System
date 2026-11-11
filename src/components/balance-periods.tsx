@@ -207,6 +207,18 @@ export function OperatorBalanceCard({
           )}
         </>
       )}
+      {shown.stillToCome.days > 0 ? (
+        <div className="mt-3 rounded-lg border border-line bg-card-subtle px-3 py-2">
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-sm font-semibold text-ink">{kind === "week" ? "Full week" : "Full month"}</span>
+            <span className="text-sm font-bold tabular-nums text-ink">{formatNaira(balances.dueKobo + shown.stillToCome.kobo)}</span>
+          </div>
+          <p className="mt-0.5 text-xs text-muted">
+            Includes {formatNaira(shown.stillToCome.kobo)} for {shown.stillToCome.days} more day
+            {shown.stillToCome.days === 1 ? "" : "s"} still to come at the daily rate. Not owed yet.
+          </p>
+        </div>
+      ) : null}
     </Card>
   );
 }

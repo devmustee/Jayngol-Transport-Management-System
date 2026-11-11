@@ -138,13 +138,55 @@ export async function fleetPeriod(ctx: Ctx, kind: PeriodKind): Promise<FleetPeri
   return { period, balances, previous, received };
 }
 
-export type OperatorPeriod = { period: Period; balances: BalanceTotals };
+export type StillToCome = { days: number; kobo: number };
+
+/**
+ * Balances the operator can expect for the days after today up to `to`, by the
+ * same rules as the night job: no charge on a non-collection day or while the
+ * tricycle is off the road, and each day at the rate in force that day. Only an
+ * operator who still holds a tricycle has days to come. It is an estimate and is
+ * never added to Due.
+ */
+export async function balanceStillToCome(
+  exec: Executor,
+  operatorId: string,
+  today: string,
+  to: string,
+): Promise<StillToCome> {
+  const [row] = (await exec.execute(sql`
+    SELECT COUNT(r.amount_kobo)::int AS days, COALESCE(SUM(r.amount_kobo), 0)::float8 AS kobo
+    FROM assignments a
+    JOIN operators o ON o.id = a.operator_id AND o.status = 'active'
+    CROSS JOIN generate_series(${today}::date + 1, ${to}::date, interval '1 day') AS g(day)
+    CROSS JOIN LATERAL (
+      SELECT br.amount_kobo FROM balance_rates br
+      WHERE br.assignment_id = a.id AND br.effective_from <= g.day::date
+      ORDER BY br.effective_from DESC, br.created_at DESC
+      LIMIT 1
+    ) r
+    WHERE a.operator_id = ${operatorId}
+      AND a.returned_on IS NULL
+      AND a.issued_on < g.day::date
+      AND NOT EXISTS (SELECT 1 FROM non_collection_days n WHERE n.business_date = g.day::date)
+      AND NOT EXISTS (
+        SELECT 1 FROM off_road_periods p
+        WHERE p.tricycle_id = a.tricycle_id AND p.starts_on < g.day::date
+          AND (p.ends_on IS NULL OR p.ends_on >= g.day::date))
+  `)) as unknown as { days: number; kobo: number }[];
+  return { days: num(row?.days), kobo: num(row?.kobo) };
+}
+
+export type OperatorPeriod = { period: Period; balances: BalanceTotals; stillToCome: StillToCome };
 
 async function operatorPeriods(operatorId: string, today: string): Promise<OperatorPeriod[]> {
   return Promise.all(
     (["week", "month"] as const).map(async (kind) => {
       const period = periodOf(kind, today);
-      return { period, balances: await balanceTotals(db, period.soFar, operatorId) };
+      const [balances, stillToCome] = await Promise.all([
+        balanceTotals(db, period.soFar, operatorId),
+        balanceStillToCome(db, operatorId, today, period.full.to),
+      ]);
+      return { period, balances, stillToCome };
     }),
   );
 }

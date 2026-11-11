@@ -1,6 +1,6 @@
 # Jayngol Weekly and Monthly Balance Plan
 
-Status: All four phases are built (`src/lib/periods.ts`, `src/services/balance-periods.ts`, migration `0020_balance_period_indexes`, the dashboard switch, the Money page card, My collections and Collections by cashier on the Cash page, the balance card on the portal and operator profile, and Group by Day / Week / Month on the collections report and its CSV). Nothing is committed yet, and production still needs migration 0020. The week is taken to run Monday to Sunday until decision 1 is made.
+Status: All four phases are built (`src/lib/periods.ts`, `src/services/balance-periods.ts`, migration `0020_balance_period_indexes`, the dashboard switch, the Money page card, My collections and Collections by cashier on the Cash page, the balance card on the portal and operator profile, and Group by Day / Week / Month on the collections report and its CSV). Migration 0020 is applied in production. The four decisions in section 8 are agreed, and the "Full week" line from decision 2 is built.
 
 ## 1. Goal
 
@@ -23,7 +23,7 @@ So the figures exist one day at a time, but nothing adds them up.
 
 | Term | Meaning |
 | --- | --- |
-| Week | Monday to Sunday, using Lagos business dates (decision 1) |
+| Week | Monday to Sunday, using Lagos business dates (decision 1, agreed) |
 | Month | 1st to the last day of the calendar month |
 | This week / this month | From the first day of the period up to today |
 
@@ -101,11 +101,13 @@ The **Daily collections** report gains a **Group by: Day / Week / Month** option
 - **Rate change mid-week:** each day uses the rate in force that day.
 - **Privacy:** an operator cannot see another operator's figures, a cashier sees only their own collections, and a Supervisor sees no amounts.
 
-## 8. Decisions needed
+## 8. Decisions
 
-| # | Question | Recommendation |
-| --- | --- | --- |
-| 1 | Does the week start on Monday or Sunday? | Monday, the common business week in Nigeria |
-| 2 | Should the operator's "This week" show the rest of the week ahead, for example "₦70,000 for the full week"? | Yes, as a separate "Full week" line from the current rate, never mixed into Due |
-| 3 | Should cashiers see fleet-wide totals as well as their own? | Assistant Managers already can. Any later cashier role sees only their own |
-| 4 | Should the Owner's weekly summary in `NOTIFICATION_PLAN.md` use these figures? | Yes, so the summary and the screens always agree |
+All four were agreed as recommended.
+
+| # | Question | Decision | Where it stands |
+| --- | --- | --- | --- |
+| 1 | Does the week start on Monday or Sunday? | Monday, the common business week in Nigeria | Built: weeks run Monday to Sunday |
+| 2 | Should the operator's "This week" show the rest of the week ahead, for example "₦70,000 for the full week"? | Yes, as a separate "Full week" line, never mixed into Due | Built: a "Full week" or "Full month" line on the portal and profile card. It adds the days still to come by the night job's rules (no non-collection or off-road days, each day at its rate) and shows only while days remain and the operator holds a tricycle |
+| 3 | Should cashiers see fleet-wide totals as well as their own? | Assistant Managers see fleet totals. Any later cashier role sees only their own | Built: fleet totals need `finance.view`, My collections needs `payment.record` |
+| 4 | Should the Owner's weekly summary in `NOTIFICATION_PLAN.md` use these figures? | Yes, so the summary and the screens always agree | Noted in `NOTIFICATION_PLAN.md`; applies when the weekly summary is built |

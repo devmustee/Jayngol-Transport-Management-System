@@ -108,7 +108,7 @@ The app checks a small summary endpoint every 60 seconds while the page is visib
 - Payment receipts stay one per payment because they are proof. Repeated reminders of the same kind merge into one line, such as "3 reminders today".
 - A catch-up run of the nightly job never posts about past days, which is already the rule today.
 - The 4 pm inspection reminder goes only to people with inspections still left.
-- The Owner gets critical items only, plus a weekly summary.
+- The Owner gets critical items only, plus a weekly summary. The summary's money figures (Due, Paid, Owed and Received for the week, Monday to Sunday) must come from `fleetPeriod` and `balanceTotals` in `src/services/balance-periods.ts`, so they always match the screens. This was agreed in `BALANCE_PERIODS_PLAN.md`, decision 4.
 - Read items are kept for 12 months, then removed by a monthly job. Announcements and acknowledgements are kept permanently.
 
 ## 8. Reliability and security

@@ -8,6 +8,7 @@ import { ForbiddenError } from "@/lib/errors";
 import { monthEnd, parsePulse, parseRange, periodOf, weekStart } from "@/lib/periods";
 import { changeRate, issueTricycle } from "@/services/assignments";
 import {
+  balanceStillToCome,
   balanceTotals,
   collectionsByCashier,
   fleetPeriod,
@@ -283,6 +284,24 @@ describe("weekly and monthly balances", () => {
     await pay(on(manager, "2028-02-15"), a, "3000", { penaltyAmount: "3000" });
     const week2 = await moneyReceived(db, WEEK2, { operatorId: a });
     expect(week2).toMatchObject({ totalKobo: 300_000, forFinesKobo: 300_000, forBalancesKobo: 0, creditKobo: 0 });
+  });
+
+  it("works out the rest of the week by the night job's rules", async () => {
+    // From Wed 9 Feb: the 10th, 11th and 13th are still to come; the 12th is a holiday.
+    expect(await balanceStillToCome(db, a, "2028-02-09", "2028-02-13")).toEqual({ days: 3, kobo: 3_000_000 });
+    // B's rate goes up to ₦15,000 from the 10th, so every day still to come uses it.
+    expect(await balanceStillToCome(db, b, "2028-02-09", "2028-02-13")).toEqual({ days: 3, kobo: 4_500_000 });
+    // On Sunday nothing is left in the week.
+    expect(await balanceStillToCome(db, a, "2028-02-13", "2028-02-13")).toEqual({ days: 0, kobo: 0 });
+
+    const operatorLogin: Ctx = {
+      actor: { userId: manager.actor.userId, name: "Operator", role: "operator", operatorId: a },
+      clock: () => at("2028-02-09", "18:00"),
+    };
+    const [week, month] = await myBalancePeriods(operatorLogin);
+    expect(week!.stillToCome).toEqual({ days: 3, kobo: 3_000_000 });
+    // 10 to 29 Feb is 20 days, less the holiday on the 12th.
+    expect(month!.stillToCome).toEqual({ days: 19, kobo: 19_000_000 });
   });
 
   it("shows an operator only their own week and month", async () => {
