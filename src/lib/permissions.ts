@@ -11,7 +11,8 @@ const FIELD: readonly Role[] = ["manager", "assistant_manager", "supervisor"];
 
 /**
  * Who may do what (DEVELOPMENT_PLAN.md section 5). The owner appears only on
- * view permissions, which is what makes that login read-only.
+ * view permissions and on checking cash counts, which keeps that login read-only
+ * apart from being a second pair of eyes on the cash.
  */
 const MATRIX = {
   "dashboard.view": STAFF,
@@ -30,6 +31,8 @@ const MATRIX = {
   "payment.backdate": ["manager"],
   "finance.view": ["owner", "manager", "assistant_manager"],
   "cash.close": OFFICE,
+  // A second person recounts each close. The Owner may too, mostly for the Manager's weekly count.
+  "cash.check": ["owner", "manager", "assistant_manager"],
   "money.transfer": OFFICE,
   "bank.reconcile": OFFICE,
   "bank.opening": ["manager"],

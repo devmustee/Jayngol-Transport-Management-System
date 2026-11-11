@@ -8,6 +8,7 @@ import {
   BarChart3,
   BookOpen,
   CalendarDays,
+  CalendarRange,
   ChevronRight,
   CircleDollarSign,
   Clock,
@@ -51,8 +52,8 @@ const FINANCE_SECTIONS = [
       },
       {
         href: "/cash",
-        label: "Daily Cash Close",
-        desc: "Count and balance physical cash drawer",
+        label: "Cash Close",
+        desc: "Assistant Manager closes daily, Manager closes weekly",
         icon: Banknote,
       },
       {
@@ -113,6 +114,12 @@ const FINANCE_SECTIONS = [
   {
     title: "Reports & Governance",
     items: [
+      {
+        href: "/money/year",
+        label: "Annual Balance",
+        desc: "The whole year by month and week, with subtotals and totals",
+        icon: CalendarRange,
+      },
       {
         href: "/reports",
         label: "Financial Reports",

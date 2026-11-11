@@ -126,7 +126,11 @@ export function MoneySummary({
               key={person.name}
               href="/cash"
               icon={Wallet}
-              title={`${person.name} has not closed cash since ${formatDate(person.since)}`}
+              title={
+                person.week
+                  ? `${person.name} has not closed the week's cash (${formatDate(person.week.from)} to ${formatDate(person.week.to)})`
+                  : `${person.name} has not closed cash since ${formatDate(person.since)}`
+              }
               tone="danger"
             />
           ))}

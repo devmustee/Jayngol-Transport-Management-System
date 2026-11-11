@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
 import { bankMovements, cashCloses, cashMovements, users } from "@/db/schema";
+import { closeDueBy, closeRhythm, weekOf } from "@/lib/cash-rhythm";
 import { addDays, businessDate } from "@/lib/clock";
 import { DomainError, fieldError } from "@/lib/errors";
 import { isUuid } from "@/lib/fields";
@@ -110,16 +111,54 @@ export async function takeMoneyOut(tx: Tx, movement: Movement, field = "source")
   await recordMovement(tx, { ...movement, amountKobo: -movement.amountKobo });
 }
 
+/**
+ * The days a count on `date` covers: everything since the person's last count
+ * before that date, with the money in and out on each day that had any.
+ */
+export async function cashSinceLastClose(exec: Executor, custodianId: string, date: string) {
+  const [lastRows, dayRows] = await Promise.all([
+    exec.execute(sql`
+      SELECT c.business_date::text AS date, COALESCE(k.recounted_kobo, c.counted_kobo)::float8 AS held
+      FROM cash_closes c LEFT JOIN cash_close_checks k ON k.close_id = c.id
+      WHERE c.custodian_id = ${custodianId} AND c.business_date < ${date}::date
+      ORDER BY c.business_date DESC LIMIT 1
+    `),
+    exec.execute(sql`
+      SELECT m.business_date::text AS date,
+             COALESCE(SUM(m.amount_kobo) FILTER (WHERE m.amount_kobo > 0), 0)::float8 AS money_in,
+             COALESCE(-SUM(m.amount_kobo) FILTER (WHERE m.amount_kobo < 0), 0)::float8 AS money_out
+      FROM cash_movements m
+      WHERE m.custodian_id = ${custodianId} AND m.business_date <= ${date}::date
+        AND m.business_date > COALESCE((
+          SELECT MAX(c.business_date) FROM cash_closes c
+          WHERE c.custodian_id = ${custodianId} AND c.business_date < ${date}::date), '-infinity'::date)
+      GROUP BY m.business_date ORDER BY m.business_date
+    `),
+  ]);
+  const last = (lastRows as unknown as { date: string; held: number }[])[0] ?? null;
+  const days = (dayRows as unknown as { date: string; money_in: number; money_out: number }[]).map((row) => ({
+    date: row.date,
+    inKobo: row.money_in,
+    outKobo: row.money_out,
+  }));
+  return {
+    lastClose: last ? { date: last.date, heldKobo: last.held } : null,
+    /** The first day this count covers. */
+    from: last ? addDays(last.date, 1) : (days[0]?.date ?? date),
+    days,
+  };
+}
+
 /** What needs someone's attention before the cash trail can be trusted. */
 export async function cashAlerts(exec: Executor, today: string) {
-  const [notClosed, counts] = await Promise.all([
+  const [unclosed, counts] = await Promise.all([
     exec.execute(sql`
-      SELECT u.name, MIN(m.business_date)::text AS since
+      SELECT u.name, u.role::text AS role, MIN(m.business_date)::text AS since
       FROM cash_movements m JOIN users u ON u.id = m.custodian_id
       WHERE m.business_date < ${today}::date
         AND m.business_date > COALESCE(
           (SELECT MAX(c.business_date) FROM cash_closes c WHERE c.custodian_id = m.custodian_id), '-infinity'::date)
-      GROUP BY u.id, u.name ORDER BY u.name
+      GROUP BY u.id, u.name, u.role ORDER BY u.name
     `),
     exec.execute(sql`
       SELECT
@@ -131,8 +170,14 @@ export async function cashAlerts(exec: Executor, today: string) {
     `),
   ]);
   const row = (counts as unknown as { closes: number; handovers: number; bank: number }[])[0];
+  // The Assistant Manager is late the morning after a day not closed. The Manager
+  // closes weekly and is late from Tuesday if last week is not closed.
+  const cashNotClosed = (unclosed as unknown as { name: string; role: string; since: string }[])
+    .map((person) => ({ ...person, rhythm: closeRhythm(person.role) }))
+    .filter((person) => person.since <= closeDueBy(person.rhythm, today))
+    .map(({ name, since, rhythm }) => ({ name, since, rhythm, week: rhythm === "week" ? weekOf(since) : null }));
   return {
-    cashNotClosed: notClosed as unknown as { name: string; since: string }[],
+    cashNotClosed,
     closesToCheck: row?.closes ?? 0,
     handoversWaiting: row?.handovers ?? 0,
     bankToCheck: row?.bank ?? 0,

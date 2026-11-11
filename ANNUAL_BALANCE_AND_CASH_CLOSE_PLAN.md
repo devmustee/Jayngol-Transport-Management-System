@@ -1,6 +1,6 @@
 # Jayngol Annual Balance and Cash Close Plan
 
-Status: Not started. There are two parts:
+Status: Built (12 Nov 2026) with the recommended decisions: weeks are split at month ends, the year runs January to December, the Manager's week ends on Sunday with the alert from Tuesday, the rhythm follows the role, and the Owner can check counts. Operators seeing their own year (A2) is left for later. Covered by tests/annual-balance.test.ts. There are two parts:
 
 - **Part A:** a new Annual balance page.
 - **Part B:** a change to how often each person closes their cash.

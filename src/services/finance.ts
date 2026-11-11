@@ -11,7 +11,8 @@ import {
   users,
   violations,
 } from "@/db/schema";
-import { businessDate } from "@/lib/clock";
+import { closeRhythm, coverageLabel } from "@/lib/cash-rhythm";
+import { addDays, businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import { dateField, idField, nairaField, optionalText, requiredText } from "@/lib/fields";
 import type { DateRange } from "@/lib/periods";
@@ -19,7 +20,7 @@ import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { awardsToDecide } from "./awards";
-import { cashAlerts, cashPosition, givenOutOn } from "./cash-book";
+import { cashAlerts, cashPosition, cashSinceLastClose, givenOutOn } from "./cash-book";
 import { advanceCounts } from "./expenses";
 import { openCharges, unallocatedPayments } from "./ledger";
 import { lastJobDate } from "./daily-job";
@@ -158,7 +159,7 @@ export async function cashDay(ctx: Ctx, date: string) {
   requirePermission(ctx, "finance.view");
   const [custodians, closes, checks] = await Promise.all([
     db
-      .select({ id: users.id, name: users.name })
+      .select({ id: users.id, name: users.name, role: users.role })
       .from(users)
       .where(sql`${users.role} IN ('manager', 'assistant_manager') AND ${users.status} = 'active'`)
       .orderBy(asc(users.name)),
@@ -171,10 +172,16 @@ export async function cashDay(ctx: Ctx, date: string) {
   ]);
   return Promise.all(
     custodians.map(async (person) => {
-      const { openingKobo, movedKobo } = await cashPosition(db, person.id, date);
+      const [{ openingKobo, movedKobo }, covers] = await Promise.all([
+        cashPosition(db, person.id, date),
+        cashSinceLastClose(db, person.id, date),
+      ]);
       const close = closes.find((c) => c.custodianId === person.id) ?? null;
       return {
         ...person,
+        rhythm: closeRhythm(person.role),
+        /** The days a count on this date covers, from the last count. */
+        covers,
         openingKobo,
         movedKobo,
         expectedKobo: openingKobo + movedKobo,
@@ -188,20 +195,27 @@ export async function cashDay(ctx: Ctx, date: string) {
 /** Counts still waiting for a second person, oldest first. */
 export async function uncheckedCloses(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
-  const rows = await db.execute(sql`
-    SELECT c.id, c.business_date::text AS date, u.name
+  const rows = (await db.execute(sql`
+    SELECT c.id, c.business_date::text AS date, u.name, u.role::text AS role,
+           (SELECT MAX(p.business_date) FROM cash_closes p
+            WHERE p.custodian_id = c.custodian_id AND p.business_date < c.business_date)::text AS previous,
+           (SELECT MIN(m.business_date) FROM cash_movements m
+            WHERE m.custodian_id = c.custodian_id AND m.business_date <= c.business_date)::text AS first_moved
     FROM cash_closes c JOIN users u ON u.id = c.custodian_id
     WHERE NOT EXISTS (SELECT 1 FROM cash_close_checks k WHERE k.close_id = c.id)
     ORDER BY c.business_date LIMIT 60
-  `);
-  return rows as unknown as { id: string; date: string; name: string }[];
+  `)) as unknown as { id: string; date: string; name: string; role: string; previous: string | null; first_moved: string | null }[];
+  return rows.map((row) => {
+    const from = row.previous ? addDays(row.previous, 1) : (row.first_moved ?? row.date);
+    return { id: row.id, date: row.date, name: row.name, label: coverageLabel(from, row.date, closeRhythm(row.role)) };
+  });
 }
 
 const checkSchema = z.object({ recounted: nairaField("Cash recounted"), note: optionalText() });
 
 /** The person who counted cannot also check. A different recount becomes the amount carried forward. */
 export async function checkCashClose(ctx: Ctx, rawId: unknown, raw: unknown) {
-  requirePermission(ctx, "cash.close");
+  requirePermission(ctx, "cash.check");
   const id = parseInput(idField("cash count"), rawId);
   const input = parseInput(checkSchema, raw);
   await db.transaction(async (tx) => {

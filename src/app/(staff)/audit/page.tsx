@@ -47,7 +47,7 @@ const ACTIONS: Record<string, string> = {
   "payment.record": "Recorded a payment",
   "payment.record_backdated": "Recorded a backdated payment",
   "payment.reverse": "Reversed a payment",
-  "cash.close": "Closed daily cash",
+  "cash.close": "Closed cash",
   "violation.auto_fine": "Late-balance fine added",
   "violation.propose": "Raised an offence",
   "violation.confirm": "Confirmed an offence",
