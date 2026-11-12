@@ -12,6 +12,7 @@ import {
   balanceTotals,
   collectionsByCashier,
   fleetPeriod,
+  fleetToday,
   moneyReceived,
   myBalancePeriods,
   myCollections,
@@ -227,6 +228,15 @@ describe("weekly and monthly balances", () => {
     expect(fleet.balances.dueKobo).toBe(due);
     expect(fleet.balances.paidKobo).toBe(paid);
     expect(charged.map((row) => row.id)).toEqual(expect.arrayContaining([a, b, c, d]));
+  });
+
+  it("gives today's due, received and remaining, which add up", async () => {
+    const day = "2028-02-13";
+    const today = await fleetToday(on(manager, day, "18:00"));
+    expect(today.date).toBe(day);
+    expect(today.balances).toEqual(await balanceTotals(db, { from: day, to: day }));
+    expect(today.balances.paidKobo + today.balances.owedKobo).toBe(today.balances.dueKobo);
+    expect(today.received).toEqual(await moneyReceived(db, { from: day, to: day }));
   });
 
   it("gives the same totals in the collections report as on the screens", async () => {

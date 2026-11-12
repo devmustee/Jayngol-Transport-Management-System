@@ -546,7 +546,7 @@ describe("today list and coverage", () => {
     expect(items.some((i) => i.tricycleId === b.tricycle.id)).toBe(false);
   });
 
-  it("counts coverage by supervisor, and hides the report from supervisors", async () => {
+  it("counts coverage by supervisor, and lets supervisors read the report", async () => {
     const a = await held();
     const b = await held();
     const date = "2026-11-02";
@@ -561,6 +561,7 @@ describe("today list and coverage", () => {
     expect(report.missed.some((m) => m.tricycleId === b.tricycle.id)).toBe(true);
     expect(report.missed.some((m) => m.tricycleId === a.tricycle.id)).toBe(false);
     expect(report.bySupervisor.some((s) => s.name === supervisor.actor.name && s.total >= 1)).toBe(true);
-    await expect(inspectionCoverage(on(supervisor, TODAY), { date })).rejects.toBeInstanceOf(ForbiddenError);
+    const seen = await inspectionCoverage(on(supervisor, TODAY), { date });
+    expect(seen.bySupervisor.some((s) => s.name === supervisor.actor.name)).toBe(true);
   });
 });

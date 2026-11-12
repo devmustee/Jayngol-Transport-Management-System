@@ -16,7 +16,6 @@ import {
   FileSpreadsheet,
   HandCoins,
   Landmark,
-  Plus,
   Receipt,
   Scale,
   ShieldAlert,
@@ -29,7 +28,7 @@ import { METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { parsePulse } from "@/lib/periods";
 import { requirePage } from "@/lib/session";
-import { fleetPeriod } from "@/services/balance-periods";
+import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Money" };
@@ -145,10 +144,11 @@ const FINANCE_SECTIONS = [
 export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
   const ctx = await requirePage("finance.view");
   const pulse = parsePulse((await searchParams).pulse);
-  const [money, week, month] = await Promise.all([
+  const [money, week, month, today] = await Promise.all([
     financeOverview(ctx),
     fleetPeriod(ctx, "week"),
     fleetPeriod(ctx, "month"),
+    pulse === "today" ? fleetToday(ctx) : null,
   ]);
 
   return (
@@ -157,22 +157,14 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         title="Money"
         subtitle="Collections, cash and arrears"
         action={
-          <>
-            <LinkButton href="/money/year">
-              <CalendarRange size={16} />
-              <span>Annual balance</span>
-            </LinkButton>
-            {money.canCollect ? (
-              <LinkButton href="/payments/new" variant="gold">
-                <Plus size={16} />
-                <span>Take payment</span>
-              </LinkButton>
-            ) : null}
-          </>
+          <LinkButton href="/money/year">
+            <CalendarRange size={16} />
+            <span>Annual balance</span>
+          </LinkButton>
         }
       />
 
-      <MoneySummary money={money} period={pulse === "week" ? week : pulse === "month" ? month : null} basePath="/money" />
+      <MoneySummary money={money} period={pulse === "week" ? week : pulse === "month" ? month : null} today={today} basePath="/money" />
 
       {/* Collection Methods */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm">

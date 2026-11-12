@@ -24,10 +24,18 @@ export function CountUp({ kobo, id }: { kobo: number; id: string }) {
       from = seen === null ? 0 : Number(seen);
       sessionStorage.setItem(key, String(kobo));
     } catch {
+      from = kobo;
+    }
+    // Nothing to count, or the effect ran again (React does this in development):
+    // always settle on the real figure.
+    if (
+      from === kobo ||
+      !Number.isFinite(from) ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      setShown(kobo);
       return;
     }
-    if (from === kobo || !Number.isFinite(from)) return;
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
     const start = performance.now();
     const step = (now: number) => {

@@ -45,7 +45,7 @@ const MATRIX = {
   "violation.raise": FIELD,
   "violation.confirm": OFFICE,
   "inspection.record": FIELD,
-  "inspection.report": ["owner", "manager", "assistant_manager"],
+  "inspection.report": ["owner", "manager", "assistant_manager", "supervisor"],
   "meeting.view": STAFF,
   "meeting.schedule": ["manager"],
   "meeting.attendance": FIELD,

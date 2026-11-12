@@ -18,7 +18,7 @@ import { parsePulse } from "@/lib/periods";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { getAwardRace } from "@/services/award-tracker";
-import { fleetPeriod } from "@/services/balance-periods";
+import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 import { inspectionToday } from "@/services/inspections";
 import { lowStock } from "@/services/store";
@@ -31,7 +31,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("dashboard.view");
   const pulse = parsePulse((await searchParams).pulse);
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [counts, workshop, low, inspections, race, money, period] = await Promise.all([
+  const [counts, workshop, low, inspections, race, money, period, today] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
@@ -39,6 +39,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     getAwardRace(ctx),
     seesMoney ? financeOverview(ctx) : null,
     seesMoney && pulse !== "today" ? fleetPeriod(ctx, pulse) : null,
+    seesMoney && pulse === "today" ? fleetToday(ctx) : null,
   ]);
 
   const inspectionsLeft = inspections
@@ -66,7 +67,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         }
       />
 
-      {money ? <MoneySummary money={money} period={period} basePath="/dashboard" /> : null}
+      {money ? <MoneySummary money={money} period={period} today={today} basePath="/dashboard" /> : null}
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted">

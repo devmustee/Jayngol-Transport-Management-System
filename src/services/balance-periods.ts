@@ -126,6 +126,21 @@ export type FleetPeriod = {
   received: MoneyReceived;
 };
 
+export type FleetDay = {
+  date: string;
+  balances: BalanceTotals;
+  received: MoneyReceived;
+};
+
+/** Whole-fleet figures for today: what is due, what has been paid towards it, and all money in. */
+export async function fleetToday(ctx: Ctx): Promise<FleetDay> {
+  requirePermission(ctx, "finance.view");
+  const date = businessDate(ctx.clock());
+  const range = { from: date, to: date };
+  const [balances, received] = await Promise.all([balanceTotals(db, range), moneyReceived(db, range)]);
+  return { date, balances, received };
+}
+
 /** Whole-fleet figures for this week or month so far. */
 export async function fleetPeriod(ctx: Ctx, kind: PeriodKind): Promise<FleetPeriod> {
   requirePermission(ctx, "finance.view");

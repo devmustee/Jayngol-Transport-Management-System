@@ -5,6 +5,8 @@ const dateFormat = new Intl.DateTimeFormat("en-GB", {
   timeZone: "UTC",
 });
 
+const shortDateFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+
 const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
   month: "short",
@@ -16,6 +18,9 @@ const dateTimeFormat = new Intl.DateTimeFormat("en-GB", {
 
 /** Formats a YYYY-MM-DD business date. */
 export const formatDate = (date: string) => dateFormat.format(new Date(`${date}T00:00:00Z`));
+
+/** A business date without the year, for example "9 Nov". */
+export const formatShortDate = (date: string) => shortDateFormat.format(new Date(`${date}T00:00:00Z`));
 
 export const formatDateTime = (at: Date) => dateTimeFormat.format(at);
 
