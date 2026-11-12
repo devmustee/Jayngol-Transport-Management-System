@@ -28,8 +28,9 @@
   --color-line-strong: #d3c8ab;
 
   /* Used across cards and buttons; without these the classes do nothing. */
-  --shadow-premium: 0 1px 2px rgb(26 21 12 / 0.04), 0 4px 14px -6px rgb(26 21 12 / 0.1);
-  --shadow-gold-sm: 0 2px 10px -3px rgb(201 151 28 / 0.45);
+  /* Clean surfaces: a hairline lift only, never a glow. */
+  --shadow-premium: 0 1px 2px rgb(26 21 12 / 0.04);
+  --shadow-gold-sm: none;
 
   --animate-sheet-up: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-fade-in: fade-in 0.18s ease-out;
@@ -263,7 +264,7 @@ details > summary::-webkit-details-marker {
   @apply font-semibold text-ink tabular-nums lg:text-sm;
 }
 .yr-strong {
-  @apply font-extrabold;
+  @apply font-semibold;
 }
 .yr-bad {
   @apply text-danger;

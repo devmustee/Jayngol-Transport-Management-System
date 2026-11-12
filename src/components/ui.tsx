@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, LucideIcon, Search } from "lucide-react";
+import { ArrowLeft, ChevronDown, Inbox, LucideIcon, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -28,11 +28,11 @@ export function PageHeader({
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="min-w-0 flex-[1_1_16rem]">
-          <h1 className="text-[1.6rem] leading-tight font-extrabold tracking-tight text-ink md:text-3xl">
+          <h1 className="text-2xl leading-tight font-bold tracking-tight text-ink md:text-[1.75rem]">
             {title}
           </h1>
           {subtitle ? (
-            <div className="mt-1 text-sm font-medium leading-snug text-muted md:text-base">{subtitle}</div>
+            <div className="mt-1 text-sm leading-snug text-muted">{subtitle}</div>
           ) : null}
         </div>
         {action ? <div className="flex flex-wrap items-center gap-2">{action}</div> : null}
@@ -55,11 +55,11 @@ export function Card({
   className?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-line bg-card p-4 shadow-premium sm:p-5 ${className}`}>
+    <section className={`rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>
       {title ? (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-line/60 pb-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
-            <h2 className="text-lg font-bold leading-snug tracking-tight text-ink">{title}</h2>
+            <h2 className="text-base font-semibold leading-snug text-ink">{title}</h2>
             {subtitle ? <p className="mt-0.5 text-xs leading-relaxed text-muted">{subtitle}</p> : null}
           </div>
           {action}
@@ -82,15 +82,15 @@ export function LinkButton({
   className?: string;
 }) {
   const base =
-    "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-semibold text-sm transition-all duration-150 active:scale-[0.98] select-none";
+    "inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-5 py-2.5 font-semibold text-sm transition-colors duration-150 active:scale-[0.98] select-none";
 
   const variants = {
     primary:
-      "bg-ink text-gold-light hover:bg-ink-soft hover:shadow-md border border-ink-muted/40",
+      "bg-ink text-paper hover:bg-ink-soft",
     gold:
-      "bg-gradient-to-r from-gold to-gold-light text-ink shadow-gold-sm hover:brightness-105 font-bold",
+      "bg-gold text-ink hover:bg-gold-light",
     secondary:
-      "bg-card border border-line-strong text-ink hover:bg-gold-wash hover:border-gold-deep/50",
+      "bg-card border border-line text-ink hover:border-line-strong hover:bg-card-subtle",
     danger:
       "bg-danger-wash text-danger border border-danger-border hover:bg-danger/10",
     quiet:
@@ -105,12 +105,12 @@ export function LinkButton({
 }
 
 const TONES = {
-  good: "bg-ok-wash text-ok border-ok-border",
-  gold: "bg-gold-wash text-gold-deep border-gold-light/60",
-  bad: "bg-danger-wash text-danger border-danger-border",
-  plain: "bg-line/40 text-muted border-line",
-  warning: "bg-warning-wash text-warning border-warning-border",
-  info: "bg-info-wash text-info border-info-border",
+  good: "bg-ok-wash text-ok",
+  gold: "bg-gold-wash text-gold-deep",
+  bad: "bg-danger-wash text-danger",
+  plain: "bg-line/40 text-muted",
+  warning: "bg-warning-wash text-warning",
+  info: "bg-info-wash text-info",
 } as const;
 
 export function Badge({
@@ -124,7 +124,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold tracking-wide whitespace-nowrap uppercase ${TONES[tone]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${TONES[tone]}`}
     >
       {dot ? (
         <span
@@ -167,42 +167,33 @@ export function StatTile({
   subtext?: string;
 }) {
   const iconTones = {
-    good: "bg-ok-wash text-ok border-ok-border/60",
-    bad: "bg-danger-wash text-danger border-danger-border/60",
-    warning: "bg-warning-wash text-warning border-warning-border/60",
-    gold: "bg-gold-wash text-gold-deep border-gold-light/60",
-    plain: "bg-line/40 text-muted border-line",
-    info: "bg-info-wash text-info border-info-border/60",
+    good: "text-ok",
+    bad: "text-danger",
+    warning: "text-warning",
+    gold: "text-gold-deep",
+    plain: "text-muted",
+    info: "text-info",
   };
 
   return (
     <Link
       href={href}
-      className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-line bg-card p-4.5 shadow-premium transition-all duration-200 hover:-translate-y-0.5 hover:border-gold hover:shadow-md"
+      className="group relative flex flex-col justify-between overflow-hidden rounded-2xl border border-line bg-card p-4.5 transition-colors duration-150 hover:border-line-strong active:scale-[0.99]"
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm font-semibold text-muted transition-colors group-hover:text-ink">
+        <span className="text-sm text-muted">
           {label}
         </span>
         {Icon ? (
-          <div
-            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${iconTones[tone]} transition-transform duration-200 group-hover:scale-110`}
-          >
-            <Icon size={18} aria-hidden />
-          </div>
+          <Icon size={18} aria-hidden className={`shrink-0 ${iconTones[tone]}`} />
         ) : null}
       </div>
 
       <div className="mt-3">
-        <div className="text-3xl font-extrabold tracking-tight tabular-nums text-ink md:text-4xl">
+        <div className="text-3xl font-semibold tracking-tight tabular-nums text-ink">
           {value}
         </div>
-        {subtext ? <div className="mt-1 text-xs font-medium text-muted">{subtext}</div> : null}
-      </div>
-
-      <div className="mt-3 hidden items-center gap-1 text-xs font-bold text-gold-deep opacity-0 transition-opacity duration-150 group-hover:opacity-100 md:flex">
-        <span>View details</span>
-        <span aria-hidden>→</span>
+        {subtext ? <div className="mt-1 text-xs text-muted">{subtext}</div> : null}
       </div>
     </Link>
   );
@@ -210,11 +201,11 @@ export function StatTile({
 
 export function Details({ rows }: { rows: [string, ReactNode][] }) {
   return (
-    <dl className="divide-y divide-line/70 rounded-xl border border-line/60 bg-card-subtle/50 px-4">
+    <dl className="divide-y divide-line/70">
       {rows.map(([label, value]) => (
-        <div key={label} className="flex justify-between gap-4 py-3">
-          <dt className="shrink-0 text-sm font-medium text-muted">{label}</dt>
-          <dd className="min-w-0 text-right text-sm font-semibold text-ink [overflow-wrap:anywhere]">{value ?? "—"}</dd>
+        <div key={label} className="flex justify-between gap-4 py-3 first:pt-1 last:pb-1">
+          <dt className="shrink-0 text-sm text-muted">{label}</dt>
+          <dd className="min-w-0 text-right text-sm font-medium text-ink [overflow-wrap:anywhere]">{value ?? "—"}</dd>
         </div>
       ))}
     </dl>
@@ -229,11 +220,9 @@ export function Empty({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-line bg-card/60 px-5 py-8 text-center">
-      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-gold-wash text-gold-deep mb-3">
-        <Search size={22} />
-      </div>
-      <p className="max-w-md text-sm font-medium text-muted">{children}</p>
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-line bg-card px-5 py-10 text-center">
+      <Inbox size={22} className="mb-2 text-muted/70" aria-hidden />
+      <p className="max-w-md text-sm text-muted">{children}</p>
       {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
@@ -242,12 +231,10 @@ export function Empty({
 /** A form tucked behind a heading, so long pages stay short on a phone. */
 export function Disclosure({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <details className="group rounded-2xl border border-line bg-card shadow-premium transition-colors">
-      <summary className="flex min-h-12 items-center justify-between gap-3 rounded-2xl px-4 py-3 font-bold text-ink transition-colors hover:bg-gold-wash/50 group-open:rounded-b-none sm:px-5">
+    <details className="group rounded-2xl border border-line bg-card">
+      <summary className="flex min-h-12 items-center justify-between gap-3 rounded-2xl px-4 py-3 font-semibold text-ink transition-colors hover:bg-card-subtle group-open:rounded-b-none sm:px-5">
         <span className="min-w-0">{label}</span>
-        <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-line/50 text-gold-deep transition-transform duration-200 group-open:rotate-180">
-          <ChevronDown size={18} aria-hidden />
-        </div>
+        <ChevronDown size={18} aria-hidden className="shrink-0 text-muted transition-transform duration-200 group-open:rotate-180" />
       </summary>
       <div className="border-t border-line/70 p-4 sm:p-5">{children}</div>
     </details>
@@ -296,7 +283,7 @@ export function SearchBar({
           </option>
         ))}
       </select>
-      <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-ink px-5 font-bold text-sm text-gold-light transition-all hover:bg-ink-soft active:scale-[0.98]">
+      <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-ink px-5 font-semibold text-sm text-paper transition-colors hover:bg-ink-soft active:scale-[0.98]">
         Search
       </button>
     </form>

@@ -17,7 +17,7 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
   return (
     <div className="flex items-baseline justify-between gap-3 py-1.5">
       <dt className="text-sm text-muted">{label}</dt>
-      <dd className={`tabular-nums ${strong ? "text-base font-extrabold text-ink" : "text-sm font-semibold text-ink"}`}>{value}</dd>
+      <dd className={`tabular-nums ${strong ? "text-base font-semibold text-ink" : "text-sm font-semibold text-ink"}`}>{value}</dd>
     </div>
   );
 }
@@ -29,14 +29,14 @@ function Column({ data }: { data: FleetPeriod }) {
   return (
     <div className="min-w-0 rounded-xl border border-line bg-card-subtle p-4">
       <div className="flex items-baseline justify-between gap-2">
-        <h3 className="font-extrabold text-ink">{title}</h3>
+        <h3 className="font-semibold text-ink">{title}</h3>
         <span className="text-xs text-muted">
           {formatDate(period.soFar.from)} to {formatDate(period.soFar.to)}
         </span>
       </div>
 
       <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-line">
-        <div className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
+        <div className="h-full origin-left animate-fill rounded-full bg-gold" style={{ width: `${percent}%` }} />
       </div>
       <p className="mt-1.5 text-xs text-muted">
         {percent}% paid · {comparison(data)}
@@ -51,7 +51,7 @@ function Column({ data }: { data: FleetPeriod }) {
             className="group -mx-1 flex min-h-11 items-center justify-between gap-3 rounded-lg px-1 hover:bg-gold-wash"
           >
             <span className="text-sm font-semibold text-danger">Owed</span>
-            <span className="flex items-center gap-1 text-base font-extrabold tabular-nums text-danger">
+            <span className="flex items-center gap-1 text-base font-semibold tabular-nums text-danger">
               {formatNaira(balances.owedKobo)}
               <ChevronRight size={16} className="transition-transform group-hover:translate-x-0.5" />
             </span>
@@ -61,14 +61,14 @@ function Column({ data }: { data: FleetPeriod }) {
         )}
       </dl>
 
-      <h4 className="mt-4 text-xs font-bold uppercase tracking-wider text-muted">Money received</h4>
+      <h4 className="mt-4 text-xs font-medium text-muted">Money received</h4>
       <dl className="mt-1 divide-y divide-line/60">
         <Row label="Total" value={formatNaira(received.totalKobo)} strong />
         <Row label="Cash" value={formatNaira(received.byMethod.cash)} />
         <Row label="POS" value={formatNaira(received.byMethod.pos)} />
         <Row label="Transfer" value={formatNaira(received.byMethod.transfer)} />
       </dl>
-      <h4 className="mt-4 text-xs font-bold uppercase tracking-wider text-muted">What it paid for</h4>
+      <h4 className="mt-4 text-xs font-medium text-muted">What it paid for</h4>
       <dl className="mt-1 divide-y divide-line/60">
         <Row label="Balances" value={formatNaira(received.forBalancesKobo)} />
         <Row label="Fines" value={formatNaira(received.forFinesKobo)} />
@@ -84,8 +84,8 @@ function TakingsTile({ label, money }: { label: string; money: MoneyReceived }) 
     <div className="min-w-0 rounded-xl border border-line bg-card-subtle p-3.5">
       {/* A phone shows the label and total on one line, then the three methods side by side. */}
       <div className="flex items-baseline justify-between gap-3 sm:block">
-        <div className="text-xs font-bold uppercase tracking-wider text-muted">{label}</div>
-        <div className="text-xl font-black tabular-nums text-ink sm:mt-1">{formatNaira(money.totalKobo)}</div>
+        <div className="text-xs font-medium text-muted">{label}</div>
+        <div className="text-xl font-semibold tabular-nums text-ink sm:mt-1">{formatNaira(money.totalKobo)}</div>
       </div>
       <dl className="mt-2 grid grid-cols-3 gap-2 text-xs text-muted sm:grid-cols-1 sm:gap-0.5">
         {(["cash", "pos", "transfer"] as const).map((method) => (
@@ -138,7 +138,7 @@ export function CashierTakingsCard({ rows }: { rows: CashierTakings[] }) {
         <div className="-mx-1 hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[20rem] text-sm">
             <thead>
-              <tr className="text-left text-xs font-bold uppercase tracking-wider text-muted">
+              <tr className="text-left text-xs font-medium text-muted">
                 <th scope="col" className="px-1 pb-2">Cashier</th>
                 <th scope="col" className="px-1 pb-2 text-right">Today</th>
                 <th scope="col" className="px-1 pb-2 text-right">This week</th>
@@ -206,7 +206,7 @@ export function OperatorBalanceCard({
       ) : (
         <>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-line">
-            <div className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
+            <div className="h-full origin-left animate-fill rounded-full bg-gold" style={{ width: `${percent}%` }} />
           </div>
           <p className="mt-2 text-sm font-semibold text-ink">
             {balances.daysPaidInFull} of {balances.daysCharged} day{balances.daysCharged === 1 ? "" : "s"} paid in full

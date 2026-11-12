@@ -21,7 +21,7 @@ function Group({ title, rows, canCollect }: { title: string; rows: Row[]; canCol
   return (
     <section aria-label={title}>
       <div className="mb-2 flex items-baseline justify-between gap-3 px-1">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
+        <h2 className="text-sm font-medium text-muted">
           {title} ({rows.length})
         </h2>
         <span className="text-sm font-bold tabular-nums text-ink">{formatNaira(sumOwed(rows))}</span>
@@ -58,7 +58,7 @@ function Group({ title, rows, canCollect }: { title: string; rows: Row[]; canCol
               <Link
                 href={`/payments/new?operator=${r.id}&for=balance`}
                 aria-label={`Take payment from ${r.name}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gradient-to-r from-gold to-gold-light px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
+                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gold px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
               >
                 <Wallet size={16} aria-hidden />
                 Take payment

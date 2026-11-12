@@ -36,106 +36,106 @@ export const metadata: Metadata = { title: "Money" };
 
 const FINANCE_SECTIONS = [
   {
-    title: "Cash Desk & Ledger",
+    title: "Cash and payments",
     items: [
       {
         href: "/payments",
-        label: "Payments & Receipts",
-        desc: "All recorded collections and receipts",
+        label: "Payments",
+        desc: "Every payment and its receipt",
         icon: Receipt,
       },
       {
         href: "/deposits",
-        label: "Operator Deposits",
+        label: "Deposits",
         desc: "Money held for operators, kept apart from collections",
         icon: Wallet,
       },
       {
         href: "/cash",
-        label: "Cash Close",
+        label: "Cash close",
         desc: "Assistant Manager closes daily, Manager closes weekly",
         icon: Banknote,
       },
       {
         href: "/cash-book",
-        label: "Cash Book Ledger",
-        desc: "Chronological cash inflows & outflows",
+        label: "Cash book",
+        desc: "Every naira in and out, by date",
         icon: BookOpen,
       },
       {
         href: "/transfers",
-        label: "Move Money",
+        label: "Move money",
         desc: "Banking cash, staff handovers and cash to the Owner",
         icon: ArrowLeftRight,
       },
       {
         href: "/bank",
-        label: "Bank Check",
+        label: "Bank check",
         desc: "Confirm transfers and reconcile each month",
         icon: Landmark,
       },
       {
         href: "/expenses",
-        label: "Expense Advances",
-        desc: "Operating advances and verified receipts",
+        label: "Expenses",
+        desc: "Advances and their receipts",
         icon: FileSpreadsheet,
       },
       {
         href: "/loans",
-        label: "Operator Loans",
+        label: "Loans",
         desc: "Money lent to operators and what is left to collect",
         icon: HandCoins,
       },
     ],
   },
   {
-    title: "Risk & Compliance",
+    title: "Problems to follow up",
     items: [
       {
         href: "/arrears",
-        label: "Unpaid Balances (Arrears)",
-        desc: "Overdue balances and delinquent accounts",
+        label: "Unpaid balances",
+        desc: "Who owes, and since when",
         icon: Clock,
       },
       {
         href: "/sacking",
-        label: "Sacking Alerts & Appeals",
-        desc: "Drivers reaching 5 unpaid days threshold",
+        label: "Sacking alerts",
+        desc: "Operators at 5 unpaid days, and appeals",
         icon: AlertTriangle,
       },
       {
         href: "/offences",
-        label: "Offences & Fines",
-        desc: "Rule violations and penalty charges",
+        label: "Offences and fines",
+        desc: "Broken rules and their fines",
         icon: Scale,
       },
     ],
   },
   {
-    title: "Reports & Governance",
+    title: "Reports",
     items: [
       {
         href: "/money/year",
-        label: "Annual Balance",
-        desc: "The whole year by month and week, with subtotals and totals",
+        label: "Annual balance",
+        desc: "The year by month and week",
         icon: CalendarRange,
       },
       {
         href: "/reports",
-        label: "Financial Reports",
-        desc: "Monthly summaries and fleet performance",
+        label: "Monthly reports",
+        desc: "Monthly summaries to view or download",
         icon: BarChart3,
       },
       {
         href: "/awards",
-        label: "Driver Excellence Awards",
-        desc: "Reward candidates and bonus distributions",
+        label: "Awards",
+        desc: "Who is close to an award",
         icon: Award,
       },
       {
         href: "/no-balance-days",
-        label: "No-Balance Holidays",
-        desc: "Exempt public holidays from daily balance",
+        label: "No-balance days",
+        desc: "Holidays with no daily balance",
         icon: CalendarDays,
       },
     ],
@@ -154,18 +154,18 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
   return (
     <>
       <PageHeader
-        title="Financial Management"
-        subtitle="Daily cash collection, cashier reconciliation and arrears management"
+        title="Money"
+        subtitle="Collections, cash and arrears"
         action={
           <>
             <LinkButton href="/money/year">
               <CalendarRange size={16} />
-              <span>Annual Balance</span>
+              <span>Annual balance</span>
             </LinkButton>
             {money.canCollect ? (
               <LinkButton href="/payments/new" variant="gold">
                 <Plus size={16} />
-                <span>Take Payment</span>
+                <span>Take payment</span>
               </LinkButton>
             ) : null}
           </>
@@ -177,8 +177,8 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
       {/* Collection Methods */}
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs font-bold uppercase tracking-wider text-muted">
-            Today by Method:
+          <span className="text-xs font-medium text-muted">
+            Today by method:
           </span>
           {money.byMethod.length > 0 ? (
             money.byMethod.map((m) => (
@@ -213,7 +213,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
       <div className="space-y-6">
         {FINANCE_SECTIONS.map((section) => (
           <div key={section.title}>
-            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-muted">
+            <h3 className="mb-3 text-xs font-medium text-muted">
               {section.title}
             </h3>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -223,14 +223,12 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
                   <Link
                     key={item.href}
                     href={item.href}
-                    className="group flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 shadow-premium transition-all duration-150 hover:-translate-y-0.5 hover:border-gold hover:shadow-md"
+                    className="flex min-h-16 items-center justify-between gap-3 rounded-2xl border border-line bg-card p-4 transition-colors duration-150 hover:border-line-strong hover:bg-card-subtle"
                   >
                     <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gold-wash/50 border border-gold-light/40 text-gold-deep transition-transform group-hover:scale-105">
-                        <Icon size={19} />
-                      </div>
+                      <Icon size={19} aria-hidden className="shrink-0 text-muted" />
                       <div className="min-w-0">
-                        <div className="font-extrabold text-sm text-ink group-hover:text-gold-deep transition-colors">
+                        <div className="text-sm font-medium text-ink">
                           {item.label}
                         </div>
                         <div className="mt-0.5 text-xs leading-snug text-muted">{item.desc}</div>
@@ -238,7 +236,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
                     </div>
                     <ChevronRight
                       size={18}
-                      className="text-muted/60 transition-transform group-hover:translate-x-0.5 group-hover:text-gold-deep shrink-0"
+                      className="shrink-0 text-muted/50"
                     />
                   </Link>
                 );

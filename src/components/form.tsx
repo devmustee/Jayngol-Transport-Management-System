@@ -59,7 +59,7 @@ export function ActionForm({
         {state.error ? (
           <div
             role="alert"
-            className="flex items-center gap-2 rounded-xl border border-danger-border bg-danger-wash px-4 py-3 text-sm font-semibold text-danger shadow-sm"
+            className="flex items-center gap-2 rounded-xl border border-danger-border bg-danger-wash px-4 py-3 text-sm font-medium text-danger"
           >
             <AlertCircle size={18} className="shrink-0" />
             <span>{state.error}</span>
@@ -68,7 +68,7 @@ export function ActionForm({
         {state.message ? (
           <div
             role="status"
-            className="flex items-center gap-2 rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-semibold text-ok shadow-sm"
+            className="flex items-center gap-2 rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-medium text-ok"
           >
             <CheckCircle2 size={18} className="shrink-0" />
             <span>{state.message}</span>
@@ -105,7 +105,7 @@ function Wrapper({
   const error = useContext(FormContext).state.fieldErrors?.[name];
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-bold text-ink">
+      <label htmlFor={name} className="block text-sm font-medium text-ink">
         {label}
       </label>
       {children}
@@ -180,18 +180,18 @@ export function SubmitButton({
   }, [state]);
   const style =
     tone === "primary"
-      ? "bg-gradient-to-r from-gold to-gold-light text-ink font-bold shadow-gold-sm hover:brightness-105 border border-gold-deep/20"
-      : "border border-line-strong bg-card text-ink hover:bg-gold-wash";
+      ? "bg-ink text-paper hover:bg-ink-soft"
+      : "border border-line bg-card text-ink hover:border-line-strong hover:bg-card-subtle";
 
   return (
     <button
       type="submit"
       disabled={pending}
-      className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-bold tracking-wide transition-all duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${style} ${className}`}
+      className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold transition-colors duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${style} ${className}`}
     >
       {pending ? (
         <>
-          <Loader2 size={18} className="animate-spin text-ink" />
+          <Loader2 size={18} className="animate-spin" />
           <span>Saving…</span>
         </>
       ) : saved ? (

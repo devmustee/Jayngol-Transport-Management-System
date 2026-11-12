@@ -24,13 +24,13 @@ export default async function OperatorsPage({
   return (
     <>
       <PageHeader
-        title="Fleet Drivers & Operators"
-        subtitle="Driver accounts, daily hire agreements and contact details"
+        title="Operators"
+        subtitle="Everyone who rides a Jayngol tricycle"
         action={
           can(ctx.actor.role, "operator.manage") ? (
             <LinkButton href="/operators/new" variant="gold">
               <Plus size={16} />
-              <span>Add Operator</span>
+              <span>Add operator</span>
             </LinkButton>
           ) : undefined
         }
@@ -44,20 +44,20 @@ export default async function OperatorsPage({
       {rows.length === 0 ? (
         <Empty>No operators match your query.</Empty>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-premium">
+        <div className="overflow-hidden rounded-2xl border border-line bg-card">
           <ul className="divide-y divide-line/60">
             {rows.map((o) => (
               <li key={o.id}>
                 <Link
                   href={`/operators/${o.id}`}
-                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-all duration-150 hover:bg-gold-wash/40"
+                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-card-subtle"
                 >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-deep/20 bg-ink-soft text-sm font-bold text-gold-light transition-transform group-hover:scale-105" aria-hidden>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card-subtle text-muted" aria-hidden>
                     {o.name.charAt(0)}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                      <span className="min-w-0 text-base font-extrabold leading-snug tracking-tight text-ink">{o.name}</span>
+                      <span className="min-w-0 text-base font-semibold leading-snug tracking-tight text-ink">{o.name}</span>
                       <Badge tone={operatorTone(o.status)} dot>
                         {OPERATOR_STATUS_LABELS[o.status]}
                       </Badge>

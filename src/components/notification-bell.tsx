@@ -70,15 +70,17 @@ export function NotificationBell({
   const name = unread === 0 ? "Notifications, none new" : `Notifications, ${unread} new${critical > 0 ? `, ${critical} urgent` : ""}`;
   const base =
     variant === "dark"
-      ? "text-gold-light hover:bg-ink-soft border-gold/30 bg-ink-soft"
-      : "text-ink hover:bg-gold-wash border-line bg-card-subtle";
+      ? label
+        ? "border-transparent text-paper/65 hover:bg-paper/5 hover:text-paper"
+        : "border-transparent bg-paper/10 text-paper hover:bg-paper/15"
+      : "border-line bg-card text-ink hover:bg-card-subtle";
 
   return (
     <Link
       href={href}
       aria-label={name}
       className={`relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2.5 rounded-xl border px-2.5 transition-colors active:scale-95 ${base} ${
-        label ? "w-full justify-start px-3 text-sm font-semibold" : ""
+        label ? "w-full justify-start px-3 text-sm" : "rounded-full"
       }`}
     >
       <Bell key={`bell-${ring}`} size={label ? 18 : 20} aria-hidden className={ring > 0 ? "origin-top animate-bell" : ""} />
@@ -87,7 +89,7 @@ export function NotificationBell({
         <span
           key={`count-${ring}`}
           aria-hidden
-          className={`${ring > 0 ? "animate-pop" : ""} ${label ? "" : "absolute -right-1.5 -top-1.5"} inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-black leading-5 tabular-nums ${
+          className={`${ring > 0 ? "animate-pop" : ""} ${label ? "" : "absolute -right-1.5 -top-1.5"} inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold leading-5 tabular-nums ${
             critical > 0 ? "bg-danger text-white" : "bg-gold text-ink"
           }`}
         >

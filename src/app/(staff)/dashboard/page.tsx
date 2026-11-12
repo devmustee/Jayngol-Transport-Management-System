@@ -49,17 +49,17 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     <>
       <PageHeader
         title={`Welcome, ${ctx.actor.name}`}
-        subtitle="Operations & Fleet Command Center"
+        subtitle="Today at a glance"
         action={
           can(ctx.actor.role, "tricycle.manage") ? (
             <div className="flex flex-wrap items-center gap-2">
               <LinkButton href="/tricycles/new" variant="secondary">
                 <Plus size={16} />
-                <span>Add Tricycle</span>
+                <span>Add tricycle</span>
               </LinkButton>
               <LinkButton href="/operators/new" variant="gold">
                 <Plus size={16} />
-                <span>Add Operator</span>
+                <span>Add operator</span>
               </LinkButton>
             </div>
           ) : null
@@ -69,8 +69,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {money ? <MoneySummary money={money} period={period} basePath="/dashboard" /> : null}
 
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="text-sm font-bold uppercase tracking-wider text-muted">
-          Fleet & Operations Status
+        <h2 className="text-sm font-medium text-muted">
+          Fleet today
         </h2>
         <span className="text-xs text-muted">Live sync</span>
       </div>

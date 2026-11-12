@@ -27,8 +27,8 @@ function Item({ item }: { item: InboxItem }) {
           <Icon size={18} aria-hidden className={`mt-0.5 shrink-0 ${item.readAt ? "text-muted" : severity.style}`} />
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-baseline gap-x-2">
-              <span className={`text-sm ${unread ? "font-extrabold text-ink" : "font-semibold text-ink-muted"}`}>{item.title}</span>
-              {unread ? <span className={`text-[11px] font-bold uppercase tracking-wide ${severity.style}`}>{severity.label}</span> : null}
+              <span className={`text-sm ${unread ? "font-semibold text-ink" : "font-semibold text-ink-muted"}`}>{item.title}</span>
+              {unread ? <span className={`text-xs font-medium ${severity.style}`}>{severity.label}</span> : null}
             </span>
             <span className={`mt-0.5 block text-sm leading-snug ${unread ? "text-ink" : "text-ink-muted"}`}>{item.body}</span>
             <span className="mt-1 block text-xs text-muted">{formatDateTime(item.createdAt)}</span>

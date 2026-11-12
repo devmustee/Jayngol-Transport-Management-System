@@ -24,13 +24,13 @@ export default async function TricyclesPage({
   return (
     <>
       <PageHeader
-        title="Fleet Tricycles"
-        subtitle="Manage fleet assignments, status and registration"
+        title="Tricycles"
+        subtitle="Every tricycle, who has it and what it pays"
         action={
           can(ctx.actor.role, "tricycle.manage") ? (
             <LinkButton href="/tricycles/new" variant="gold">
               <Plus size={16} />
-              <span>Add Tricycle</span>
+              <span>Add tricycle</span>
             </LinkButton>
           ) : undefined
         }
@@ -44,21 +44,21 @@ export default async function TricyclesPage({
       {rows.length === 0 ? (
         <Empty>No tricycles match your search filter.</Empty>
       ) : (
-        <div className="overflow-hidden rounded-2xl border border-line bg-card shadow-premium">
+        <div className="overflow-hidden rounded-2xl border border-line bg-card">
           <ul className="divide-y divide-line/60">
             {rows.map((t) => (
               <li key={t.id}>
                 <Link
                   href={`/tricycles/${t.id}`}
-                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-all duration-150 hover:bg-gold-wash/40"
+                  className="group flex min-h-16 items-center gap-3 px-4 py-3.5 transition-colors duration-150 hover:bg-card-subtle"
                 >
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-gold-light/40 bg-gold-wash/40 text-gold-deep transition-transform group-hover:scale-105" aria-hidden>
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-card-subtle text-muted" aria-hidden>
                     <Bike size={20} />
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                       <span className="flex flex-wrap items-center gap-2">
-                        <span className="text-base font-extrabold tracking-tight text-ink">{t.codeNumber}</span>
+                        <span className="text-base font-semibold tracking-tight text-ink">{t.codeNumber}</span>
                         <span className="rounded-md bg-line/50 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-muted">
                           {t.registrationNumber}
                         </span>

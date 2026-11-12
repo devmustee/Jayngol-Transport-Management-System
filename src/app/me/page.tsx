@@ -69,10 +69,10 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
             alt="Jayngol Logo"
             width={44}
             height={44}
-            className="shrink-0 drop-shadow-sm"
+            className="shrink-0"
           />
           <div className="min-w-0">
-            <h1 className="text-base leading-snug font-extrabold text-ink">{operator.name}</h1>
+            <h1 className="text-base leading-snug font-semibold text-ink">{operator.name}</h1>
             <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
               <Badge tone={operatorTone(operator.status)} dot>
                 {OPERATOR_STATUS_LABELS[operator.status]}
@@ -144,19 +144,19 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
                 <Bike size={20} />
               </div>
               <div>
-                <div className="text-base font-black text-ink">{current.codeNumber}</div>
+                <div className="text-base font-semibold text-ink">{current.codeNumber}</div>
                 <div className="text-xs font-semibold text-muted">{current.registrationNumber}</div>
               </div>
             </div>
             <Details
               rows={[
-                ["Issued Date", formatDate(current.issuedOn)],
+                ["Given to you on", formatDate(current.issuedOn)],
                 [
-                  "Daily Hire Rate",
+                  "Daily balance",
                   dailyBalanceKobo != null ? formatNaira(dailyBalanceKobo) : "—",
                 ],
                 [
-                  "Next Depot Service",
+                  "Next service",
                   service.nextService
                     ? `${formatDate(service.nextService)}, 8:00 to 10:00 am`
                     : "Up to date",
@@ -171,7 +171,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         {/* Deposits */}
         {deposits.items.length > 0 ? (
           <Card title="My deposit" subtitle="Held for you by Jayngol. It does not pay your daily balance.">
-            <div className="mb-3 text-2xl font-extrabold tabular-nums text-ink">{formatNaira(deposits.heldKobo)}</div>
+            <div className="mb-3 text-2xl font-semibold tabular-nums text-ink">{formatNaira(deposits.heldKobo)}</div>
             <ul className="divide-y divide-line/60">
               {deposits.items.map((deposit) => (
                 <li key={deposit.id} className="flex items-start justify-between gap-3 py-2.5 first:pt-0 last:pb-0">
@@ -215,7 +215,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         ) : null}
 
         {/* Rule Offences */}
-        <Card title="Compliance & Fines" subtitle="Recorded rule findings">
+        <Card title="Offences and fines" subtitle="Recorded rule findings">
           {compliance.offences.length === 0 ? (
             <div className="py-2 text-center text-xs font-semibold text-ok">
               ✨ Excellent record! You have zero recorded rule violations.
@@ -262,7 +262,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
 
         {/* Workshop Service History */}
         {service.history.length > 0 ? (
-          <Card title="Service & Maintenance History" subtitle="Recent depot repairs">
+          <Card title="Repairs and servicing" subtitle="Recent depot repairs">
             <ul className="divide-y divide-line/60">
               {service.history.map((work) => (
                 <li key={work.id} className="flex justify-between gap-3 py-2 text-xs">

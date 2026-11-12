@@ -91,7 +91,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
     return (
       <div className="space-y-1">
         {title ? (
-          <div className="px-3 pt-4 pb-1 text-[11px] font-bold uppercase tracking-wider text-paper/40">
+          <div className="px-3 pt-5 pb-1 text-xs text-paper/40">
             {title}
           </div>
         ) : null}
@@ -103,18 +103,14 @@ export function SideNav({ items }: { items: NavItem[] }) {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`group flex min-h-11 items-center gap-3 rounded-xl px-3 font-semibold text-sm transition-all duration-150 ${
-                active
-                  ? "bg-gradient-to-r from-gold to-gold-light text-ink shadow-gold-sm"
-                  : "text-paper/80 hover:bg-ink-soft hover:text-gold-light"
+              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition-colors duration-150 ${
+                active ? "bg-paper/10 font-semibold text-paper" : "text-paper/65 hover:bg-paper/5 hover:text-paper"
               }`}
             >
               <NavIcon
                 icon={Icon}
                 size={19}
-                className={`transition-transform duration-150 group-hover:scale-110 ${
-                  active ? "text-ink" : "text-paper/60 group-hover:text-gold-light"
-                }`}
+                className={active ? "text-gold-light" : "text-paper/50"}
               />
               <span>{item.label}</span>
             </Link>
@@ -165,7 +161,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
       {/* Mobile Bottom Bar */}
       <nav
         aria-label="Main"
-        className="print:hidden fixed inset-x-0 bottom-0 z-30 grid grid-flow-col auto-cols-fr border-t border-gold-deep/20 bg-ink/95 backdrop-blur-lg pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(0,0,0,0.35)] md:hidden"
+        className="print:hidden fixed inset-x-0 bottom-0 z-30 grid grid-flow-col auto-cols-fr border-t border-paper/10 bg-ink pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {primaryTabs.map((item) => {
           const Icon = ICONS[item.icon];
@@ -175,17 +171,17 @@ export function BottomNav({ items }: { items: NavItem[] }) {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-bold transition-all duration-150 active:scale-95 ${
-                active ? "text-gold-light" : "text-paper/65 hover:text-paper"
+              className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
+                active ? "text-paper" : "text-paper/55 hover:text-paper"
               }`}
             >
               {active ? (
                 <span
-                  className="absolute top-1.5 h-1 w-8 rounded-full bg-gold shadow-[0_0_8px_#d4a017]"
+                  className="absolute top-0 h-0.5 w-8 rounded-full bg-gold"
                   aria-hidden
                 />
               ) : null}
-              <NavIcon icon={Icon} size={22} className={active ? "text-gold-light" : "text-paper/60"} />
+              <NavIcon icon={Icon} size={22} className={active ? "text-gold-light" : "text-paper/50"} />
               <span>{item.label}</span>
             </Link>
           );
@@ -197,17 +193,17 @@ export function BottomNav({ items }: { items: NavItem[] }) {
           onClick={() => setMoreOpen(true)}
           aria-expanded={moreOpen}
           aria-label="More navigation options"
-          className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-bold transition-all duration-150 active:scale-95 ${
-            isAnySecondaryActive || moreOpen ? "text-gold-light" : "text-paper/65 hover:text-paper"
+          className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
+            isAnySecondaryActive || moreOpen ? "text-paper" : "text-paper/55 hover:text-paper"
           }`}
         >
           {isAnySecondaryActive ? (
             <span
-              className="absolute top-1.5 h-1 w-8 rounded-full bg-gold shadow-[0_0_8px_#d4a017]"
+              className="absolute top-0 h-0.5 w-8 rounded-full bg-gold"
               aria-hidden
             />
           ) : null}
-          <Menu size={22} aria-hidden className={isAnySecondaryActive ? "text-gold-light" : "text-paper/60"} />
+          <Menu size={22} aria-hidden className={isAnySecondaryActive ? "text-gold-light" : "text-paper/50"} />
           <span>More</span>
         </button>
       </nav>
@@ -227,13 +223,13 @@ export function BottomNav({ items }: { items: NavItem[] }) {
             role="dialog"
             aria-modal="true"
             aria-label="Menu"
-            className="relative z-10 max-h-[85dvh] animate-sheet-up overflow-y-auto overscroll-contain rounded-t-3xl border-t border-gold-deep/30 bg-ink p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)] shadow-2xl"
+            className="relative z-10 max-h-[85dvh] animate-sheet-up overflow-y-auto overscroll-contain rounded-t-3xl bg-ink p-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]"
           >
             {/* Drag handle */}
             <div className="mx-auto mb-4 h-1.5 w-12 rounded-full bg-paper/20" />
 
             <div className="flex items-center justify-between border-b border-paper/10 pb-3">
-              <h2 className="text-base font-extrabold text-gold-light">Menu</h2>
+              <h2 className="text-base font-semibold text-paper">Menu</h2>
               <button
                 type="button"
                 onClick={() => setMoreOpen(false)}
@@ -253,23 +249,21 @@ export function BottomNav({ items }: { items: NavItem[] }) {
                     key={item.href}
                     href={item.href}
                     onClick={() => setMoreOpen(false)}
-                    className={`flex min-h-12 items-center justify-between rounded-xl px-4 text-sm font-semibold transition-all ${
-                      active
-                        ? "bg-gold text-ink font-bold shadow-gold-sm"
-                        : "bg-ink-soft/70 text-paper hover:bg-ink-soft"
+                    className={`flex min-h-12 items-center justify-between rounded-xl px-4 text-sm transition-colors ${
+                      active ? "bg-paper/10 font-semibold text-paper" : "bg-paper/5 text-paper/80 hover:bg-paper/10"
                     }`}
                   >
                     <div className="flex items-center gap-3">
                       <Icon
                         size={20}
-                        className={active ? "text-ink" : "text-gold-light"}
+                        className={active ? "text-gold-light" : "text-paper/50"}
                         aria-hidden
                       />
                       <span>{item.label}</span>
                     </div>
                     <ChevronRight
                       size={18}
-                      className={active ? "text-ink" : "text-paper/40"}
+                      className="text-paper/30"
                       aria-hidden
                     />
                   </Link>

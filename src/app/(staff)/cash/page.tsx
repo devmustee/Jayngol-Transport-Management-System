@@ -45,7 +45,7 @@ function CoveredDays({ person }: { person: Person }) {
       )}
       <div className="flex justify-between gap-4 py-3">
         <span className="font-bold text-ink">Cash expected</span>
-        <span className="font-extrabold tabular-nums">{formatNaira(person.expectedKobo)}</span>
+        <span className="font-semibold tabular-nums">{formatNaira(person.expectedKobo)}</span>
       </div>
     </div>
   );

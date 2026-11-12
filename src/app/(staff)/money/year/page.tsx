@@ -86,7 +86,7 @@ function MonthCard({ month, isCurrent }: { month: MonthRow; isCurrent: boolean }
     <details className="group rounded-xl border border-line bg-card shadow-sm" open={isCurrent}>
       <summary className={`${ROW} cursor-pointer list-none rounded-xl px-4 py-3 hover:bg-gold-wash/40 [&::-webkit-details-marker]:hidden`}>
         <div className="col-span-2 flex items-center justify-between gap-2 lg:col-span-1">
-          <span className="font-extrabold text-ink">{name}</span>
+          <span className="font-semibold text-ink">{name}</span>
           <span className="inline-flex items-center gap-1 text-xs font-bold text-gold-deep lg:hidden">
             <span className="group-open:hidden">Show weeks</span>
             <span className="hidden group-open:inline">Hide weeks</span>
@@ -150,7 +150,7 @@ function MonthTable({
           ))}
         </tbody>
         <tfoot>
-          <tr className="border-t-2 border-line-strong font-extrabold">
+          <tr className="border-t-2 border-line-strong font-semibold">
             <td className="px-2 py-2">Year</td>
             {columns.map((c) => (
               <td key={c.label} className={cell}>
@@ -167,9 +167,9 @@ function MonthTable({
 function Headline({ label, value, note, tone }: { label: string; value: number; note: string; tone?: "bad" | "good" }) {
   return (
     <div className="rounded-2xl border border-line bg-card p-4 shadow-premium">
-      <div className="text-xs font-bold uppercase tracking-wider text-muted">{label}</div>
+      <div className="text-xs font-medium text-muted">{label}</div>
       <div
-        className={`mt-1.5 text-xl font-extrabold tabular-nums tracking-tight sm:text-2xl ${
+        className={`mt-1.5 text-xl font-semibold tabular-nums tracking-tight sm:text-2xl ${
           tone === "bad" ? "text-danger" : tone === "good" ? "text-ok" : "text-ink"
         }`}
       >
@@ -219,7 +219,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
           <YearLink year={year - 1} enabled={year > first} label={`Show ${year - 1}`}>
             <ChevronLeft size={18} />
           </YearLink>
-          <span className="min-w-16 text-center text-lg font-extrabold tabular-nums">{year}</span>
+          <span className="min-w-16 text-center text-lg font-semibold tabular-nums">{year}</span>
           <YearLink year={year + 1} enabled={year < last} label={`Show ${year + 1}`}>
             <ChevronRight size={18} />
           </YearLink>
@@ -250,7 +250,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
       </div>
 
       <section aria-label="Months and weeks" className="mb-6 print:hidden">
-        <div className={`${ROW} mb-2 hidden px-4 text-xs font-bold uppercase tracking-wider text-muted lg:grid`}>
+        <div className={`${ROW} mb-2 hidden px-4 text-xs font-medium text-muted lg:grid`}>
           <div>Month</div>
           {COLUMNS.map((c) => (
             <div key={c.label} className={`${shown(c.phone)} text-right`}>
@@ -266,7 +266,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
             <MonthCard key={month.month} month={month} isCurrent={month.month === currentMonth} />
           ))}
           <div className={`${ROW} rounded-xl border-2 border-ink bg-ink px-4 py-3 text-gold-light [&_.yr-val:not(.yr-bad)]:text-gold-light [&_.yr-label]:text-gold-light/70`}>
-            <div className="col-span-2 font-extrabold lg:col-span-1">{year} total</div>
+            <div className="col-span-2 font-semibold lg:col-span-1">{year} total</div>
             <Figures figures={total} strong />
           </div>
         </div>

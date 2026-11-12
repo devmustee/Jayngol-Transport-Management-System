@@ -28,7 +28,7 @@ function AwardCard({ track }: { track: AwardTrack }) {
   const reasons = holdUps(track);
   return (
     <Card title={AWARD_LABELS[track.type]} subtitle={`Prize: ${AWARD_PRIZES[track.type]}`} action={<StageBadge stage={track.stage} />}>
-      <p className="text-2xl font-extrabold tracking-tight text-ink">{trackHeadline(track)}</p>
+      <p className="text-2xl font-semibold tracking-tight text-ink">{trackHeadline(track)}</p>
       {track.nextAwardOn ? (
         <>
           <p className="mt-0.5 text-sm font-medium text-muted">

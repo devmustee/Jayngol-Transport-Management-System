@@ -39,7 +39,7 @@ export function ErrorPanel({
           <button
             type="button"
             onClick={retry}
-            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-gold-deep/20 bg-gradient-to-r from-gold to-gold-light px-5 py-2.5 text-sm font-bold text-ink shadow-gold-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
+            className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-gold-deep/20 bg-gold px-5 py-2.5 text-sm font-bold text-ink shadow-gold-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
           >
             <RotateCw size={16} aria-hidden />
             Try again

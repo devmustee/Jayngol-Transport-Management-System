@@ -48,7 +48,7 @@ function ActiveLoans({ rows, canCollect }: { rows: Active[]; canCollect: boolean
             <Link
               href={`/payments/new?operator=${row.operatorId}&for=loan`}
               aria-label={`Take loan repayment from ${row.operatorName}`}
-              className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gradient-to-r from-gold to-gold-light px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
+              className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gold px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
             >
               <HandCoins size={16} aria-hidden />
               Take repayment
@@ -105,12 +105,12 @@ export default async function LoansPage() {
         {data.active.length > 0 ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-line bg-card p-4 shadow-premium">
-              <div className="text-xs font-bold uppercase tracking-wider text-muted">To collect</div>
-              <div className="mt-1 text-2xl font-black tabular-nums text-ink">{formatNaira(data.outstandingKobo)}</div>
+              <div className="text-xs font-medium text-muted">To collect</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">{formatNaira(data.outstandingKobo)}</div>
             </div>
             <div className="rounded-2xl border border-line bg-card p-4 shadow-premium">
-              <div className="text-xs font-bold uppercase tracking-wider text-muted">Operators</div>
-              <div className="mt-1 text-2xl font-black tabular-nums text-ink">{data.active.length}</div>
+              <div className="text-xs font-medium text-muted">Operators</div>
+              <div className="mt-1 text-2xl font-semibold tabular-nums text-ink">{data.active.length}</div>
             </div>
           </div>
         ) : null}

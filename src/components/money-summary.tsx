@@ -38,7 +38,7 @@ function AlertRow({
   return (
     <Link
       href={href}
-      className={`group flex min-h-12 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-semibold transition-all duration-150 hover:shadow-sm ${styles[tone]}`}
+      className={`group flex min-h-12 items-center justify-between gap-3 rounded-xl border px-3.5 py-2.5 text-sm font-medium transition-colors duration-150 ${styles[tone]}`}
     >
       <div className="flex min-w-0 items-center gap-2.5">
         <Icon size={18} className="shrink-0" aria-hidden />
@@ -196,11 +196,8 @@ export function MoneySummary({
         </div>
       ) : null}
 
-      {/* Sovereign Financial Pulse Hero Card */}
-      <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-ink via-ink-soft to-[#1b160f] p-6 text-paper shadow-2xl border border-gold-deep/30">
-        {/* Subtle background glow */}
-        <div className="pointer-events-none absolute -right-16 -top-16 h-48 w-48 rounded-full bg-gold/10 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-16 -left-16 h-48 w-48 rounded-full bg-gold-deep/20 blur-3xl" />
+      {/* The money pulse: one plain dark card. */}
+      <div className="relative overflow-hidden rounded-2xl bg-ink p-5 text-paper sm:p-6">
 
         <nav aria-label="Choose a period" className="relative z-10 mb-4 inline-flex rounded-xl border border-paper/15 bg-ink/40 p-1">
           {PULSE_OPTIONS.map(([value, label]) => {
@@ -226,11 +223,11 @@ export function MoneySummary({
             <PeriodFigures data={period} />
           ) : (
             <div>
-              <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-gold uppercase">
-                <TrendingUp size={15} />
-                <span>Financial Pulse • Today</span>
+              <div className="flex items-center gap-2 text-sm text-paper/60">
+                <TrendingUp size={15} aria-hidden />
+                <span>Today</span>
               </div>
-              <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
+              <div className="mt-1 text-4xl font-semibold tracking-tight text-paper tabular-nums md:text-5xl">
                 <CountUp kobo={leftKobo} id={`${basePath}:today`} />
               </div>
               {deducted ? (
@@ -261,9 +258,9 @@ export function MoneySummary({
           {money.canCollect ? (
             <Link
               href="/payments/new"
-              className="group inline-flex min-h-12 items-center gap-2 rounded-2xl bg-gradient-to-r from-gold to-gold-light px-5 py-3 text-sm font-extrabold text-ink shadow-gold-sm transition-all duration-150 hover:brightness-105 active:scale-[0.98]"
+              className="inline-flex min-h-12 items-center gap-2 rounded-xl bg-gold px-5 py-3 text-sm font-semibold text-ink transition-colors duration-150 hover:bg-gold-light active:scale-[0.98]"
             >
-              <Wallet size={18} className="transition-transform group-hover:scale-110" />
+              <Wallet size={18} aria-hidden />
               <span>Take payment</span>
             </Link>
           ) : null}
@@ -316,7 +313,7 @@ function ProgressBar({ percent }: { percent: number }) {
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-ink-muted/80">
       <div
-        className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep via-gold to-gold-light transition-all duration-500"
+        className="h-full origin-left animate-fill rounded-full bg-gold transition-all duration-500"
         style={{ width: `${percent}%` }}
       />
     </div>
@@ -328,13 +325,13 @@ function PeriodFigures({ data }: { data: FleetPeriod }) {
   const label = period.kind === "week" ? "This week" : "This month";
   return (
     <div>
-      <div className="flex items-center gap-2 text-xs font-bold tracking-wider text-gold uppercase">
-        <TrendingUp size={15} />
+      <div className="flex items-center gap-2 text-sm text-paper/60">
+        <TrendingUp size={15} aria-hidden />
         <span>
-          Financial Pulse • {label} since {formatDate(period.soFar.from)}
+          {label}, since {formatDate(period.soFar.from)}
         </span>
       </div>
-      <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
+      <div className="mt-1 text-4xl font-semibold tracking-tight text-paper tabular-nums md:text-5xl">
         {formatNaira(balances.paidKobo)}
       </div>
       <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-paper/75">

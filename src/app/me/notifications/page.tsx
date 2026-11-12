@@ -20,7 +20,7 @@ export default async function MyNotificationsPage({ searchParams }: { searchPara
         <ArrowLeft size={16} aria-hidden />
         My records
       </Link>
-      <h1 className="mb-4 text-[1.6rem] font-extrabold leading-tight tracking-tight text-ink">Notices</h1>
+      <h1 className="mb-4 text-[1.6rem] font-semibold leading-tight tracking-tight text-ink">Notices</h1>
       <Inbox {...inbox} unread={summary.unread} unreadOnly={unreadOnly} basePath="/me/notifications" />
     </main>
   );

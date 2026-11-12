@@ -26,7 +26,7 @@ function ProgressRing({ percent }: { percent: number }) {
         transform="rotate(-90 44 44)"
         className="animate-draw stroke-gold-light"
       />
-      <text x="44" y="50" textAnchor="middle" className="fill-paper text-lg font-extrabold">
+      <text x="44" y="50" textAnchor="middle" className="fill-paper text-lg font-semibold">
         {percent}%
       </text>
     </svg>
@@ -60,7 +60,7 @@ function JourneyHero({ progress }: { progress: OperatorProgress }) {
       </div>
       <div className="mt-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-3xl font-extrabold leading-tight tracking-tight">{trackHeadline(track)}</p>
+          <p className="text-3xl font-semibold leading-tight tracking-tight">{trackHeadline(track)}</p>
           {hasDate ? (
             <p className="mt-1 text-sm font-medium text-paper/70">
               Award date {formatDate(track.nextAwardOn!)}
@@ -93,11 +93,11 @@ function RunCounter({ progress }: { progress: OperatorProgress }) {
       <div className="flex justify-between gap-4">
         <div>
           <p className="text-sm font-semibold text-muted">Current run</p>
-          <p className="text-2xl font-extrabold tracking-tight text-ink">{days(progress.currentRunDays)}</p>
+          <p className="text-2xl font-semibold tracking-tight text-ink">{days(progress.currentRunDays)}</p>
         </div>
         <div className="text-right">
           <p className="text-sm font-semibold text-muted">Your best</p>
-          <p className="text-2xl font-extrabold tracking-tight text-ink">{days(progress.bestRunDays)}</p>
+          <p className="text-2xl font-semibold tracking-tight text-ink">{days(progress.bestRunDays)}</p>
         </div>
       </div>
       <ol className="mt-4 grid grid-cols-7 gap-1.5" aria-label="Your last 7 days">
@@ -151,7 +151,7 @@ function HonourBoard({ rows, daysToBoard }: { rows: BoardRow[]; daysToBoard: num
         <ol className="divide-y divide-line/60">
           {rows.map((row, index) => (
             <li key={`${row.name}-${index}`} className={`flex items-center gap-3 py-2.5 ${row.isYou ? "rounded-xl bg-gold-wash/60 px-2" : ""}`}>
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-wash text-sm font-extrabold text-gold-deep">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gold-wash text-sm font-semibold text-gold-deep">
                 {index === 0 ? <Crown size={16} aria-label="First" /> : index + 1}
               </span>
               <div className="min-w-0 flex-1">
@@ -161,7 +161,7 @@ function HonourBoard({ rows, daysToBoard }: { rows: BoardRow[]; daysToBoard: num
                 </div>
                 <div className="text-xs leading-snug font-medium text-muted">{[row.tricycleCode, ...row.badges].filter(Boolean).join(" · ")}</div>
               </div>
-              <span className="shrink-0 text-sm font-extrabold tabular-nums text-ink">{days(row.runDays)}</span>
+              <span className="shrink-0 text-sm font-semibold tabular-nums text-ink">{days(row.runDays)}</span>
             </li>
           ))}
         </ol>
@@ -187,7 +187,7 @@ export function MyAwardJourney({
       <JourneyHero progress={progress} />
       {runAtRisk && progress.currentRunDays > 0 ? (
         <section className="rounded-2xl border border-warning-border bg-warning-wash p-4 text-warning">
-          <p className="flex items-center gap-2 text-sm font-extrabold">
+          <p className="flex items-center gap-2 text-sm font-semibold">
             <Clock size={16} aria-hidden />
             Protect your run
           </p>

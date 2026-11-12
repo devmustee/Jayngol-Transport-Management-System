@@ -1,10 +1,12 @@
 # Jayngol Plan: Design Polish, Motion and Gamification
 
-Status: Phase 1 built (12 Nov 2026), with the recommended decisions. Phases 2 to 6 are not started.
+Status: Phases 1 and 2 built (12 Nov 2026), with the recommended decisions. Phases 3 to 6 are not started.
 
 **Direction from the owner:** the design should be very clean. Motion stays quiet: short slides and fades, no bounces or glows, one accent colour. Phase 2 should remove decoration rather than add it.
 
 **Phase 1 as built:** timing tokens and keyframes in `globals.css`; a plain white "saved" toast (`Toaster`, raised by every `ActionForm` success); a tick that draws on the save button; shimmering placeholders; sections easing open (`::details-content`, instant where unsupported); progress bars growing in and the portal ring drawing; the Money and Dashboard hero figure counting from the last value seen (`CountUp`); the bell rocking once when a new notification arrives; and a plain gold bar when changing page. Reduced motion stops all of it, including the looping shimmer.
+
+**Phase 2 as built (very clean):** decoration removed rather than added. No gradients, glows, coloured shadows, hover lifts or zooms; `shadow-premium` is now a 1 px hairline and `shadow-gold-sm` is off. One gold accent: gold buttons are solid gold, primary buttons solid ink. Cards are plain white with a thin border; badges are borderless and in normal case; headings are semibold, not black. Navigation shows the current page with a light fill and a gold icon; the phone bar has a thin gold line on top. The Money and Dashboard hero is a plain dark card. All-caps labels and title-case headings are now plain sentence case ("Cash and payments", "Fleet today", "Sign in"). Lists use round initials and a light hover. Checked at desktop and 375 px.
 Companion to `DESIGN_PLAN.md` (layout, tokens, tap targets) and `AWARD_TRACKER_PLAN.md` (how awards and milestones are measured).
 
 ## 1. Goal
