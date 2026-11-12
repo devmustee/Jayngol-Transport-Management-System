@@ -3,7 +3,6 @@
 import { CloudOff, Check, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { compressPhoto } from "@/lib/compress-photo";
 import {
   allQueued,
   lagosToday,
@@ -21,7 +20,7 @@ export type TodayItem = {
   stickerIntact: boolean | null;
 };
 
-type Answer = { washed?: boolean; stickerIntact?: boolean; photo?: string; note?: string; problem?: string };
+type Answer = { washed?: boolean; stickerIntact?: boolean; note?: string };
 type Sync = "idle" | "sending" | "offline" | "login";
 
 const RETRY_MS = 20_000;
@@ -108,7 +107,6 @@ export function InspectionToday({
               washed: row.washed,
               stickerIntact: row.stickerIntact,
               note: row.note,
-              photo: row.photo,
               inspectedAt: row.inspectedAt,
             }),
           });
@@ -125,8 +123,8 @@ export function InspectionToday({
           return;
         }
         if (response.ok) {
-          // The answer is kept so the tricycle stays ticked off today. The photo is not.
-          await putQueued({ ...row, photo: undefined, state: "sent" });
+          // The answer is kept so the tricycle stays ticked off today.
+          await putQueued({ ...row, state: "sent" });
           sentAny = true;
         } else {
           const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -187,7 +185,6 @@ export function InspectionToday({
         washed: answer.washed!,
         stickerIntact: answer.stickerIntact!,
         note: answer.note?.trim() || undefined,
-        photo: answer.photo,
         inspectedAt: inspectedAt.toISOString(),
         date: lagosToday(),
         state: "pending",
@@ -207,16 +204,6 @@ export function InspectionToday({
       void save(item, next);
     } else {
       change(item.tricycleId, patch);
-    }
-  }
-
-  async function addPhoto(id: string, file: File | undefined) {
-    if (!file) return;
-    change(id, { problem: undefined });
-    try {
-      change(id, { photo: await compressPhoto(file) });
-    } catch {
-      change(id, { photo: undefined, problem: "That photo could not be read. Take it again." });
     }
   }
 
@@ -323,21 +310,6 @@ export function InspectionToday({
                 {failing ? (
                   <div className="mt-3 space-y-3 border-t border-line pt-3">
                     <label className="block font-medium">
-                      Photo of the problem
-                      <input
-                        type="file"
-                        accept="image/*"
-                        capture="environment"
-                        className="mt-1 block w-full rounded-lg border border-line p-2 text-base"
-                        onChange={(event) => void addPhoto(item.tricycleId, event.target.files?.[0])}
-                      />
-                    </label>
-                    {current.photo ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={current.photo} alt="Taken" className="max-h-40 rounded-lg" />
-                    ) : null}
-                    {current.problem ? <p className="text-sm font-medium text-danger">{current.problem}</p> : null}
-                    <label className="block font-medium">
                       Note (optional)
                       <input
                         value={current.note ?? ""}
@@ -348,11 +320,11 @@ export function InspectionToday({
                     </label>
                     <button
                       type="button"
-                      disabled={!complete || !current.photo}
+                      disabled={!complete}
                       onClick={() => void save(item, current)}
                       className="min-h-12 w-full rounded-lg bg-ink px-4 font-semibold text-gold-light disabled:opacity-50"
                     >
-                      {!complete ? "Answer both questions" : !current.photo ? "Add a photo to save" : "Save and report"}
+                      {!complete ? "Answer both questions" : "Save and report"}
                     </button>
                   </div>
                 ) : null}

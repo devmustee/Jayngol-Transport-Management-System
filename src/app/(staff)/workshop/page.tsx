@@ -41,6 +41,7 @@ export default async function WorkshopPage() {
         action={
           <>
             {can(ctx.actor.role, "workorder.manage") ? <LinkButton href="/workshop/new" variant="gold">Take in for repair</LinkButton> : null}
+            <LinkButton href="/workshop/report" variant="secondary">Report</LinkButton>
             <LinkButton href="/workshop/history" variant="secondary">History</LinkButton>
           </>
         }

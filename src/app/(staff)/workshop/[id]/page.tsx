@@ -4,12 +4,12 @@ import { notFound } from "next/navigation";
 import {
   cancelWorkOrderAction,
   checkInServiceAction,
-  completeWorkOrderAction,
-  issuePartAction,
   rescheduleServiceAction,
   returnPartAction,
 } from "@/app/actions";
-import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
+import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
+import { CompleteForm } from "@/components/forms/complete-form";
+import { TakeOutForm } from "@/components/forms/take-out-form";
 import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { isUuid } from "@/lib/fields";
@@ -25,9 +25,16 @@ export const metadata: Metadata = { title: "Work order" };
 
 const TONE = { scheduled: "gold", checked_in: "gold", completed: "good", missed: "bad", cancelled: "plain" } as const;
 
-export default async function WorkOrderPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function WorkOrderPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ taken?: string }>;
+}) {
   const ctx = await requirePage("workorder.view");
   const { id } = await params;
+  const { taken } = await searchParams;
   const detail = isUuid(id) ? await getWorkOrder(ctx, id) : null;
   if (!detail) notFound();
 
@@ -48,6 +55,11 @@ export default async function WorkOrderPage({ params }: { params: Promise<{ id: 
         action={<Badge tone={TONE[order.status]}>{WORK_STATUS_LABELS[order.status]}</Badge>}
       />
       <div className="space-y-4">
+        {taken ? (
+          <p role="status" className="rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-medium text-ok">
+            Taken out of the store. The items are listed under Parts used.
+          </p>
+        ) : null}
         <Card>
           <Details
             rows={[
@@ -72,9 +84,9 @@ export default async function WorkOrderPage({ params }: { params: Promise<{ id: 
         ) : null}
 
         {order.status === "checked_in" || parts.length > 0 ? (
-          <Card title="Parts used">
+          <Card title="Parts used" subtitle={inWorkshop && parts.length === 0 ? "Nothing taken from the store yet." : undefined}>
             {parts.length === 0 ? (
-              <Empty>No parts issued.</Empty>
+              inWorkshop ? null : <Empty>No parts issued.</Empty>
             ) : (
               <ul className="divide-y divide-line">
                 {parts.map((part) => (
@@ -96,23 +108,28 @@ export default async function WorkOrderPage({ params }: { params: Promise<{ id: 
               </ul>
             )}
             {stock ? (
-              <div className="mt-4 space-y-3">
+              <div className="mt-4 border-t border-line pt-4">
+                <h3 className="mb-3 text-sm font-semibold text-ink">Take from store</h3>
                 {stock.length > 0 ? (
-                  <Disclosure label="Issue a part">
-                    <ActionForm action={issuePartAction.bind(null, id)}>
-                      <SelectField name="itemId" label="Part" defaultValue="">
-                        <option value="" disabled>Choose…</option>
-                        {stock.map((item) => (
-                          <option key={item.id} value={item.id}>
-                            {item.name} ({formatStock(item.quantityMilli, item.unit)} left)
-                          </option>
-                        ))}
-                      </SelectField>
-                      <Field name="quantity" label="Quantity" inputMode="decimal" />
-                      <SubmitButton>Issue from store</SubmitButton>
-                    </ActionForm>
-                  </Disclosure>
-                ) : null}
+                  <TakeOutForm
+                    // A fresh, empty form once items have gone out.
+                    key={parts.map((part) => part.movementId).join()}
+                    fixed
+                    jobs={[{ id, code, detail: "" }]}
+                    jobId={id}
+                    items={stock.map((i) => ({
+                      id: i.id,
+                      name: i.name,
+                      unit: i.unit,
+                      wholeOnly: i.wholeOnly,
+                      quantityMilli: i.quantityMilli,
+                      valueKobo: i.valueKobo,
+                    }))}
+                    showCost={showCost}
+                  />
+                ) : (
+                  <Empty>The store is empty. Receive stock on an item first.</Empty>
+                )}
               </div>
             ) : null}
           </Card>
@@ -120,11 +137,30 @@ export default async function WorkOrderPage({ params }: { params: Promise<{ id: 
 
         {inWorkshop && canManage ? (
           <Card title="Complete">
-            <ActionForm action={completeWorkOrderAction.bind(null, id)}>
-              <TextareaField name="findings" label="What was found and done" />
-              <Field name="labourCost" label="Labour cost (₦)" inputMode="decimal" hint="Paid by the company. Never charged to the operator." />
-              <SubmitButton>{order.type === "maintenance" ? "Complete and return to road" : "Complete service"}</SubmitButton>
-            </ActionForm>
+            <div className="mb-4 rounded-xl bg-card-subtle px-4 py-3 text-sm">
+              <div className="font-medium text-muted">Taken from the store for this job</div>
+              {parts.length === 0 ? (
+                <div className="mt-1 text-ink">Nothing yet</div>
+              ) : (
+                <ul className="mt-1 space-y-0.5">
+                  {parts.map((part) => (
+                    <li key={part.movementId} className="flex justify-between gap-3 text-ink">
+                      <span>
+                        {part.itemName} · {formatStock(-part.quantityMilli, part.unit)}
+                      </span>
+                      {showCost ? <span className="tabular-nums">{formatNaira(-part.costKobo)}</span> : null}
+                    </li>
+                  ))}
+                  {showCost ? (
+                    <li className="flex justify-between gap-3 border-t border-line pt-1 font-semibold text-ink">
+                      <span>Parts total</span>
+                      <span className="tabular-nums">{formatNaira(partsCostKobo)}</span>
+                    </li>
+                  ) : null}
+                </ul>
+              )}
+            </div>
+            <CompleteForm id={id} type={order.type} partsCount={parts.length} />
           </Card>
         ) : null}
 

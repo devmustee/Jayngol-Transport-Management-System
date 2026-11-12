@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ChevronRight, Wallet } from "lucide-react";
+import { Wallet } from "lucide-react";
 import { Badge, Empty, PageHeader } from "@/components/ui";
-import { formatDate, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { businessDate } from "@/lib/clock";
+import { formatDate, formatShortDate, OPERATOR_STATUS_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { parseRange } from "@/lib/periods";
@@ -16,7 +17,17 @@ type Row = Awaited<ReturnType<typeof listArrears>>[number];
 
 const sumOwed = (rows: Row[]) => rows.reduce((sum, r) => sum + r.owed, 0);
 
-function Group({ title, rows, canCollect }: { title: string; rows: Row[]; canCollect: boolean }) {
+function Group({
+  title,
+  rows,
+  canCollect,
+  today,
+}: {
+  title: string;
+  rows: Row[];
+  canCollect: boolean;
+  today: string;
+}) {
   if (rows.length === 0) return null;
   return (
     <section aria-label={title}>
@@ -24,48 +35,112 @@ function Group({ title, rows, canCollect }: { title: string; rows: Row[]; canCol
         <h2 className="text-sm font-medium text-muted">
           {title} ({rows.length})
         </h2>
-        <span className="text-sm font-bold tabular-nums text-ink">{formatNaira(sumOwed(rows))}</span>
+        <span className="text-sm font-semibold tabular-nums text-ink">{formatNaira(sumOwed(rows))}</span>
       </div>
-      <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card shadow-premium">
-        {rows.map((r) => (
-          <li key={r.id} className="flex flex-col gap-1 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
-            <Link
-              href={`/operators/${r.id}/statement`}
-              className="group flex min-h-12 min-w-0 flex-1 items-center justify-between gap-3 rounded-lg hover:text-gold-deep"
-            >
+      <ul className="divide-y divide-line overflow-hidden rounded-2xl border border-line bg-card">
+        {rows.map((r) => {
+          // Older days are paid from here; a day still owed today is taken on the day.
+          const onlyToday = r.oldest >= today;
+          return (
+            <li key={r.id} className="grid gap-3 px-4 py-4 sm:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_auto] sm:items-start sm:gap-6">
+              {/* Operator */}
               <div className="min-w-0">
-                <div className="font-bold leading-snug [overflow-wrap:anywhere]">{r.name}</div>
-                <div className="text-sm text-muted">
-                  {formatPhone(r.phone)} · since {formatDate(r.oldest)}
-                </div>
+                <Link
+                  href={`/operators/${r.id}`}
+                  className="font-semibold leading-snug text-ink [overflow-wrap:anywhere] hover:underline"
+                >
+                  {r.name}
+                </Link>
                 {r.status !== "active" ? (
-                  <div className="mt-1">
+                  <span className="ml-2 align-middle">
                     <Badge tone="bad">{OPERATOR_STATUS_LABELS[r.status]}</Badge>
+                  </span>
+                ) : null}
+                <dl className="mt-1 space-y-0.5 text-sm text-muted">
+                  <div>
+                    <dt className="sr-only">Phone</dt>
+                    <dd>
+                      <a href={`tel:${r.phone}`} className="hover:text-ink hover:underline">
+                        {formatPhone(r.phone)}
+                      </a>
+                    </dd>
                   </div>
+                  {r.address ? (
+                    <div>
+                      <dt className="sr-only">Address</dt>
+                      <dd className="[overflow-wrap:anywhere]">{r.address}</dd>
+                    </div>
+                  ) : null}
+                  {r.guarantor_name ? (
+                    <div>
+                      <dt className="inline">Guarantor: </dt>
+                      <dd className="inline">
+                        {r.guarantor_name}
+                        {r.guarantor_phone ? (
+                          <>
+                            {" · "}
+                            <a href={`tel:${r.guarantor_phone}`} className="hover:text-ink hover:underline">
+                              {formatPhone(r.guarantor_phone)}
+                            </a>
+                          </>
+                        ) : null}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </div>
+
+              {/* Tricycle */}
+              <div className="min-w-0 rounded-xl bg-card-subtle px-3 py-2 sm:bg-transparent sm:p-0">
+                {r.tricycle_id ? (
+                  <>
+                    <Link href={`/tricycles/${r.tricycle_id}`} className="font-medium text-ink hover:underline">
+                      {r.code_number}
+                    </Link>
+                    <span className="text-sm text-muted"> · {r.registration_number}</span>
+                    <dl className="mt-1 space-y-0.5 text-sm text-muted">
+                      {r.daily_kobo ? (
+                        <div>
+                          <dt className="inline">Daily balance: </dt>
+                          <dd className="inline tabular-nums">{formatNaira(r.daily_kobo)}</dd>
+                        </div>
+                      ) : null}
+                      <div>
+                        <dt className="sr-only">Holder</dt>
+                        <dd>{r.holds_tricycle ? "Still with this operator" : "No longer with this operator"}</dd>
+                      </div>
+                    </dl>
+                  </>
+                ) : (
+                  <span className="text-sm text-muted">No tricycle</span>
+                )}
+              </div>
+
+              {/* What is owed */}
+              <div className="flex items-center justify-between gap-4 sm:flex-col sm:items-end sm:gap-2">
+                <Link href={`/operators/${r.id}/statement`} className="group text-left sm:text-right">
+                  <div className="font-semibold tabular-nums text-ink group-hover:underline">{formatNaira(r.owed)}</div>
+                  <div className="text-xs text-muted">
+                    {r.days} day{r.days === 1 ? "" : "s"} ·{" "}
+                    {r.oldest === r.newest
+                      ? formatDate(r.oldest)
+                      : `${formatShortDate(r.oldest)} to ${formatDate(r.newest)}`}
+                  </div>
+                </Link>
+                {canCollect ? (
+                  <Link
+                    href={onlyToday ? `/payments/new?operator=${r.id}` : `/payments/new?operator=${r.id}&for=balance`}
+                    aria-label={`Take payment from ${r.name}`}
+                    className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-gold px-4 text-sm font-semibold text-ink transition-colors hover:bg-gold-light active:scale-[0.98]"
+                  >
+                    <Wallet size={16} aria-hidden />
+                    Take payment
+                  </Link>
                 ) : null}
               </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <div className="text-right">
-                  <div className="font-bold tabular-nums text-ink">{formatNaira(r.owed)}</div>
-                  <Badge tone={r.days >= 3 ? "bad" : "gold"}>
-                    {r.days} day{r.days === 1 ? "" : "s"}
-                  </Badge>
-                </div>
-                <ChevronRight size={18} aria-hidden className="text-muted/60 group-hover:text-gold-deep" />
-              </div>
-            </Link>
-            {canCollect ? (
-              <Link
-                href={`/payments/new?operator=${r.id}&for=balance`}
-                aria-label={`Take payment from ${r.name}`}
-                className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gold px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
-              >
-                <Wallet size={16} aria-hidden />
-                Take payment
-              </Link>
-            ) : null}
-          </li>
-        ))}
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
@@ -80,6 +155,7 @@ export default async function ArrearsPage({
   const range = parseRange(await searchParams);
   const rows = await listArrears(ctx, range ?? undefined);
   const canCollect = can(ctx.actor.role, "payment.record");
+  const today = businessDate(ctx.clock());
   const working = rows.filter((r) => r.status === "active");
   const gone = rows.filter((r) => r.status !== "active");
   const total = formatNaira(sumOwed(rows));
@@ -104,11 +180,12 @@ export default async function ArrearsPage({
         <div className="space-y-6">
           {canCollect ? (
             <p className="text-sm text-muted">
-              Take payment fills in everything the operator owes. A payment always clears the oldest days first.
+              Take payment here pays the days before today, oldest first. Today&apos;s balance is taken on the day from
+              Take payment.
             </p>
           ) : null}
-          <Group title="Working operators" rows={working} canCollect={canCollect} />
-          <Group title="No longer working" rows={gone} canCollect={canCollect} />
+          <Group title="Working operators" rows={working} canCollect={canCollect} today={today} />
+          <Group title="No longer working" rows={gone} canCollect={canCollect} today={today} />
         </div>
       )}
     </>

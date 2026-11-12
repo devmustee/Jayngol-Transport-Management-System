@@ -27,13 +27,16 @@ import { LinkButton, PageHeader } from "@/components/ui";
 import { METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { parsePulse } from "@/lib/periods";
+import { can, type Permission } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Money" };
 
-const FINANCE_SECTIONS = [
+type FinanceLink = { href: string; label: string; desc: string; icon: typeof Wallet; only?: Permission };
+
+const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
   {
     title: "Cash and payments",
     items: [
@@ -107,6 +110,13 @@ const FINANCE_SECTIONS = [
         label: "Offences and fines",
         desc: "Broken rules and their fines",
         icon: Scale,
+      },
+      {
+        href: "/payments/review",
+        label: "Payments to review",
+        desc: "Taken twice on a day, or not used yet",
+        icon: ShieldAlert,
+        only: "payment.reverse",
       },
     ],
   },
@@ -209,7 +219,7 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
               {section.title}
             </h3>
             <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-              {section.items.map((item) => {
+              {section.items.filter((item) => !item.only || can(ctx.actor.role, item.only)).map((item) => {
                 const Icon = item.icon;
                 return (
                   <Link

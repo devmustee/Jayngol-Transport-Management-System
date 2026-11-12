@@ -58,7 +58,7 @@ const inspect = (
   ctx: Ctx,
   tricycleId: string,
   date: string,
-  result: { washed?: boolean; stickerIntact?: boolean; clientId?: string; photo?: string | null; syncedOn?: string },
+  result: { washed?: boolean; stickerIntact?: boolean; clientId?: string; syncedOn?: string },
 ) => {
   const washed = result.washed ?? true;
   const stickerIntact = result.stickerIntact ?? true;
@@ -67,7 +67,6 @@ const inspect = (
     tricycleId,
     washed,
     stickerIntact,
-    photo: result.photo === null ? undefined : !washed || !stickerIntact ? PHOTO : undefined,
     inspectedAt: wat(date).toISOString(),
   });
 };
@@ -86,7 +85,7 @@ describe("R2 not washed and polished", () => {
     await inspect(supervisor, tricycle.id, TODAY, { washed: false });
     const [v] = await offences(operator.id, "R2");
     expect(v).toMatchObject({ status: "proposed", amountKobo: 300_000, occurredOn: TODAY, chargeId: null });
-    expect(v!.photoId).not.toBeNull();
+    expect(v!.photoId).toBeNull();
 
     await confirmViolation(assistant, v!.id);
     const [charge] = await db.select().from(charges).where(eq(charges.operatorId, operator.id));
@@ -158,25 +157,12 @@ describe("R2 not washed and polished", () => {
     await expect(inspect(supervisor, tricycle.id, TODAY, {})).rejects.toThrow(/No operator/);
   });
 
-  it("needs a photo only when something fails", async () => {
-    const { tricycle } = await held();
-    await expect(inspect(supervisor, tricycle.id, TODAY, { washed: false, photo: null })).rejects.toBeInstanceOf(DomainError);
-    expect(await inspect(supervisor, tricycle.id, TODAY, {})).toEqual({ outcome: "saved" });
-  });
-
-  it("refuses files that are not JPEG photos", async () => {
-    const { tricycle } = await held();
-    const notAPhoto = `data:image/jpeg;base64,${Buffer.from("<script>").toString("base64")}`;
-    await expect(
-      recordInspection(on(supervisor, TODAY), {
-        clientId: randomUUID(),
-        tricycleId: tricycle.id,
-        washed: false,
-        stickerIntact: true,
-        photo: notAPhoto,
-        inspectedAt: wat(TODAY).toISOString(),
-      }),
-    ).rejects.toBeInstanceOf(DomainError);
+  it("saves a failed check without a photo", async () => {
+    const { tricycle, operator } = await held();
+    expect(await inspect(supervisor, tricycle.id, TODAY, { washed: false, stickerIntact: false })).toEqual({
+      outcome: "saved",
+    });
+    expect(await offences(operator.id, "R2")).toHaveLength(1);
   });
 
   it("refuses inspections from the future or too long ago", async () => {
@@ -426,6 +412,12 @@ describe("R7 working after 10:00 pm", () => {
     ]);
   });
 
+  it("refuses screenshots that are not JPEG photos", async () => {
+    const { tricycle } = await held();
+    const notAPhoto = `data:image/jpeg;base64,${Buffer.from("<script>").toString("base64")}`;
+    await expect(late(supervisor, tricycle.id, "2026-11-08T22:30", notAPhoto)).rejects.toBeInstanceOf(DomainError);
+  });
+
   it("treats 10:30 pm and 1:00 am as one night", async () => {
     const { tricycle, operator } = await held();
     await late(supervisor, tricycle.id, "2026-11-08T22:30");
@@ -525,8 +517,8 @@ describe("portal and evidence", () => {
   it("keeps photos private to staff and the operator concerned", async () => {
     const { tricycle, operator } = await held();
     const other = await held();
-    await inspect(supervisor, tricycle.id, TODAY, { washed: false });
-    const [v] = await offences(operator.id, "R2");
+    await raiseLateWork(on(supervisor, "2026-11-10", "09:00"), { tricycleId: tricycle.id, trackerAt: "2026-11-08T22:30", photo: PHOTO });
+    const [v] = await offences(operator.id, "R7");
     expect(await getPhoto(portal(operator.id), v!.photoId!)).toBeNull();
     await confirmViolation(assistant, v!.id);
     expect(await getPhoto(portal(operator.id), v!.photoId!)).not.toBeNull();

@@ -1,7 +1,8 @@
 /**
  * What a payment will clear, worked out before it is saved. It follows the same
  * rule as recordPayment: the stated fines part goes to fines, the stated loan
- * part to the loan, and everything else to unpaid balances, oldest day first.
+ * part to the loan, and everything else to unpaid balances: the day being paid
+ * for first, when there is one, then the oldest days.
  * Whatever is left after that is kept as credit for the next balance.
  */
 
@@ -27,8 +28,14 @@ export function previewPayment(input: {
   balances: OpenBalance[];
   finesOwedKobo: number;
   loanOwedKobo: number;
+  /** The day this payment is for. Its balance is paid first. */
+  forDate?: string | null;
 }): PaymentPreview {
-  const { amountKobo, finesPartKobo, loanPartKobo, balances, finesOwedKobo, loanOwedKobo } = input;
+  const { amountKobo, finesPartKobo, loanPartKobo, finesOwedKobo, loanOwedKobo, forDate = null } = input;
+  // The day being paid for comes first; the rest stay oldest first.
+  const balances = forDate
+    ? [...input.balances.filter((d) => d.businessDate === forDate), ...input.balances.filter((d) => d.businessDate !== forDate)]
+    : input.balances;
   const problems: string[] = [];
   if (finesPartKobo > finesOwedKobo) problems.push("The fines part is more than the fines owed.");
   if (loanPartKobo > loanOwedKobo) problems.push("The loan part is more than the loan owed.");
@@ -46,6 +53,7 @@ export function previewPayment(input: {
     remaining -= applied;
   }
   const balancesKobo = days.reduce((sum, d) => sum + d.appliedKobo, 0);
+  days.sort((a, b) => a.businessDate.localeCompare(b.businessDate));
   const owed = balances.reduce((sum, d) => sum + Math.max(0, d.outstandingKobo), 0);
   return {
     finesKobo: finesPartKobo,

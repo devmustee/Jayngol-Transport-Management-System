@@ -574,3 +574,272 @@ export async function getMyService(ctx: Ctx) {
     history,
   };
 }
+
+/* ---------- Workshop report ---------- */
+
+export type ReportJob = {
+  id: string;
+  type: "service" | "maintenance";
+  status: "checked_in" | "completed" | "missed";
+  date: string;
+  fault: string | null;
+  findings: string | null;
+  completedAt: Date | null;
+  completedByName: string | null;
+  /** Days the tricycle was off the road for this job, with no balance charged. */
+  offRoadDays: number;
+  /** For a repair: who held the tricycle when the fault was reported. */
+  holder: { id: string; name: string } | null;
+  parts: { id: string; itemName: string; unit: string; quantityMilli: number; costKobo: number }[];
+  partsKobo: number;
+  labourKobo: number;
+};
+
+/**
+ * One tricycle's workshop record over a period: what it cost, the parts it
+ * used, how often it was serviced and repaired, and how long it was off the
+ * road. Money is left out (as zero) for those who may not see workshop costs.
+ */
+export async function tricycleWorkshopReport(
+  ctx: Ctx,
+  tricycleId: string,
+  period: { from?: string; to: string },
+) {
+  requirePermission(ctx, "workorder.view");
+  const today = businessDate(ctx.clock());
+  const [tricycle] = await db
+    .select({
+      id: tricycles.id,
+      code: tricycles.codeNumber,
+      registration: tricycles.registrationNumber,
+      start: tricycles.serviceCycleStart,
+      interval: tricycles.serviceInterval,
+    })
+    .from(tricycles)
+    .where(eq(tricycles.id, tricycleId))
+    .limit(1);
+  if (!tricycle) return null;
+
+  const from = period.from ?? "1900-01-01";
+  const rows = (await db.execute(sql`
+    WITH jobs AS (
+      SELECT w.*, COALESCE((w.checked_in_at AT TIME ZONE 'Africa/Lagos')::date, w.scheduled_for) AS day,
+             (w.created_at AT TIME ZONE 'Africa/Lagos')::date AS reported_on
+      FROM work_orders w
+      WHERE w.tricycle_id = ${tricycleId} AND w.status IN ('checked_in', 'completed', 'missed')
+    )
+    SELECT j.id, j.type::text AS type, j.status::text AS status, j.day::text AS date, j.fault, j.findings,
+           j.labour_cost_kobo::float8 AS labour, j.completed_at, u.name AS completed_by,
+           COALESCE((SELECT SUM(COALESCE(p.ends_on, ${today}::date) - p.starts_on)
+                     FROM off_road_periods p WHERE p.work_order_id = j.id), 0)::int AS off_road_days,
+           h.operator_id AS holder_id, h.name AS holder_name
+    FROM jobs j
+    LEFT JOIN users u ON u.id = j.completed_by
+    LEFT JOIN LATERAL (
+      SELECT a.operator_id, o.name FROM assignments a JOIN operators o ON o.id = a.operator_id
+      WHERE j.type = 'maintenance' AND a.tricycle_id = j.tricycle_id AND a.issued_on <= j.reported_on
+        AND (a.returned_on IS NULL OR a.returned_on >= j.reported_on)
+      ORDER BY a.issued_on DESC LIMIT 1
+    ) h ON true
+    WHERE j.day BETWEEN ${from}::date AND ${period.to}::date
+    ORDER BY j.day DESC, j.created_at DESC
+  `)) as unknown as {
+    id: string;
+    type: "service" | "maintenance";
+    status: "checked_in" | "completed" | "missed";
+    date: string;
+    fault: string | null;
+    findings: string | null;
+    labour: number;
+    completed_at: string | Date | null;
+    completed_by: string | null;
+    off_road_days: number;
+    holder_id: string | null;
+    holder_name: string | null;
+  }[];
+
+  const parts =
+    rows.length === 0
+      ? []
+      : await partsQuery(db).where(
+          and(
+            eq(stockMovements.kind, "issued"),
+            inArray(stockMovements.workOrderId, rows.map((row) => row.id)),
+            isNull(reversal.id),
+          ),
+        );
+  const showCost = can(ctx.actor.role, "workorder.cost");
+
+  const jobs: ReportJob[] = rows.map((row) => {
+    const used = parts
+      .filter((part) => part.workOrderId === row.id)
+      .map((part) => ({
+        id: part.movementId,
+        itemName: part.itemName,
+        unit: part.unit,
+        quantityMilli: -part.quantityMilli,
+        costKobo: showCost ? -part.costKobo : 0,
+      }));
+    return {
+      id: row.id,
+      type: row.type,
+      status: row.status,
+      date: row.date,
+      fault: row.fault,
+      findings: row.findings,
+      completedAt: row.completed_at ? new Date(row.completed_at) : null,
+      completedByName: row.completed_by,
+      offRoadDays: Number(row.off_road_days),
+      holder: row.holder_id ? { id: row.holder_id, name: row.holder_name! } : null,
+      parts: used,
+      partsKobo: used.reduce((sum, part) => sum + part.costKobo, 0),
+      labourKobo: showCost ? Number(row.labour) : 0,
+    };
+  });
+
+  const byItem = new Map<string, { itemName: string; unit: string; quantityMilli: number; costKobo: number }>();
+  for (const part of jobs.flatMap((job) => job.parts)) {
+    const entry = byItem.get(part.itemName) ?? { itemName: part.itemName, unit: part.unit, quantityMilli: 0, costKobo: 0 };
+    entry.quantityMilli += part.quantityMilli;
+    entry.costKobo += part.costKobo;
+    byItem.set(part.itemName, entry);
+  }
+
+  const [last] = await db
+    .select({ day: sql<string>`(${workOrders.completedAt} AT TIME ZONE 'Africa/Lagos')::date::text` })
+    .from(workOrders)
+    .where(
+      and(eq(workOrders.tricycleId, tricycleId), eq(workOrders.type, "service"), eq(workOrders.status, "completed")),
+    )
+    .orderBy(desc(workOrders.completedAt))
+    .limit(1);
+  const open = await nextOpenService(tricycleId, today);
+
+  const partsKobo = jobs.reduce((sum, job) => sum + job.partsKobo, 0);
+  const labourKobo = jobs.reduce((sum, job) => sum + job.labourKobo, 0);
+  return {
+    tricycle: { id: tricycle.id, code: tricycle.code, registration: tricycle.registration },
+    showCost,
+    summary: {
+      partsKobo,
+      labourKobo,
+      totalKobo: partsKobo + labourKobo,
+      servicesDone: jobs.filter((job) => job.type === "service" && job.status === "completed").length,
+      servicesMissed: jobs.filter((job) => job.type === "service" && job.status === "missed").length,
+      repairs: jobs.filter((job) => job.type === "maintenance").length,
+      offRoadDays: jobs.reduce((sum, job) => sum + job.offRoadDays, 0),
+      inWorkshop: jobs.some((job) => job.status === "checked_in"),
+      lastService: last?.day ?? null,
+      nextService: open ?? nextServiceDate(tricycle.start, tricycle.interval, today),
+    },
+    partsByItem: [...byItem.values()].sort((a, b) => b.costKobo - a.costKobo || a.itemName.localeCompare(b.itemName)),
+    jobs,
+  };
+}
+
+export type FleetRow = {
+  tricycleId: string;
+  code: string;
+  retired: boolean;
+  servicesDone: number;
+  servicesMissed: number;
+  repairs: number;
+  offRoadDays: number;
+  partsKobo: number;
+  labourKobo: number;
+  totalKobo: number;
+  /** Among the tricycles with the most repairs in the period, when that is two or more. */
+  mostRepairs: boolean;
+};
+
+/**
+ * Every tricycle's workshop record over a period, costliest first, with fleet
+ * totals. Retired tricycles appear only when they had work in the period.
+ * Money is left out (as zero) for those who may not see workshop costs.
+ */
+export async function fleetWorkshopReport(ctx: Ctx, period: { from?: string; to: string }) {
+  requirePermission(ctx, "workorder.view");
+  const today = businessDate(ctx.clock());
+  const from = period.from ?? "1900-01-01";
+  const raw = (await db.execute(sql`
+    WITH jobs AS (
+      SELECT w.*, COALESCE((w.checked_in_at AT TIME ZONE 'Africa/Lagos')::date, w.scheduled_for) AS day
+      FROM work_orders w
+      WHERE w.status IN ('checked_in', 'completed', 'missed')
+    ), inperiod AS (
+      SELECT j.*,
+        COALESCE((SELECT -SUM(m.cost_kobo) FROM stock_movements m
+                   WHERE m.work_order_id = j.id AND m.kind = 'issued'
+                     AND NOT EXISTS (SELECT 1 FROM stock_movements r WHERE r.reverses_id = m.id)), 0) AS parts,
+        COALESCE((SELECT SUM(COALESCE(p.ends_on, ${today}::date) - p.starts_on)
+                   FROM off_road_periods p WHERE p.work_order_id = j.id), 0) AS off_road
+      FROM jobs j
+      WHERE j.day BETWEEN ${from}::date AND ${period.to}::date
+    )
+    SELECT t.id, t.code_number AS code, (t.status = 'retired') AS retired,
+      COUNT(*) FILTER (WHERE i.type = 'service' AND i.status = 'completed')::int AS services_done,
+      COUNT(*) FILTER (WHERE i.type = 'service' AND i.status = 'missed')::int AS services_missed,
+      COUNT(*) FILTER (WHERE i.type = 'maintenance')::int AS repairs,
+      COALESCE(SUM(i.off_road), 0)::int AS off_road_days,
+      COALESCE(SUM(i.parts), 0)::float8 AS parts,
+      COALESCE(SUM(i.labour_cost_kobo), 0)::float8 AS labour
+    FROM tricycles t
+    LEFT JOIN inperiod i ON i.tricycle_id = t.id
+    GROUP BY t.id, t.code_number, t.status
+    HAVING t.status <> 'retired' OR COUNT(i.id) > 0
+  `)) as unknown as {
+    id: string;
+    code: string;
+    retired: boolean;
+    services_done: number;
+    services_missed: number;
+    repairs: number;
+    off_road_days: number;
+    parts: number;
+    labour: number;
+  }[];
+
+  const showCost = can(ctx.actor.role, "workorder.cost");
+  const most = Math.max(0, ...raw.map((row) => Number(row.repairs)));
+  const rows: FleetRow[] = raw.map((row) => {
+    const partsKobo = showCost ? Number(row.parts) : 0;
+    const labourKobo = showCost ? Number(row.labour) : 0;
+    return {
+      tricycleId: row.id,
+      code: row.code,
+      retired: row.retired,
+      servicesDone: Number(row.services_done),
+      servicesMissed: Number(row.services_missed),
+      repairs: Number(row.repairs),
+      offRoadDays: Number(row.off_road_days),
+      partsKobo,
+      labourKobo,
+      totalKobo: partsKobo + labourKobo,
+      // One repair each is no pattern, so the mark needs at least two.
+      mostRepairs: most >= 2 && Number(row.repairs) === most,
+    };
+  });
+  rows.sort(
+    (a, b) =>
+      b.totalKobo - a.totalKobo ||
+      b.repairs - a.repairs ||
+      b.offRoadDays - a.offRoadDays ||
+      a.code.localeCompare(b.code),
+  );
+  const sum = (key: keyof Pick<FleetRow, "servicesDone" | "servicesMissed" | "repairs" | "offRoadDays" | "partsKobo" | "labourKobo" | "totalKobo">) =>
+    rows.reduce((total, row) => total + row[key], 0);
+  return {
+    showCost,
+    rows,
+    totals: {
+      tricycles: rows.length,
+      servicesDone: sum("servicesDone"),
+      servicesMissed: sum("servicesMissed"),
+      repairs: sum("repairs"),
+      offRoadDays: sum("offRoadDays"),
+      partsKobo: sum("partsKobo"),
+      labourKobo: sum("labourKobo"),
+      totalKobo: sum("totalKobo"),
+    },
+  };
+}

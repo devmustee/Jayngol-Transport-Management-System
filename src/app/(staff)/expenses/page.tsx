@@ -40,15 +40,16 @@ function Advances({ rows }: { rows: Row[] }) {
   );
 }
 
-export default async function ExpensesPage() {
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ collect?: string }> }) {
   const ctx = await requirePage("finance.view");
+  const collect = (await searchParams).collect === "1";
   const [data, sources] = await Promise.all([listAdvances(ctx), moneySources(ctx)]);
   return (
     <>
       <PageHeader title="Expenses" subtitle={`Still to account for: ${formatNaira(data.outstandingKobo)}`} back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         {data.canRecord ? (
-          <Disclosure label="Collect funds for expenses">
+          <Disclosure label="Collect funds for expenses" open={collect}>
             <ActionForm action={createAdvanceAction}>
               <TextareaField name="purpose" label="What the money is for" />
               <Field name="amount" label="Amount (₦)" inputMode="decimal" autoComplete="off" />

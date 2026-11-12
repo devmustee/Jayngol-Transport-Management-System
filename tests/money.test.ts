@@ -18,6 +18,7 @@ import type { Ctx } from "@/services/context";
 import { runDailyJob } from "@/services/daily-job";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
 import { addNonCollectionDay, cashDay, closeCash, getStatement } from "@/services/finance";
+import { repeatPaymentDays, unusedCredit } from "@/services/payment-review";
 import { recordPayment, reversePayment } from "@/services/payments";
 import { listInStockTricycles } from "@/services/tricycles";
 import { confirmViolation, rejectViolation, waiveViolation } from "@/services/violations";
@@ -338,6 +339,249 @@ describe("payments", () => {
     await expect(db.execute(sql`UPDATE payments SET amount_kobo = 1`)).rejects.toThrow();
     await expect(db.execute(sql`DELETE FROM charges`)).rejects.toThrow();
     await expect(db.execute(sql`DELETE FROM payment_allocations`)).rejects.toThrow();
+  });
+});
+
+/** What has been paid towards each daily balance, by day. */
+async function paidByDay(operatorId: string): Promise<Record<string, number>> {
+  const rows = (await db.execute(sql`
+    SELECT c.business_date::text AS day,
+           COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e WHERE e.charge_id = c.id), 0)::float8 AS paid
+    FROM valid_charges c
+    WHERE c.operator_id = ${operatorId} AND c.type = 'daily_balance'
+    ORDER BY 1
+  `)) as unknown as { day: string; paid: number }[];
+  return Object.fromEntries(rows.map((row) => [row.day, row.paid]));
+}
+
+describe("a day's balance pays that day", () => {
+  it("pays today even when an older day is unpaid", async () => {
+    await baseline("2037-03-01");
+    const { operatorId } = await operatorFrom("2037-03-02");
+    await runDays("2037-03-02", "2037-03-03");
+    const { id } = await pay(on(manager, "2037-03-03", "10:00"), operatorId, "12000", { purpose: "day" });
+    expect(await paidByDay(operatorId)).toEqual({ "2037-03-02": 0, "2037-03-03": 1_200_000 });
+
+    const [saved] = await db.select().from(payments).where(eq(payments.id, id));
+    expect(saved).toMatchObject({ purpose: "day_balance", forDate: "2037-03-03" });
+  });
+
+  it("waits for its day when paid before the nightly job, then pays that day only", async () => {
+    await baseline("2037-03-01");
+    const { operatorId } = await operatorFrom("2037-03-02");
+    await job("2037-03-02");
+    // 3 Mar, before the job has raised the day: 2 Mar is still unpaid.
+    await pay(on(manager, "2037-03-03", "07:00"), operatorId, "12000", { purpose: "day" });
+    expect(await paidByDay(operatorId)).toEqual({ "2037-03-02": 0 });
+    expect((await getStatement(manager, operatorId)).creditKobo).toBe(1_200_000);
+
+    await job("2037-03-03");
+    expect(await paidByDay(operatorId)).toEqual({ "2037-03-02": 0, "2037-03-03": 1_200_000 });
+    expect((await getStatement(manager, operatorId)).creditKobo).toBe(0);
+  });
+
+  it("pays the chosen day when backdated", async () => {
+    await baseline("2037-03-01");
+    const { operatorId } = await operatorFrom("2037-03-02");
+    await runDays("2037-03-02", "2037-03-04");
+    await pay(on(manager, "2037-03-04", "10:00"), operatorId, "12000", {
+      purpose: "day",
+      backdateTo: "2037-03-03",
+      backdateReason: "Paid on the day, entered late",
+    });
+    expect(await paidByDay(operatorId)).toEqual({ "2037-03-02": 0, "2037-03-03": 1_200_000, "2037-03-04": 0 });
+  });
+
+  it("pays the oldest days first when the money is for older days", async () => {
+    await baseline("2037-03-01");
+    const { operatorId } = await operatorFrom("2037-03-02");
+    await runDays("2037-03-02", "2037-03-04");
+    const { id } = await pay(on(manager, "2037-03-04", "10:00"), operatorId, "18000", { purpose: "old" });
+    expect(await paidByDay(operatorId)).toEqual({ "2037-03-02": 1_200_000, "2037-03-03": 600_000, "2037-03-04": 0 });
+    const [saved] = await db.select().from(payments).where(eq(payments.id, id));
+    expect(saved).toMatchObject({ purpose: "old_balance", forDate: null });
+  });
+
+  it("refuses a day payment with no day in the database", async () => {
+    const { operatorId } = await operatorFrom("2037-03-02");
+    const { id } = await pay(on(manager, "2037-03-04"), operatorId, "1000");
+    const [row] = await db.select().from(payments).where(eq(payments.id, id));
+    await expect(
+      db.insert(payments).values({
+        ...row!,
+        id: randomUUID(),
+        clientId: randomUUID(),
+        receiptNumber: `T-${randomUUID().slice(0, 8)}`,
+        purpose: "day_balance",
+        forDate: null,
+      }),
+    ).rejects.toThrow();
+  });
+});
+
+describe("each tricycle's balance is taken once a day", () => {
+  /** A refusal on the amount field whose message matches. */
+  const amountError = (pattern: RegExp) => ({ fieldErrors: { amount: expect.stringMatching(pattern) } });
+
+  const day = (operatorId: string, amount: string, date: string, time = "10:00", extra: Record<string, unknown> = {}) =>
+    pay(on(manager, date, time), operatorId, amount, { purpose: "day", ...extra });
+
+  it("refuses a second payment for a paid day, naming the first receipt", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await job("2037-04-02");
+    await day(operatorId, "12000", "2037-04-02", "09:14");
+    const [first] = await db.select().from(payments).where(eq(payments.operatorId, operatorId));
+    await expect(day(operatorId, "12000", "2037-04-02", "11:00")).rejects.toMatchObject(amountError(new RegExp(`Today's balance for .* is already paid: ₦12,000 at 9:14 by .* \\(receipt ${first!.receiptNumber}\\)`)));
+  });
+
+  it("lets a part payment be finished, then refuses more", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await job("2037-04-02");
+    await day(operatorId, "6000", "2037-04-02", "09:00");
+    await expect(day(operatorId, "7000", "2037-04-02", "12:00")).rejects.toMatchObject(amountError(/Only ₦6,000 is left to pay/));
+    await day(operatorId, "6000", "2037-04-02", "17:00");
+    await expect(day(operatorId, "1000", "2037-04-02", "18:00")).rejects.toMatchObject(amountError(/already paid/));
+  });
+
+  it("refuses more than the day's balance", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await job("2037-04-02");
+    await expect(day(operatorId, "15000", "2037-04-02")).rejects.toMatchObject(amountError(/is ₦12,000\. Enter that amount or less/));
+  });
+
+  it("counts money taken before the nightly job, at the tricycle's own rate", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02", "15000");
+    // The job for 2 Apr has not run: the day is not raised yet.
+    await expect(day(operatorId, "15001", "2037-04-02", "07:00")).rejects.toMatchObject(amountError(/is ₦15,000/));
+    await day(operatorId, "15000", "2037-04-02", "07:00");
+    await expect(day(operatorId, "15000", "2037-04-02", "08:00")).rejects.toMatchObject(amountError(/already paid/));
+    await job("2037-04-02");
+    expect(await paidByDay(operatorId)).toEqual({ "2037-04-02": 1_500_000 });
+  });
+
+  it("applies the same rule to a backdated day", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await runDays("2037-04-02", "2037-04-03");
+    await day(operatorId, "12000", "2037-04-02");
+    await expect(
+      day(operatorId, "12000", "2037-04-03", "10:00", { backdateTo: "2037-04-02", backdateReason: "Entered late" }),
+    ).rejects.toMatchObject(amountError(/The balance for 2 Apr 2037 for .* is already paid/));
+  });
+
+  it("keeps fines and the loan out of a day's balance", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await job("2037-04-02");
+    await expect(day(operatorId, "12000", "2037-04-02", "10:00", { penaltyAmount: "1000" })).rejects.toMatchObject(amountError(/Fines and loans are paid separately/));
+  });
+
+  it("refuses a day when the operator had no tricycle", async () => {
+    const o = await makeOperator(manager);
+    await expect(day(o.id, "12000", "2037-04-02")).rejects.toMatchObject(amountError(/had no tricycle today/));
+  });
+
+  it("lets only one of two staff saving at the same moment through", async () => {
+    await baseline("2037-04-01");
+    const { operatorId } = await operatorFrom("2037-04-02");
+    await job("2037-04-02");
+    const results = await Promise.allSettled([
+      day(operatorId, "12000", "2037-04-02", "10:00"),
+      day(operatorId, "12000", "2037-04-02", "10:00"),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(await paidByDay(operatorId)).toEqual({ "2037-04-02": 1_200_000 });
+  });
+});
+
+describe("older days, fines and the loan are each paid on their own", () => {
+  const amountError = (pattern: RegExp) => ({ fieldErrors: { amount: expect.stringMatching(pattern) } });
+
+  it("pays older days oldest first and never today", async () => {
+    await baseline("2037-05-01");
+    const { operatorId } = await operatorFrom("2037-05-02");
+    await runDays("2037-05-02", "2037-05-04");
+    // Owed: 2, 3 and 4 May. On 4 May only 2 and 3 May are "older".
+    await expect(pay(on(manager, "2037-05-04"), operatorId, "24001", { purpose: "old" })).rejects.toMatchObject(
+      amountError(/Only ₦24,000 is owed for days before today/),
+    );
+    await pay(on(manager, "2037-05-04"), operatorId, "24000", { purpose: "old" });
+    expect(await paidByDay(operatorId)).toEqual({ "2037-05-02": 1_200_000, "2037-05-03": 1_200_000, "2037-05-04": 0 });
+    await expect(pay(on(manager, "2037-05-04"), operatorId, "1000", { purpose: "old" })).rejects.toMatchObject(
+      amountError(/Nothing is owed for days before today/),
+    );
+  });
+
+  it("pays fines on their own, never the balance", async () => {
+    await baseline("2037-05-01");
+    const { operatorId } = await operatorFrom("2037-05-02");
+    await runDays("2037-05-02", "2037-05-04");
+    const finesOwed = (await getStatement(manager, operatorId)).penaltiesOwedKobo;
+    expect(finesOwed).toBeGreaterThan(0);
+    await expect(
+      pay(on(manager, "2037-05-04"), operatorId, String(finesOwed / 100 + 1), { purpose: "fine" }),
+    ).rejects.toMatchObject(amountError(/owes only .* in fines/));
+
+    const { id } = await pay(on(manager, "2037-05-04"), operatorId, String(finesOwed / 100), { purpose: "fine" });
+    const s = await getStatement(manager, operatorId);
+    expect(s.penaltiesOwedKobo).toBe(0);
+    expect(await paidByDay(operatorId)).toEqual({ "2037-05-02": 0, "2037-05-03": 0, "2037-05-04": 0 });
+    const [saved] = await db.select().from(payments).where(eq(payments.id, id));
+    expect(saved).toMatchObject({ purpose: "fine", forDate: null, tricyclePresent: null });
+
+    await expect(pay(on(manager, "2037-05-04"), operatorId, "1000", { purpose: "fine" })).rejects.toMatchObject(
+      amountError(/owes no fines/),
+    );
+  });
+
+  it("does not mix parts into a single-purpose payment", async () => {
+    await baseline("2037-05-01");
+    const { operatorId } = await operatorFrom("2037-05-02");
+    await runDays("2037-05-02", "2037-05-04");
+    await expect(
+      pay(on(manager, "2037-05-04"), operatorId, "24000", { purpose: "old", penaltyAmount: "3000" }),
+    ).rejects.toMatchObject(amountError(/each paid separately/));
+  });
+
+  it("refuses a loan repayment when nothing is owed on a loan", async () => {
+    const { operatorId } = await operatorFrom("2037-05-02");
+    await expect(pay(on(manager, "2037-05-04"), operatorId, "1000", { purpose: "loan" })).rejects.toMatchObject(
+      amountError(/owes nothing on a loan/),
+    );
+  });
+});
+
+describe("payments to review", () => {
+  it("lists repeat days and unused credit, leaving out fines and reversals", async () => {
+    await baseline("2037-06-01");
+    const { operatorId } = await operatorFrom("2037-06-02");
+    await runDays("2037-06-02", "2037-06-04");
+    // Before the once-a-day rule: the same ₦12,000 entered twice on 4 Jun.
+    const first = await pay(on(manager, "2037-06-04", "09:00"), operatorId, "12000");
+    await pay(on(manager, "2037-06-04", "09:05"), operatorId, "12000");
+    await pay(on(manager, "2037-06-04", "09:10"), operatorId, "12000");
+    await pay(on(manager, "2037-06-04", "10:00"), operatorId, "12000");
+    await pay(on(manager, "2037-06-04", "10:30"), operatorId, "12000"); // 3 days owed, 4 paid after the reversal: credit
+    const finesOwed = (await getStatement(manager, operatorId)).penaltiesOwedKobo;
+    if (finesOwed > 0) await pay(on(manager, "2037-06-04", "11:00"), operatorId, String(finesOwed / 100), { purpose: "fine" });
+    await reversePayment(on(manager, "2037-06-04", "12:00"), first.id, { reason: "Entered twice" });
+
+    const day = (await repeatPaymentDays(manager)).find((d) => d.operatorId === operatorId);
+    expect(day).toMatchObject({ date: "2037-06-04", dueKobo: 1_200_000, totalKobo: 4_800_000, sameAmount: true });
+    expect(day!.payments).toHaveLength(4);
+    expect(day!.payments.map((p) => p.purpose)).not.toContain("fine");
+
+    const credit = (await unusedCredit(manager)).filter((c) => c.operatorId === operatorId);
+    expect(credit.reduce((sum, c) => sum + c.unusedKobo, 0)).toBe(1_200_000);
+  });
+
+  it("is for the Manager only", async () => {
+    await expect(repeatPaymentDays(assistant)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(unusedCredit(assistant)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 

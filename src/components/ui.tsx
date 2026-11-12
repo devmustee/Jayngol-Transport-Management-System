@@ -229,9 +229,9 @@ export function Empty({
 }
 
 /** A form tucked behind a heading, so long pages stay short on a phone. */
-export function Disclosure({ label, children }: { label: string; children: ReactNode }) {
+export function Disclosure({ label, children, open }: { label: string; children: ReactNode; open?: boolean }) {
   return (
-    <details className="group rounded-2xl border border-line bg-card">
+    <details className="group rounded-2xl border border-line bg-card" open={open}>
       <summary className="flex min-h-12 items-center justify-between gap-3 rounded-2xl px-4 py-3 font-semibold text-ink transition-colors hover:bg-card-subtle group-open:rounded-b-none sm:px-5">
         <span className="min-w-0">{label}</span>
         <ChevronDown size={18} aria-hidden className="shrink-0 text-muted transition-transform duration-200 group-open:rotate-180" />

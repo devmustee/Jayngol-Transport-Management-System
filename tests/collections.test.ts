@@ -19,6 +19,28 @@ async function allocationsOf(paymentId: string) {
   return Object.fromEntries(rows.map((r) => [r.charge_id, r.amount]));
 }
 
+describe("payment preview for a day", () => {
+  it("pays the day being paid for before older days", () => {
+    const preview = previewPayment({
+      amountKobo: 1_800_000,
+      finesPartKobo: 0,
+      loanPartKobo: 0,
+      balances: [
+        { businessDate: "2037-03-02", outstandingKobo: 1_200_000 },
+        { businessDate: "2037-03-03", outstandingKobo: 1_200_000 },
+      ],
+      finesOwedKobo: 0,
+      loanOwedKobo: 0,
+      forDate: "2037-03-03",
+    });
+    expect(preview.days).toEqual([
+      { businessDate: "2037-03-02", appliedKobo: 600_000, cleared: false },
+      { businessDate: "2037-03-03", appliedKobo: 1_200_000, cleared: true },
+    ]);
+    expect(preview.creditKobo).toBe(0);
+  });
+});
+
 describe("taking unpaid balances and loan repayments", () => {
   let manager: Ctx;
 

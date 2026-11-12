@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
-import { assignments, operators, tricycles } from "@/db/schema";
+import { assignments, charges, operators, tricycles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { asPgError, DomainError, ForbiddenError } from "@/lib/errors";
 import {
   balanceOn,
+  changeIssueDate,
   changeTricycleBalance,
   issueTricycle,
   rateOn,
@@ -332,5 +333,71 @@ describe("adding an operator with a tricycle", () => {
     await makeOperator(manager, { phone });
     await expect(createOperator(manager, form(t.id, { phone }))).rejects.toBeInstanceOf(DomainError);
     expect(await status(t.id)).toBe("in_stock");
+  });
+});
+
+describe("changing the date issued", () => {
+  const raise = (a: { tricycleId: string; operatorId: string; assignmentId: string }, dates: string[]) =>
+    db.insert(charges).values(
+      dates.map((date) => ({
+        type: "daily_balance" as const,
+        operatorId: a.operatorId,
+        tricycleId: a.tricycleId,
+        assignmentId: a.assignmentId,
+        amountKobo: 1_200_000,
+        businessDate: date,
+        dueOn: date,
+      })),
+    );
+  const owedDays = async (assignmentId: string) =>
+    ((await db.execute(sql`
+      SELECT business_date::text AS d FROM valid_charges WHERE assignment_id = ${assignmentId} ORDER BY 1
+    `)) as unknown as { d: string }[]).map((r) => r.d);
+  const issuedOn = async (id: string) => (await db.select().from(assignments).where(eq(assignments.id, id)))[0]!.issuedOn;
+
+  it("moves the date later and takes back balances for days before it", async () => {
+    const a = await issue();
+    await raise(a, ["2026-03-02", "2026-03-03", "2026-03-04", "2026-03-05"]);
+    await changeIssueDate(assistant, a.assignmentId, { issuedOn: "2026-03-03", reason: "Typed the wrong day" });
+    expect(await issuedOn(a.assignmentId)).toBe("2026-03-03");
+    expect(await owedDays(a.assignmentId)).toEqual(["2026-03-04", "2026-03-05"]);
+  });
+
+  it("moves the date earlier with the tricycle's balance from that day, raising nothing", async () => {
+    const a = await issue();
+    await raise(a, ["2026-03-02"]);
+    await changeIssueDate(manager, a.assignmentId, { issuedOn: "2026-02-20", reason: "Collected earlier" });
+    expect(await issuedOn(a.assignmentId)).toBe("2026-02-20");
+    expect(await rateOn(db, a.assignmentId, "2026-02-25")).toBe(1_200_000);
+    expect(await owedDays(a.assignmentId)).toEqual(["2026-03-02"]);
+  });
+
+  it("refuses a future date, a date before purchase, and asks for a reason", async () => {
+    const a = await issue();
+    await expect(changeIssueDate(manager, a.assignmentId, { issuedOn: "2026-12-01", reason: "x" })).rejects.toMatchObject({
+      fieldErrors: { issuedOn: "Date issued cannot be in the future" },
+    });
+    await expect(changeIssueDate(manager, a.assignmentId, { issuedOn: "2026-01-01", reason: "x" })).rejects.toMatchObject({
+      fieldErrors: { issuedOn: "Date issued cannot be before the date purchased" },
+    });
+    await expect(changeIssueDate(manager, a.assignmentId, { issuedOn: "2026-02-20", reason: "" })).rejects.toMatchObject({
+      fieldErrors: { reason: expect.any(String) },
+    });
+  });
+
+  it("refuses a date that overlaps the operator's or tricycle's earlier assignment", async () => {
+    const first = await issue();
+    await returnTricycle(manager, first.assignmentId, { returnedOn: "2026-04-10", reason: "reassigned" });
+    const second = (await issueTricycle(manager, { tricycleId: first.tricycleId, operatorId: (await makeOperator(manager)).id, issuedOn: "2026-04-15" }))!;
+    await expect(changeIssueDate(manager, second.id, { issuedOn: "2026-04-05", reason: "x" })).rejects.toMatchObject({
+      fieldErrors: { issuedOn: "This tricycle was already with an operator on that date" },
+    });
+    await expect(changeIssueDate(manager, first.assignmentId, { issuedOn: "2026-02-20", reason: "x" })).rejects.toThrow(/current operator/);
+  });
+
+  it("is for office staff only", async () => {
+    const a = await issue();
+    const supervisor = (await makeUser("supervisor")).ctx;
+    await expect(changeIssueDate(supervisor, a.assignmentId, { issuedOn: "2026-03-02", reason: "x" })).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

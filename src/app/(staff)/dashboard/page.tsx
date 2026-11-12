@@ -7,6 +7,7 @@ import {
   Clock,
   PackageCheck,
   Plus,
+  Receipt,
   UserMinus,
   Users,
   Wrench,
@@ -52,16 +53,26 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         title={`Welcome, ${ctx.actor.name}`}
         subtitle="Today at a glance"
         action={
-          can(ctx.actor.role, "tricycle.manage") ? (
+          can(ctx.actor.role, "tricycle.manage") || can(ctx.actor.role, "expense.record") ? (
             <div className="flex flex-wrap items-center gap-2">
-              <LinkButton href="/tricycles/new" variant="secondary">
-                <Plus size={16} />
-                <span>Add tricycle</span>
-              </LinkButton>
-              <LinkButton href="/operators/new" variant="gold">
-                <Plus size={16} />
-                <span>Add operator</span>
-              </LinkButton>
+              {can(ctx.actor.role, "expense.record") ? (
+                <LinkButton href="/expenses?collect=1">
+                  <Receipt size={16} />
+                  <span>Collect funds for expenses</span>
+                </LinkButton>
+              ) : null}
+              {can(ctx.actor.role, "tricycle.manage") ? (
+                <>
+                  <LinkButton href="/tricycles/new" variant="secondary">
+                    <Plus size={16} />
+                    <span>Add tricycle</span>
+                  </LinkButton>
+                  <LinkButton href="/operators/new" variant="gold">
+                    <Plus size={16} />
+                    <span>Add operator</span>
+                  </LinkButton>
+                </>
+              ) : null}
             </div>
           ) : null
         }

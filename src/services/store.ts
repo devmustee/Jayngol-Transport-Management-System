@@ -5,8 +5,8 @@ import { db, type Tx } from "@/db";
 import { stockBalances, stockItems, stockMovements, tricycles, users, workOrders } from "@/db/schema";
 import { businessDate } from "@/lib/clock";
 import { asPgError, DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
-import { idField, nairaField, optionalText, requiredText } from "@/lib/fields";
-import { formatQuantity, MILLI, mulDiv, quantityField } from "@/lib/quantity";
+import { idField, isUuid, nairaField, optionalNairaField, optionalText, requiredText } from "@/lib/fields";
+import { formatStock, MILLI, mulDiv, parseQuantity, quantityField } from "@/lib/quantity";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 
@@ -57,31 +57,92 @@ const itemSchema = z.object({
   reorderLevel: quantityField("Reorder level"),
 });
 
+const newItemSchema = itemSchema.extend({
+  /** Stock already on the shelf when the item is added. */
+  quantity: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), quantityField("Quantity").optional()),
+  unitCost: optionalNairaField("Cost per unit"),
+});
+
+/**
+ * Adds an item. When stock is already on the shelf, its quantity and cost per
+ * unit are received in the same save, so the store's value is right from the start.
+ */
 export async function createStockItem(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "stock.move");
-  const input = parseInput(itemSchema, raw);
+  const input = parseInput(newItemSchema, raw);
+  const unit = input.unit.toLowerCase();
+  const whole = input.kind === "whole";
+  if (whole && input.reorderLevel % MILLI !== 0) throw fieldError("reorderLevel", `Enter whole ${unit}s`);
+  const opening = input.quantity ?? 0;
+  if (opening > 0) {
+    if (whole && opening % MILLI !== 0) throw fieldError("quantity", `Enter whole ${unit}s`);
+    if (!input.unitCost) throw fieldError("unitCost", `Enter the cost per ${unit}`);
+  }
   try {
     return await db.transaction(async (tx) => {
       const [item] = await tx
         .insert(stockItems)
-        .values({
-          name: input.name,
-          unit: input.unit.toLowerCase(),
-          wholeOnly: input.kind === "whole",
-          reorderLevelMilli: input.reorderLevel,
-        })
+        .values({ name: input.name, unit, wholeOnly: whole, reorderLevelMilli: input.reorderLevel })
         .returning({ id: stockItems.id });
       await tx.insert(stockBalances).values({ itemId: item!.id });
       await auditFrom(ctx, tx, {
         action: "stock.item_create",
         entityType: "stock_item",
         entityId: item!.id,
-        after: { name: input.name, unit: input.unit },
+        after: { name: input.name, unit },
       });
+      if (opening > 0) {
+        await move(tx, ctx, {
+          itemId: item!.id,
+          kind: "received",
+          quantityMilli: opening,
+          costKobo: mulDiv(opening, input.unitCost!, MILLI),
+          reason: "Stock in the store when the item was added",
+        });
+        await auditFrom(ctx, tx, {
+          action: "stock.receive",
+          entityType: "stock_item",
+          entityId: item!.id,
+          after: { quantity: opening, unitCostKobo: input.unitCost },
+          reason: "Stock in the store when the item was added",
+        });
+      }
       return item!;
     });
   } catch (error) {
     rethrowConstraint(error, { stock_items_name_unique: fieldError("name", "This item already exists") });
+  }
+}
+
+/**
+ * Changes an item's name, unit, how it is counted and its reorder alert.
+ * Stock and value are not touched: those change only by receiving, taking out
+ * or a count. Whole units are refused while part of a unit is in the store.
+ */
+export async function updateStockItem(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "stock.move");
+  const itemId = parseInput(idField("item"), rawId);
+  const input = parseInput(itemSchema, raw);
+  const unit = input.unit.toLowerCase();
+  const whole = input.kind === "whole";
+  try {
+    await db.transaction(async (tx) => {
+      const { item, balance } = await lockStock(tx, itemId);
+      if (whole && balance.quantityMilli % MILLI !== 0) {
+        throw fieldError(
+          "kind",
+          `${formatStock(balance.quantityMilli, item.unit)} in the store is not a whole number. Keep part units, or correct the count first.`,
+        );
+      }
+      if (whole && input.reorderLevel % MILLI !== 0) throw fieldError("reorderLevel", `Enter whole ${unit}s`);
+      const after = { name: input.name, unit, wholeOnly: whole, reorderLevelMilli: input.reorderLevel };
+      const before = { name: item.name, unit: item.unit, wholeOnly: item.wholeOnly, reorderLevelMilli: item.reorderLevelMilli };
+      if (JSON.stringify(after) === JSON.stringify(before)) return;
+      await tx.update(stockItems).set(after).where(eq(stockItems.id, itemId));
+      await auditFrom(ctx, tx, { action: "stock.item_update", entityType: "stock_item", entityId: itemId, before, after });
+    });
+  } catch (error) {
+    rethrowConstraint(error, { stock_items_name_unique: fieldError("name", "Another item already has this name") });
   }
 }
 
@@ -140,6 +201,51 @@ const issueSchema = z.object({
   quantity: quantityField("Quantity"),
 });
 
+/** Locks an open work order so parts can go to it. */
+async function lockOpenOrder(tx: Tx, workOrderId: string) {
+  const [order] = await tx.select().from(workOrders).where(eq(workOrders.id, workOrderId)).for("update");
+  if (!order) throw new DomainError("Work order not found.");
+  if (order.status !== "checked_in") throw new DomainError("Parts can only go to a tricycle in the workshop.");
+  return order;
+}
+
+/** One item out of the store to an open work order, at the store's average cost. */
+async function issueLine(
+  tx: Tx,
+  ctx: Ctx,
+  order: { id: string; tricycleId: string },
+  itemId: string,
+  quantity: number,
+  field: string,
+) {
+  const { item, balance } = await lockStock(tx, itemId);
+  requireWhole(item, quantity, field);
+  if (quantity > balance.quantityMilli) {
+    throw fieldError(
+      field,
+      balance.quantityMilli === 0
+        ? `No ${item.name.toLowerCase()} left in the store`
+        : `Only ${formatStock(balance.quantityMilli, item.unit)} of ${item.name.toLowerCase()} left in the store`,
+    );
+  }
+  const costKobo =
+    quantity === balance.quantityMilli ? balance.valueKobo : mulDiv(balance.valueKobo, quantity, balance.quantityMilli);
+  await move(tx, ctx, {
+    itemId: item.id,
+    kind: "issued",
+    quantityMilli: -quantity,
+    costKobo: -costKobo,
+    workOrderId: order.id,
+    tricycleId: order.tricycleId,
+  });
+  await auditFrom(ctx, tx, {
+    action: "stock.issue",
+    entityType: "tricycle",
+    entityId: order.tricycleId,
+    after: { item: item.name, quantity, costKobo, workOrderId: order.id },
+  });
+}
+
 /**
  * Stock out to an open work order. The row lock queues two people issuing at
  * once, and the database refuses a negative balance if anything gets past it.
@@ -151,33 +257,8 @@ export async function issuePart(ctx: Ctx, rawOrderId: unknown, raw: unknown) {
   if (input.quantity <= 0) throw fieldError("quantity", "Quantity must be more than zero");
   try {
     await db.transaction(async (tx) => {
-      const [order] = await tx.select().from(workOrders).where(eq(workOrders.id, workOrderId)).for("update");
-      if (!order) throw new DomainError("Work order not found.");
-      if (order.status !== "checked_in") throw new DomainError("Parts can only go to a tricycle in the workshop.");
-
-      const { item, balance } = await lockStock(tx, input.itemId);
-      requireWhole(item, input.quantity);
-      if (input.quantity > balance.quantityMilli) {
-        throw fieldError("quantity", `Only ${formatQuantity(balance.quantityMilli)} left in the store`);
-      }
-      const costKobo =
-        input.quantity === balance.quantityMilli
-          ? balance.valueKobo
-          : mulDiv(balance.valueKobo, input.quantity, balance.quantityMilli);
-      await move(tx, ctx, {
-        itemId: item.id,
-        kind: "issued",
-        quantityMilli: -input.quantity,
-        costKobo: -costKobo,
-        workOrderId,
-        tricycleId: order.tricycleId,
-      });
-      await auditFrom(ctx, tx, {
-        action: "stock.issue",
-        entityType: "tricycle",
-        entityId: order.tricycleId,
-        after: { item: item.name, quantity: input.quantity, costKobo, workOrderId },
-      });
+      const order = await lockOpenOrder(tx, workOrderId);
+      await issueLine(tx, ctx, order, input.itemId, input.quantity, "quantity");
     });
   } catch (error) {
     if (asPgError(error)?.constraint_name === "stock_never_negative") {
@@ -185,6 +266,65 @@ export async function issuePart(ctx: Ctx, rawOrderId: unknown, raw: unknown) {
     }
     throw error;
   }
+}
+
+/** The form field for one item's quantity on Take out items. */
+export const QTY_PREFIX = "qty.";
+
+/**
+ * Several items out of the store to one open work order, all or none. Each
+ * quantity comes as `qty.<itemId>`; empty ones are skipped. Items are locked
+ * in a fixed order so two people taking the same items cannot deadlock.
+ */
+export async function takeOutItems(ctx: Ctx, raw: unknown) {
+  requirePermission(ctx, "stock.move");
+  const input = (raw ?? {}) as Record<string, unknown>;
+  if (!input.workOrderId) throw fieldError("workOrderId", "Choose the tricycle");
+  const workOrderId = parseInput(idField("work order"), input.workOrderId);
+
+  const lines: { itemId: string; quantity: number; field: string }[] = [];
+  const errors: Record<string, string> = {};
+  for (const [key, value] of Object.entries(input)) {
+    if (!key.startsWith(QTY_PREFIX) || typeof value !== "string" || value.trim() === "") continue;
+    const itemId = key.slice(QTY_PREFIX.length);
+    if (!isUuid(itemId)) continue;
+    const quantity = parseQuantity(value);
+    if (quantity === null) errors[key] = "Enter a number";
+    else if (quantity > 0) lines.push({ itemId, quantity, field: key });
+  }
+  if (Object.keys(errors).length > 0) throw new DomainError("Please check the highlighted fields.", errors);
+  if (lines.length === 0) throw new DomainError("Enter how much of at least one item to take out.");
+  lines.sort((a, b) => (a.itemId < b.itemId ? -1 : 1));
+
+  try {
+    return await db.transaction(async (tx) => {
+      const order = await lockOpenOrder(tx, workOrderId);
+      for (const line of lines) await issueLine(tx, ctx, order, line.itemId, line.quantity, line.field);
+      return { workOrderId: order.id, count: lines.length };
+    });
+  } catch (error) {
+    if (asPgError(error)?.constraint_name === "stock_never_negative") {
+      throw new DomainError("There is not enough left in the store. Please check the quantities.");
+    }
+    throw error;
+  }
+}
+
+/** Tricycles in the workshop now, with their open job, for Take out items. */
+export async function openJobsForParts(ctx: Ctx) {
+  requirePermission(ctx, "stock.move");
+  return db
+    .select({
+      id: workOrders.id,
+      type: workOrders.type,
+      fault: workOrders.fault,
+      checkedInAt: workOrders.checkedInAt,
+      code: tricycles.codeNumber,
+    })
+    .from(workOrders)
+    .innerJoin(tricycles, eq(tricycles.id, workOrders.tricycleId))
+    .where(eq(workOrders.status, "checked_in"))
+    .orderBy(asc(tricycles.codeNumber));
 }
 
 /** Undoes an issue made by mistake, while the work order is still open. */

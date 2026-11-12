@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Pencil } from "lucide-react";
 import { notFound } from "next/navigation";
 import {
+  changeIssueDateAction,
   changeTricycleBalanceAction,
   issueTricycleAction,
   retireTricycleAction,
@@ -87,6 +88,36 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
       </details>
     ) : null;
 
+  const issueDateChange =
+    current && can(ctx.actor.role, "assignment.manage") ? (
+      <details className="group mt-3">
+        <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-bold text-gold-deep transition-colors hover:bg-gold-wash/50 [&::-webkit-details-marker]:hidden">
+          <Pencil size={16} aria-hidden />
+          <span className="group-open:hidden">Change date issued</span>
+          <span className="hidden group-open:inline">Close</span>
+        </summary>
+        <div className="mt-3 rounded-xl border border-line/60 bg-card-subtle/50 p-4">
+          <ActionForm action={changeIssueDateAction.bind(null, current.assignment.id)}>
+            <Field
+              name="issuedOn"
+              label="Date issued"
+              type="date"
+              max={today}
+              min={tricycle.purchasedOn}
+              defaultValue={current.assignment.issuedOn}
+              hint="Balances are owed from the day after this date."
+            />
+            <p className="text-sm text-muted">
+              A later date takes back the balances already raised for the days in between, and any money paid on them goes to
+              other days. An earlier date does not raise balances for the extra days.
+            </p>
+            <TextareaField name="reason" label="Reason" />
+            <SubmitButton>Save date issued</SubmitButton>
+          </ActionForm>
+        </div>
+      </details>
+    ) : null;
+
   return (
     <>
       <PageHeader
@@ -111,6 +142,7 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
               ]}
             />
             {balanceChange}
+            {issueDateChange}
           </Card>
         ) : null}
 
@@ -186,7 +218,14 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
           )}
         </Card>
 
-        <Card title="Service and repairs">
+        <Card
+          title="Service and repairs"
+          action={
+            <Link href={`/tricycles/${id}/workshop`} className="inline-flex min-h-11 items-center text-sm font-semibold text-gold-deep underline">
+              Workshop report
+            </Link>
+          }
+        >
           {work.showCost && work.orders.length > 0 ? (
             <div className="mb-3">
               <div className="text-2xl font-bold">{formatNaira(work.partsKobo + work.labourKobo)}</div>

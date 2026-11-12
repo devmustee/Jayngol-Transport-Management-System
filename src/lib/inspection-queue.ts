@@ -7,7 +7,6 @@ export type QueuedInspection = {
   washed: boolean;
   stickerIntact: boolean;
   note?: string;
-  photo?: string;
   inspectedAt: string;
   /** The Lagos date of the inspection, so old entries can be cleared. */
   date: string;

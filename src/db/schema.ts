@@ -44,6 +44,17 @@ export const returnReason = pgEnum("return_reason", [
 ]);
 export const chargeType = pgEnum("charge_type", ["daily_balance", "penalty", "loan"]);
 export const paymentMethod = pgEnum("payment_method", ["cash", "transfer", "pos"]);
+/**
+ * What a payment is for. A day's balance pays that one day; older payments
+ * (before this was recorded) are "general" and pay the oldest days first.
+ */
+export const paymentPurpose = pgEnum("payment_purpose", [
+  "day_balance",
+  "old_balance",
+  "fine",
+  "loan",
+  "general",
+]);
 export const violationStatus = pgEnum("violation_status", [
   "proposed",
   "confirmed",
@@ -324,10 +335,16 @@ export const payments = pgTable(
     receiptNumber: text("receipt_number").notNull().unique("payments_receipt_unique"),
     clientId: uuid("client_id").notNull().unique("payments_client_unique"),
     backdateReason: text("backdate_reason"),
+    purpose: paymentPurpose("purpose").notNull().default("general"),
+    /** The day a day_balance payment pays. Empty for every other purpose. */
+    forDate: date("for_date", { mode: "string" }),
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   },
   (t) => [
     index("payments_operator_idx").on(t.operatorId, t.receivedAt),
+    // What has been paid for one operator's day, for the once-a-day check.
+    index("payments_for_date_idx").on(t.operatorId, t.forDate),
+    check("payments_day_has_date", sql`(${t.purpose} = 'day_balance') = (${t.forDate} IS NOT NULL)`),
     index("payments_date_idx").on(t.businessDate),
     // A cashier's own collections for a week or month.
     index("payments_received_by_idx").on(t.receivedBy, t.businessDate),

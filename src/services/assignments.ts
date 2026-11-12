@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, gt, gte, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lte, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
 import { assignments, balanceRates, offRoadPeriods, operators, tricycleBalances, tricycles, workOrders } from "@/db/schema";
@@ -9,7 +9,7 @@ import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
-import { voidBalancesAfter } from "./ledger";
+import { applyCredit, voidBalancesAfter, voidCharge } from "./ledger";
 import { notifyOperators } from "./notices";
 
 const issueSchema = z.object({
@@ -116,6 +116,85 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
         },
       });
       return assignment!;
+    });
+  } catch (error) {
+    rethrowConstraint(error, OVERLAPS);
+  }
+}
+
+const issueDateSchema = z.object({
+  issuedOn: dateField("Date issued"),
+  reason: requiredText("Reason", 500),
+});
+
+/**
+ * Corrects the date a tricycle was issued to its current operator.
+ *
+ * A later date takes back the daily balances already raised for days the
+ * operator did not yet have it; any money paid on them moves to other days.
+ * An earlier date raises nothing for the days before, just as issuing with a
+ * past date does not: those days are added by hand if owed.
+ */
+export async function changeIssueDate(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "assignment.manage");
+  const assignmentId = parseInput(idField("assignment"), rawId);
+  const input = parseInput(issueDateSchema, raw);
+  const today = businessDate(ctx.clock());
+  if (input.issuedOn > today) throw fieldError("issuedOn", "Date issued cannot be in the future");
+
+  try {
+    await db.transaction(async (tx) => {
+      const [assignment] = await tx.select().from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
+      if (!assignment) throw new DomainError("Assignment not found.");
+      const [tricycle] = await tx.select().from(tricycles).where(eq(tricycles.id, assignment.tricycleId)).for("update");
+      await tx.select({ id: operators.id }).from(operators).where(eq(operators.id, assignment.operatorId)).for("update");
+      if (assignment.returnedOn) throw new DomainError("Only the current operator's date issued can be changed.");
+      const before = assignment.issuedOn;
+      if (input.issuedOn === before) return;
+      if (input.issuedOn < tricycle!.purchasedOn) {
+        throw fieldError("issuedOn", "Date issued cannot be before the date purchased");
+      }
+      const amount = await balanceOn(tx, tricycle!.id, input.issuedOn);
+      if (amount === null) throw fieldError("issuedOn", "This tricycle has no daily balance on that date");
+
+      await tx.update(assignments).set({ issuedOn: input.issuedOn }).where(eq(assignments.id, assignmentId));
+
+      if (input.issuedOn > before) {
+        // Balances are owed from the day after issue, so these days are no longer owed.
+        const rows = (await tx.execute(sql`
+          SELECT c.id FROM valid_charges c
+          WHERE c.type = 'daily_balance' AND c.assignment_id = ${assignmentId}
+            AND c.business_date <= ${input.issuedOn}::date
+        `)) as unknown as { id: string }[];
+        for (const row of rows) {
+          await voidCharge(tx, row.id, { userId: ctx.actor.userId, at: ctx.clock() }, `Date issued changed to ${formatDate(input.issuedOn)}`);
+        }
+        if (rows.length > 0) await applyCredit(tx, assignment.operatorId);
+      } else {
+        // The assignment's own rates start from the issue date; give it one for the new start.
+        const [earliest] = await tx
+          .select({ from: balanceRates.effectiveFrom })
+          .from(balanceRates)
+          .where(and(eq(balanceRates.assignmentId, assignmentId), lte(balanceRates.effectiveFrom, input.issuedOn)))
+          .limit(1);
+        if (!earliest) {
+          await tx.insert(balanceRates).values({
+            assignmentId,
+            amountKobo: amount,
+            effectiveFrom: input.issuedOn,
+            createdBy: ctx.actor.userId,
+          });
+        }
+      }
+
+      await auditFrom(ctx, tx, {
+        action: "assignment.issue_date",
+        entityType: "tricycle",
+        entityId: assignment.tricycleId,
+        before: { issuedOn: before },
+        after: { issuedOn: input.issuedOn, operatorId: assignment.operatorId },
+        reason: input.reason,
+      });
     });
   } catch (error) {
     rethrowConstraint(error, OVERLAPS);

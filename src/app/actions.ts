@@ -6,7 +6,7 @@ import { systemClock } from "@/lib/clock";
 import { DomainError } from "@/lib/errors";
 import type { FormState } from "@/lib/form-state";
 import { clearSession, clientIp, requireCtx, setSessionCookie } from "@/lib/session";
-import { changeTricycleBalance, issueTricycle, returnTricycle } from "@/services/assignments";
+import { changeIssueDate, changeTricycleBalance, issueTricycle, returnTricycle } from "@/services/assignments";
 import { login } from "@/services/auth";
 import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
@@ -34,10 +34,10 @@ import { changeRuleAmount } from "@/services/rules";
 import {
   adjustStock,
   createStockItem,
-  issuePart,
+  takeOutItems,
   receiveStock,
   returnPart,
-  setReorderLevel,
+  updateStockItem,
 } from "@/services/store";
 import {
   cancelWorkOrder,
@@ -173,6 +173,10 @@ export async function issueTricycleAction(_: FormState, data: FormData) {
 
 export async function returnTricycleAction(assignmentId: string, _: FormState, data: FormData) {
   return perform((ctx) => returnTricycle(ctx, assignmentId, values(data)), "Tricycle returned.");
+}
+
+export async function changeIssueDateAction(assignmentId: string, _: FormState, data: FormData) {
+  return perform((ctx) => changeIssueDate(ctx, assignmentId, values(data)), "Date issued changed.");
 }
 
 export async function changeTricycleBalanceAction(tricycleId: string, _: FormState, data: FormData) {
@@ -320,8 +324,16 @@ export async function cancelWorkOrderAction(id: string, _: FormState, data: Form
   return perform((ctx) => cancelWorkOrder(ctx, id, values(data)), "Work order cancelled.");
 }
 
-export async function issuePartAction(id: string, _: FormState, data: FormData) {
-  return perform((ctx) => issuePart(ctx, id, values(data)), "Part issued.");
+export async function takeOutItemsAction(_: FormState, data: FormData): Promise<FormState> {
+  const ctx = await requireCtx();
+  let workOrderId: string;
+  try {
+    workOrderId = (await takeOutItems(ctx, values(data))).workOrderId;
+  } catch (error) {
+    return toState(error);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/workshop/${workOrderId}?taken=1`);
 }
 
 export async function returnPartAction(id: string, _: FormState) {
@@ -329,15 +341,15 @@ export async function returnPartAction(id: string, _: FormState) {
 }
 
 export async function createStockItemAction(_: FormState, data: FormData) {
-  return perform((ctx) => createStockItem(ctx, values(data)), "Item added.");
+  return perform((ctx) => createStockItem(ctx, values(data)), "Item added to the store.");
 }
 
 export async function receiveStockAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => receiveStock(ctx, id, values(data)), "Stock received.");
 }
 
-export async function setReorderLevelAction(id: string, _: FormState, data: FormData) {
-  return perform((ctx) => setReorderLevel(ctx, id, values(data)), "Reorder level saved.");
+export async function updateStockItemAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => updateStockItem(ctx, id, values(data)), "Item saved.");
 }
 
 export async function adjustStockAction(id: string, _: FormState, data: FormData) {

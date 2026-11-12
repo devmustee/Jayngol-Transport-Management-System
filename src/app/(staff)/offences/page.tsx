@@ -7,6 +7,7 @@ import { formatDate, queryValue, VIOLATION_STATUS_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { operatorsOwingFines } from "@/services/payments";
 import { listViolations, RULE_NAMES } from "@/services/violations";
 
 export const metadata: Metadata = { title: "Offences" };
@@ -21,7 +22,12 @@ export default async function OffencesPage({
   const ctx = await requirePage("violation.view");
   const query = await searchParams;
   const status = queryValue(query.status);
-  const { rows, page, hasMore } = await listViolations(ctx, status, Number(queryValue(query.page) ?? 1));
+  const canCollect = can(ctx.actor.role, "payment.record");
+  const [{ rows, page, hasMore }, owing] = await Promise.all([
+    listViolations(ctx, status, Number(queryValue(query.page) ?? 1)),
+    // Fines are paid here, per operator, apart from the daily balance.
+    !status || status === "confirmed" ? operatorsOwingFines(ctx) : Promise.resolve([]),
+  ]);
   const pageHref = (to: number) => {
     const params = new URLSearchParams();
     if (status) params.set("status", status);
@@ -38,6 +44,29 @@ export default async function OffencesPage({
         title="Offences"
         action={can(ctx.actor.role, "violation.raise") ? <LinkButton href="/offences/late-work">Record late work</LinkButton> : undefined}
       />
+      {owing.length > 0 ? (
+        <Card title="Fines owed" subtitle="Paid here, separately from the daily balance." className="mb-4">
+          <ul className="divide-y divide-line">
+            {owing.map((o) => (
+              <li key={o.operatorId} className="flex min-h-12 items-center justify-between gap-3 py-2">
+                <div className="min-w-0">
+                  <Link href={`/operators/${o.operatorId}`} className="font-medium text-ink hover:underline">
+                    {o.name}
+                  </Link>
+                  <div className="text-sm text-muted">
+                    {o.fines} fine{o.fines === 1 ? "" : "s"} · {formatNaira(o.owedKobo)}
+                  </div>
+                </div>
+                {canCollect ? (
+                  <LinkButton href={`/payments/new?operator=${o.operatorId}&for=fines`} variant="secondary">
+                    Pay fines
+                  </LinkButton>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
       <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter">
         {[["", "All"], ...Object.entries(VIOLATION_STATUS_LABELS)].map(([value, label]) => (
           <Link

@@ -130,26 +130,49 @@ export async function listArrears(ctx: Ctx, range?: DateRange) {
   const inRange = range ? sql`AND c.business_date BETWEEN ${range.from}::date AND ${range.to}::date` : sql``;
   const rows = await db.execute(sql`
     WITH open AS (
-      SELECT c.operator_id, c.business_date,
+      SELECT c.operator_id, c.tricycle_id, c.business_date, c.amount_kobo,
              c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
                                        WHERE e.charge_id = c.id), 0) AS owed
       FROM valid_charges c WHERE c.type = 'daily_balance' ${inRange}
+    ), unpaid AS (
+      SELECT * FROM open WHERE owed > 0
+    ), latest AS (
+      -- The tricycle of the most recent unpaid day, and what it charged that day.
+      SELECT DISTINCT ON (operator_id) operator_id, tricycle_id, amount_kobo
+      FROM unpaid ORDER BY operator_id, business_date DESC
     )
-    SELECT o.id, o.name, o.phone, o.status::text AS status,
-           COUNT(*)::int AS days, SUM(open.owed)::float8 AS owed,
-           MIN(open.business_date)::text AS oldest
-    FROM open JOIN operators o ON o.id = open.operator_id
-    WHERE open.owed > 0
-    GROUP BY o.id ORDER BY days DESC, oldest
+    SELECT o.id, o.name, o.phone, o.address, o.guarantor_name, o.guarantor_phone,
+           o.status::text AS status,
+           COUNT(*)::int AS days, SUM(unpaid.owed)::float8 AS owed,
+           MIN(unpaid.business_date)::text AS oldest, MAX(unpaid.business_date)::text AS newest,
+           t.id AS tricycle_id, t.code_number, t.registration_number,
+           latest.amount_kobo::float8 AS daily_kobo,
+           EXISTS (SELECT 1 FROM assignments a WHERE a.operator_id = o.id AND a.tricycle_id = t.id
+                     AND a.returned_on IS NULL) AS holds_tricycle
+    FROM unpaid
+    JOIN operators o ON o.id = unpaid.operator_id
+    JOIN latest ON latest.operator_id = o.id
+    LEFT JOIN tricycles t ON t.id = latest.tricycle_id
+    GROUP BY o.id, t.id, latest.amount_kobo
+    ORDER BY days DESC, oldest
   `);
   return rows as unknown as {
     id: string;
     name: string;
     phone: string;
+    address: string | null;
+    guarantor_name: string | null;
+    guarantor_phone: string | null;
     status: "active" | "sacked" | "left";
     days: number;
     owed: number;
     oldest: string;
+    newest: string;
+    tricycle_id: string | null;
+    code_number: string | null;
+    registration_number: string | null;
+    daily_kobo: number | null;
+    holds_tricycle: boolean;
   }[];
 }
 

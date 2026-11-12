@@ -74,7 +74,7 @@ export async function allocate(
 /** Payment money not yet attached to any charge that still counts. */
 export async function unallocatedPayments(exec: Executor, operatorId: string) {
   const rows = (await exec.execute(sql`
-    SELECT p.id,
+    SELECT p.id, p.purpose::text AS purpose, p.for_date::text AS for_date,
            (p.amount_kobo - COALESCE((
              SELECT SUM(a.amount_kobo) FROM payment_allocations a
              JOIN valid_charges c ON c.id = a.charge_id
@@ -83,20 +83,63 @@ export async function unallocatedPayments(exec: Executor, operatorId: string) {
     WHERE p.operator_id = ${operatorId}
       AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
     ORDER BY p.received_at, p.id
-  `)) as unknown as { id: string; free: number }[];
-  return rows.filter((row) => row.free > 0);
+  `)) as unknown as { id: string; purpose: string; for_date: string | null; free: number }[];
+  return rows
+    .filter((row) => row.free > 0)
+    .map((row) => ({ id: row.id, free: row.free, forDate: row.purpose === "day_balance" ? row.for_date : null }));
 }
 
 /**
- * Spends advance payments on daily balances, oldest first. Callers must hold
- * the operator's row lock. Credit never pays a fine without the cashier's say.
+ * Whether a day's balances have been raised for this operator: the nightly job
+ * has run for that day, or a balance for it exists. Until then, money paid for
+ * that day waits for it.
+ */
+async function dayIsRaised(exec: Executor, operatorId: string, date: string): Promise<boolean> {
+  const [row] = (await exec.execute(sql`
+    SELECT EXISTS (SELECT 1 FROM job_runs WHERE job = 'daily' AND business_date = ${date}::date)
+        OR EXISTS (SELECT 1 FROM charges WHERE operator_id = ${operatorId}
+                   AND type = 'daily_balance' AND business_date = ${date}::date) AS raised
+  `)) as unknown as { raised: boolean }[];
+  return !!row?.raised;
+}
+
+/**
+ * Puts payment money on daily balances. Money paid for a day pays that day
+ * first, even when older days are unpaid. If that day's balance is not raised
+ * yet, the money waits for it. Anything beyond the day, and money not tied to
+ * a day, pays the oldest days first. Returns what is left as credit.
+ */
+export async function allocateBalances(
+  tx: Tx,
+  operatorId: string,
+  payment: { id: string; forDate: string | null },
+  balances: OpenCharge[],
+  amountKobo: number,
+): Promise<number> {
+  if (amountKobo <= 0) return 0;
+  if (!payment.forDate) return allocate(tx, payment.id, balances, amountKobo);
+  const forDate = payment.forDate;
+  const left = await allocate(
+    tx,
+    payment.id,
+    balances.filter((charge) => charge.businessDate === forDate),
+    amountKobo,
+  );
+  if (left <= 0 || !(await dayIsRaised(tx, operatorId, forDate))) return left;
+  return allocate(tx, payment.id, balances, left);
+}
+
+/**
+ * Spends credit on daily balances: money paid for a day goes to that day,
+ * the rest to the oldest days. Callers must hold the operator's row lock.
+ * Credit never pays a fine without the cashier's say.
  */
 export async function applyCredit(tx: Tx, operatorId: string): Promise<void> {
   const credits = await unallocatedPayments(tx, operatorId);
   if (credits.length === 0) return;
   const balances = await openCharges(tx, operatorId, "daily_balance");
   for (const credit of credits) {
-    await allocate(tx, credit.id, balances, credit.free);
+    await allocateBalances(tx, operatorId, credit, balances, credit.free);
   }
 }
 

@@ -15,11 +15,10 @@ import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput } from "@/lib/errors";
 import { dateField, idField, optionalText } from "@/lib/fields";
 import { can } from "@/lib/permissions";
-import { photoField } from "@/lib/photo";
 import { holderOn, offRoadOn } from "./assignments";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
-import { proposeViolation, savePhoto } from "./violations";
+import { proposeViolation } from "./violations";
 
 const FIVE_MINUTES = 5 * 60 * 1000;
 const THREE_DAYS = 3 * 24 * 60 * 60 * 1000;
@@ -30,7 +29,6 @@ const inspectionSchema = z.object({
   washed: z.boolean("Say whether it was washed"),
   stickerIntact: z.boolean("Say whether the sticker is there"),
   note: optionalText(500),
-  photo: photoField("Photo"),
   inspectedAt: z.iso.datetime("Invalid inspection time").transform((value) => new Date(value)),
 });
 
@@ -53,9 +51,6 @@ export async function recordInspection(
   }
   if (now - input.inspectedAt.getTime() > THREE_DAYS) {
     throw new DomainError("This inspection is more than 3 days old and can no longer be sent.");
-  }
-  if ((!input.washed || !input.stickerIntact) && !input.photo) {
-    throw fieldError("photo", "Take a photo of the problem");
   }
   const date = businessDate(input.inspectedAt);
 
@@ -88,7 +83,6 @@ export async function recordInspection(
     const operatorId = await holderOn(tx, input.tricycleId, date);
     if (!operatorId) throw new DomainError("No operator held this tricycle on that day.");
 
-    const photoId = input.photo ? await savePhoto(tx, ctx, input.photo) : null;
     await tx.insert(inspections).values({
       tricycleId: input.tricycleId,
       operatorId,
@@ -97,7 +91,6 @@ export async function recordInspection(
       washed: input.washed,
       stickerIntact: input.stickerIntact,
       note: input.note ?? null,
-      photoId,
       clientId: input.clientId,
       inspectedAt: input.inspectedAt,
       recordedAt: ctx.clock(),
@@ -109,7 +102,7 @@ export async function recordInspection(
       after: { date, washed: input.washed, stickerIntact: input.stickerIntact },
     });
 
-    const shared = { operatorId, tricycleId: input.tricycleId, occurredOn: date, photoId, note: input.note ?? null };
+    const shared = { operatorId, tricycleId: input.tricycleId, occurredOn: date, note: input.note ?? null };
     if (!input.washed) {
       await proposeViolation(tx, ctx, {
         ...shared,
@@ -160,7 +153,6 @@ async function stickerMissing(
     operatorId: string;
     tricycleId: string;
     occurredOn: string;
-    photoId: string | null;
     note: string | null;
   },
 ) {

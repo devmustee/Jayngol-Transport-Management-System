@@ -31,7 +31,8 @@ import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { cashDate } from "./cash-book";
-import { allocate, applyCredit, openCharges, syncLoanStatus } from "./ledger";
+import { allocate, allocateBalances, applyCredit, openCharges, syncLoanStatus } from "./ledger";
+import { describeLastPayment, dayStatus } from "./day-balance";
 import { proposeViolation } from "./violations";
 import { notifyOperators } from "./notices";
 
@@ -52,7 +53,21 @@ const paymentSchema = z.object({
   backdateTo: z.preprocess((v) => (v === "" ? undefined : v), dateField("Payment date").optional()),
   backdateReason: optionalText(),
   reference: bankReferenceField,
+  /**
+   * "day" pays one day's balance (the payment date). "old" pays unpaid days
+   * before it, oldest first. "fine" pays fines and "loan" the loan, each on
+   * its own. Missing keeps the older mixed rule, recorded as "general".
+   */
+  purpose: z.enum(["day", "old", "fine", "loan"]).optional(),
 });
+
+const PURPOSES = {
+  day: "day_balance",
+  old: "old_balance",
+  fine: "fine",
+  loan: "loan",
+  general: "general",
+} as const;
 
 export async function recordPayment(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "payment.record");
@@ -67,13 +82,23 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
     if (input.backdateTo > today) throw fieldError("backdateTo", "Payment date cannot be in the future");
   }
 
-  const penaltyAmount = input.penaltyAmount ?? 0;
+  const purpose = input.purpose ?? "general";
+  // Balances, fines and the loan are each paid on their own.
+  if (purpose !== "general" && ((input.penaltyAmount ?? 0) > 0 || (input.loanAmount ?? 0) > 0)) {
+    throw fieldError(
+      "amount",
+      purpose === "day"
+        ? "Fines and loans are paid separately, not with the day's balance"
+        : "Balances, fines and the loan are each paid separately",
+    );
+  }
+  const penaltyAmount = purpose === "fine" ? input.amount : (input.penaltyAmount ?? 0);
   if (penaltyAmount > input.amount) {
     throw fieldError("penaltyAmount", "This cannot be more than the amount paid");
   }
 
   const receivedAt = input.backdateTo ? new Date(`${input.backdateTo}T12:00:00+01:00`) : now;
-  const loanAmount = input.loanAmount ?? 0;
+  const loanAmount = purpose === "loan" ? input.amount : (input.loanAmount ?? 0);
   if (penaltyAmount + loanAmount > input.amount) {
     throw fieldError("loanAmount", "Penalties and loan together cannot be more than the amount received");
   }
@@ -106,24 +131,48 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
         .limit(1);
 
       // Without a working tricycle there is nothing the operator could bring.
-      const askTricycle = input.method !== "transfer" && !!current && current.status !== "off_road";
+      // Only the daily balance is brought with the tricycle; fines, old days
+      // and the loan can be paid at the office without it.
+      const askTricycle =
+        (purpose === "day" || purpose === "general") &&
+        input.method !== "transfer" &&
+        !!current &&
+        current.status !== "off_road";
       if (askTricycle && !input.tricyclePresent) {
         throw fieldError("tricyclePresent", "Say whether the operator brought the tricycle");
       }
+
+      if (purpose === "day") await checkDayPayment(tx, operator.id, paymentDate, today, input.amount);
 
       const penalties = await openCharges(tx, operator.id, "penalty");
       const penaltiesOwed = penalties.reduce((sum, c) => sum + c.outstandingKobo, 0);
       if (penaltyAmount > penaltiesOwed) {
         throw fieldError(
-          "penaltyAmount",
-          `This operator owes only ${formatNaira(penaltiesOwed)} in penalties`,
+          purpose === "fine" ? "amount" : "penaltyAmount",
+          penaltiesOwed === 0
+            ? "This operator owes no fines"
+            : `This operator owes only ${formatNaira(penaltiesOwed)} in ${purpose === "fine" ? "fines" : "penalties"}`,
         );
       }
 
       const loanCharges = await openCharges(tx, operator.id, "loan");
       const loanOwed = loanCharges.reduce((sum, c) => sum + c.outstandingKobo, 0);
       if (loanAmount > loanOwed) {
-        throw fieldError("loanAmount", `This operator owes only ${formatNaira(loanOwed)} on the loan`);
+        throw fieldError(
+          purpose === "loan" ? "amount" : "loanAmount",
+          loanOwed === 0 ? "This operator owes nothing on a loan" : `This operator owes only ${formatNaira(loanOwed)} on the loan`,
+        );
+      }
+
+      // Older days only: today's balance is taken through Take payment.
+      const allBalances = await openCharges(tx, operator.id, "daily_balance");
+      const balances = purpose === "old" ? allBalances.filter((c) => c.businessDate < paymentDate) : allBalances;
+      if (purpose === "old") {
+        const olderOwed = balances.reduce((sum, c) => sum + c.outstandingKobo, 0);
+        if (olderOwed === 0) throw fieldError("amount", "Nothing is owed for days before today");
+        if (input.amount > olderOwed) {
+          throw fieldError("amount", `Only ${formatNaira(olderOwed)} is owed for days before today`);
+        }
       }
 
       const seq = (await tx.execute(sql`SELECT nextval('receipt_seq')::int AS n`)) as unknown as {
@@ -142,6 +191,8 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
           receiptNumber: `R-${String(seq[0]!.n).padStart(6, "0")}`,
           clientId: input.clientId,
           backdateReason: input.backdateReason ?? null,
+          purpose: PURPOSES[purpose],
+          forDate: purpose === "day" ? paymentDate : null,
         })
         .returning();
 
@@ -150,9 +201,8 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
       }
 
       await allocate(tx, payment!.id, penalties, penaltyAmount);
-      const balances = await openCharges(tx, operator.id, "daily_balance");
       await allocate(tx, payment!.id, loanCharges, loanAmount);
-      await allocate(tx, payment!.id, balances, input.amount - penaltyAmount - loanAmount);
+      await allocateBalances(tx, operator.id, payment!, balances, input.amount - penaltyAmount - loanAmount);
       if (loanAmount > 0) await syncLoanStatus(tx, operator.id);
 
       if (input.method === "cash") {
@@ -184,12 +234,19 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
         });
       }
 
-      const owed = balances.reduce((sum, c) => sum + c.outstandingKobo, 0);
+      const owed = allBalances.reduce((sum, c) => sum + c.outstandingKobo, 0);
+      const paidFor = {
+        day: ` for the balance of ${formatDate(paymentDate)}`,
+        old: " for older days",
+        fine: " for fines",
+        loan: " for your loan",
+        general: "",
+      }[purpose];
       await notifyOperators(tx, now, [
         {
           operatorId: operator.id,
           kind: "receipt",
-          body: `${formatNaira(input.amount)} received on ${formatDate(paymentDate)}. Receipt ${payment!.receiptNumber}. Balance still owed: ${formatNaira(owed)}.`,
+          body: `${formatNaira(input.amount)} received on ${formatDate(paymentDate)}${paidFor}. Receipt ${payment!.receiptNumber}. Balance still owed: ${formatNaira(owed)}.`,
         },
       ]);
 
@@ -220,6 +277,38 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
       if (winner) return winner;
     }
     throw error;
+  }
+}
+
+/**
+ * Each tricycle's balance is taken once a day: a payment for a day may cover
+ * only what is left of that day's balance. The operator's row is locked, so
+ * two staff saving at the same moment cannot both get through.
+ */
+async function checkDayPayment(tx: Tx, operatorId: string, date: string, today: string, amountKobo: number) {
+  const status = await dayStatus(tx, operatorId, date);
+  const day = date === today ? "today" : `on ${formatDate(date)}`;
+  const balanceOf = date === today ? "Today's balance" : `The balance for ${formatDate(date)}`;
+  if (status.dueKobo === null) {
+    throw fieldError(
+      "amount",
+      status.tricycleCode
+        ? `No balance is due for ${status.tricycleCode} ${day}`
+        : `This operator had no tricycle ${day}, so no balance is due`,
+    );
+  }
+  const code = status.tricycleCode ?? "this tricycle";
+  if (status.leftKobo === 0) {
+    const last = describeLastPayment(status, formatNaira);
+    throw fieldError("amount", `${balanceOf} for ${code} is already paid${last ? `: ${last}` : ""}`);
+  }
+  if (amountKobo > status.leftKobo) {
+    throw fieldError(
+      "amount",
+      status.paidKobo > 0
+        ? `Only ${formatNaira(status.leftKobo)} is left to pay for ${code} ${day}`
+        : `The balance for ${code} ${day} is ${formatNaira(status.leftKobo)}. Enter that amount or less.`,
+    );
   }
 }
 
@@ -382,6 +471,50 @@ export async function paymentContext(ctx: Ctx, operatorId: string) {
     penaltiesOwedKobo: penalties.reduce((s, c) => s + c.outstandingKobo, 0),
     loanOwedKobo: loanCharges.reduce((s, c) => s + c.outstandingKobo, 0),
   };
+}
+
+/** Where an operator's tricycle stands for one day, for Take payment. */
+export async function paymentDayStatus(ctx: Ctx, operatorId: string, date: string) {
+  requirePermission(ctx, "payment.record");
+  return dayStatus(db, operatorId, date);
+}
+
+export type OwedFine = { chargeId: string; ruleCode: string | null; occurredOn: string; outstandingKobo: number };
+
+/** One operator's unpaid fines, oldest first, with the rule each was for. */
+export async function finesOwed(ctx: Ctx, operatorId: string): Promise<OwedFine[]> {
+  requirePermission(ctx, "payment.record");
+  const rows = (await db.execute(sql`
+    SELECT c.id, c.business_date::text AS occurred_on, v.rule_code,
+           (c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
+                                      WHERE e.charge_id = c.id), 0))::float8 AS outstanding
+    FROM valid_charges c
+    LEFT JOIN violations v ON v.charge_id = c.id
+    WHERE c.operator_id = ${operatorId} AND c.type = 'penalty'
+    ORDER BY c.business_date, c.created_at, c.id
+  `)) as unknown as { id: string; occurred_on: string; rule_code: string | null; outstanding: number }[];
+  return rows
+    .filter((row) => row.outstanding > 0)
+    .map((row) => ({ chargeId: row.id, ruleCode: row.rule_code, occurredOn: row.occurred_on, outstandingKobo: row.outstanding }));
+}
+
+/** Every operator who owes fines, most owed first, for the Offences page. */
+export async function operatorsOwingFines(ctx: Ctx) {
+  requirePermission(ctx, "violation.view");
+  const rows = (await db.execute(sql`
+    SELECT o.id, o.name, COUNT(*)::int AS fines, SUM(x.outstanding)::float8 AS owed
+    FROM (
+      SELECT c.operator_id,
+             c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
+                                       WHERE e.charge_id = c.id), 0) AS outstanding
+      FROM valid_charges c WHERE c.type = 'penalty'
+    ) x
+    JOIN operators o ON o.id = x.operator_id
+    WHERE x.outstanding > 0
+    GROUP BY o.id, o.name
+    ORDER BY owed DESC, o.name
+  `)) as unknown as { id: string; name: string; fines: number; owed: number }[];
+  return rows.map((row) => ({ operatorId: row.id, name: row.name, fines: row.fines, owedKobo: row.owed }));
 }
 
 export async function paymentReferenceOf(paymentId: string) {

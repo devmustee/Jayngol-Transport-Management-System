@@ -164,10 +164,13 @@ export function SubmitButton({
   children,
   tone = "primary",
   className = "",
+  disabled = false,
 }: {
   children: ReactNode;
   tone?: "primary" | "plain";
   className?: string;
+  /** Not ready to save yet. */
+  disabled?: boolean;
 }) {
   const { pending, state } = useContext(FormContext);
   // A tick draws itself on the button for a moment after a save.
@@ -186,7 +189,7 @@ export function SubmitButton({
   return (
     <button
       type="submit"
-      disabled={pending}
+      disabled={pending || disabled}
       className={`inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl px-6 py-3 text-sm font-semibold transition-colors duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto ${style} ${className}`}
     >
       {pending ? (

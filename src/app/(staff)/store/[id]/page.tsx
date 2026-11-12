@@ -4,9 +4,9 @@ import { notFound } from "next/navigation";
 import {
   adjustStockAction,
   receiveStockAction,
-  setReorderLevelAction,
+  updateStockItemAction,
 } from "@/app/actions";
-import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
+import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { isUuid } from "@/lib/fields";
 import { formatDate, MOVEMENT_LABELS } from "@/lib/format";
@@ -41,6 +41,13 @@ export default async function StoreItemPage({ params }: { params: Promise<{ id: 
             rows={[
               ["In store", formatStock(item.quantityMilli, item.unit)],
               ["Value", formatNaira(item.valueKobo)],
+              [
+                `Cost per ${item.unit}`,
+                item.quantityMilli > 0
+                  ? `${formatNaira(Math.round((item.valueKobo * 1000) / item.quantityMilli))} (average)`
+                  : "—",
+              ],
+              ["Counted in", item.wholeOnly ? `Whole ${item.unit}s` : `Part ${item.unit}s allowed, such as 1.5`],
               ["Alert at or below", item.reorderLevelMilli > 0 ? formatQuantity(item.reorderLevelMilli) : "Off"],
             ]}
           />
@@ -50,7 +57,12 @@ export default async function StoreItemPage({ params }: { params: Promise<{ id: 
           <Card title="Receive stock">
             <ActionForm action={receiveStockAction.bind(null, id)}>
               <Field name="quantity" label={`Quantity (${item.unit}s)`} inputMode="decimal" />
-              <Field name="unitCost" label={`Cost per ${item.unit} (₦)`} inputMode="decimal" />
+              <Field
+                name="unitCost"
+                label={`Cost per ${item.unit} (₦)`}
+                inputMode="decimal"
+                hint="For the record only. It does not change any balance or the cash book."
+              />
               <Field name="note" label="Supplier or note (optional)" />
               <SubmitButton>Receive</SubmitButton>
             </ActionForm>
@@ -58,10 +70,26 @@ export default async function StoreItemPage({ params }: { params: Promise<{ id: 
         ) : null}
 
         {canMove ? (
-          <Disclosure label="Change reorder alert">
-            <ActionForm action={setReorderLevelAction.bind(null, id)}>
-              <Field name="reorderLevel" label="Alert when at or below" inputMode="decimal" defaultValue={String(item.reorderLevelMilli / 1000)} hint="0 turns the alert off." />
-              <SubmitButton tone="plain">Save</SubmitButton>
+          <Disclosure label="Edit item">
+            <ActionForm action={updateStockItemAction.bind(null, id)}>
+              <Field name="name" label="Name" defaultValue={item.name} />
+              <Field name="unit" label="Unit" defaultValue={item.unit} hint="Such as tyre, litre or piece." />
+              <SelectField name="kind" label="How it is counted" defaultValue={item.wholeOnly ? "whole" : "part"}>
+                <option value="whole">Whole units</option>
+                <option value="part">Part units allowed, such as 1.5 litres</option>
+              </SelectField>
+              <Field
+                name="reorderLevel"
+                label="Alert when at or below"
+                inputMode="decimal"
+                defaultValue={formatQuantity(item.reorderLevelMilli).replace(/,/g, "")}
+                hint="0 turns the alert off."
+              />
+              <p className="text-sm text-muted">
+                Stock and value change only by receiving, taking out, or a count. To change the price, receive new stock at
+                the new cost.
+              </p>
+              <SubmitButton tone="plain">Save changes</SubmitButton>
             </ActionForm>
           </Disclosure>
         ) : null}
