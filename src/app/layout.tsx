@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { NavProgress } from "@/components/nav-progress";
+import { Toaster } from "@/components/toaster";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -15,6 +16,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body className="min-h-dvh antialiased">
         <NavProgress />
+        <Toaster />
         {children}
       </body>
     </html>

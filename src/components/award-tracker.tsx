@@ -64,7 +64,7 @@ export function JourneyBar({ percent, label }: { percent: number; label: string 
       aria-valuemax={100}
       className="h-2 overflow-hidden rounded-full bg-line/60"
     >
-      <div className="h-full rounded-full bg-gradient-to-r from-gold to-gold-light" style={{ width: `${percent}%` }} />
+      <div className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold to-gold-light" style={{ width: `${percent}%` }} />
     </div>
   );
 }

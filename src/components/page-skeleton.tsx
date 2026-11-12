@@ -1,8 +1,8 @@
 /** A calm placeholder in the shape of a page, shown while it loads. */
 export function PageSkeleton({ dark = false }: { dark?: boolean }) {
-  const block = dark ? "bg-paper/10" : "bg-line/60";
+  const block = `shimmer ${dark ? "bg-paper/10" : "bg-line/50"}`;
   return (
-    <div role="status" aria-live="polite" className="animate-pulse">
+    <div role="status" aria-live="polite">
       <span className="sr-only">Loading…</span>
       <div className={`h-8 w-56 max-w-[70%] rounded-lg ${block}`} />
       <div className={`mt-2 h-4 w-80 max-w-[90%] rounded ${block}`} />

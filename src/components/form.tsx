@@ -7,12 +7,14 @@ import {
   useContext,
   useEffect,
   useRef,
+  useState,
   type ComponentProps,
   type FormEvent,
   type ReactNode,
 } from "react";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
 import type { FormAction, FormState } from "@/lib/form-state";
+import { showToast } from "./toaster";
 
 const FormContext = createContext<{ state: FormState; pending: boolean }>({
   state: {},
@@ -40,7 +42,9 @@ export function ActionForm({
   const ref = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
-    if (state.ok) ref.current?.reset();
+    if (!state.ok) return;
+    ref.current?.reset();
+    if (state.message) showToast(state.message);
   }, [state]);
 
   const onSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -165,7 +169,15 @@ export function SubmitButton({
   tone?: "primary" | "plain";
   className?: string;
 }) {
-  const { pending } = useContext(FormContext);
+  const { pending, state } = useContext(FormContext);
+  // A tick draws itself on the button for a moment after a save.
+  const [saved, setSaved] = useState(false);
+  useEffect(() => {
+    if (!state.ok) return;
+    setSaved(true);
+    const done = setTimeout(() => setSaved(false), 1600);
+    return () => clearTimeout(done);
+  }, [state]);
   const style =
     tone === "primary"
       ? "bg-gradient-to-r from-gold to-gold-light text-ink font-bold shadow-gold-sm hover:brightness-105 border border-gold-deep/20"
@@ -181,6 +193,22 @@ export function SubmitButton({
         <>
           <Loader2 size={18} className="animate-spin text-ink" />
           <span>Saving…</span>
+        </>
+      ) : saved ? (
+        <>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden>
+            <path
+              d="M5 12.5l4.5 4.5L19 7.5"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="24"
+              strokeDashoffset="24"
+              className="animate-draw"
+            />
+          </svg>
+          <span>Saved</span>
         </>
       ) : (
         children

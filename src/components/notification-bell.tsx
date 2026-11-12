@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Bell } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type BellSummary = { unread: number; critical: number };
 
@@ -58,6 +58,14 @@ export function NotificationBell({
   }, []);
 
   const { unread, critical } = summary;
+
+  // When a new notification arrives while the page is open, the bell rocks once.
+  const lastUnread = useRef(initial.unread);
+  const [ring, setRing] = useState(0);
+  useEffect(() => {
+    if (unread > lastUnread.current) setRing((n) => n + 1);
+    lastUnread.current = unread;
+  }, [unread]);
   const count = unread > 99 ? "99+" : String(unread);
   const name = unread === 0 ? "Notifications, none new" : `Notifications, ${unread} new${critical > 0 ? `, ${critical} urgent` : ""}`;
   const base =
@@ -73,12 +81,13 @@ export function NotificationBell({
         label ? "w-full justify-start px-3 text-sm font-semibold" : ""
       }`}
     >
-      <Bell size={label ? 18 : 20} aria-hidden />
+      <Bell key={`bell-${ring}`} size={label ? 18 : 20} aria-hidden className={ring > 0 ? "origin-top animate-bell" : ""} />
       {label ? <span className="flex-1">Notifications</span> : null}
       {unread > 0 ? (
         <span
+          key={`count-${ring}`}
           aria-hidden
-          className={`${label ? "" : "absolute -right-1.5 -top-1.5"} inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-black leading-5 tabular-nums ${
+          className={`${ring > 0 ? "animate-pop" : ""} ${label ? "" : "absolute -right-1.5 -top-1.5"} inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-black leading-5 tabular-nums ${
             critical > 0 ? "bg-danger text-white" : "bg-gold text-ink"
           }`}
         >

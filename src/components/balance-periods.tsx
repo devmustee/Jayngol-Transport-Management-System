@@ -36,7 +36,7 @@ function Column({ data }: { data: FleetPeriod }) {
       </div>
 
       <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-line">
-        <div className="h-full rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
+        <div className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
       </div>
       <p className="mt-1.5 text-xs text-muted">
         {percent}% paid · {comparison(data)}
@@ -206,7 +206,7 @@ export function OperatorBalanceCard({
       ) : (
         <>
           <div className="h-2.5 w-full overflow-hidden rounded-full bg-line">
-            <div className="h-full rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
+            <div className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep to-gold" style={{ width: `${percent}%` }} />
           </div>
           <p className="mt-2 text-sm font-semibold text-ink">
             {balances.daysPaidInFull} of {balances.daysCharged} day{balances.daysCharged === 1 ? "" : "s"} paid in full

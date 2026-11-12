@@ -22,8 +22,9 @@ function ProgressRing({ percent }: { percent: number }) {
         strokeWidth="8"
         strokeLinecap="round"
         strokeDasharray={`${(RING_LENGTH * percent) / 100} ${RING_LENGTH}`}
+        strokeDashoffset={(RING_LENGTH * percent) / 100}
         transform="rotate(-90 44 44)"
-        className="stroke-gold-light"
+        className="animate-draw stroke-gold-light"
       />
       <text x="44" y="50" textAnchor="middle" className="fill-paper text-lg font-extrabold">
         {percent}%

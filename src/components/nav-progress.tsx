@@ -49,7 +49,7 @@ function Bar() {
       className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-[3px] print:hidden"
     >
       <div
-        className={`h-full bg-gradient-to-r from-gold-deep via-gold to-gold-light shadow-[0_0_8px_#d4a017] ${
+        className={`h-full bg-gold ${
           state === "loading" ? "animate-nav-progress" : "w-full opacity-0 transition-opacity duration-300"
         }`}
       />

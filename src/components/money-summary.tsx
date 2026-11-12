@@ -11,6 +11,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
+import { CountUp } from "@/components/count-up";
 import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import type { BalanceTotals, FleetPeriod } from "@/services/balance-periods";
@@ -230,7 +231,7 @@ export function MoneySummary({
                 <span>Financial Pulse • Today</span>
               </div>
               <div className="mt-2 text-3xl font-black tracking-tight text-gold-light md:text-5xl tabular-nums drop-shadow-sm">
-                {signedNaira(leftKobo)}
+                <CountUp kobo={leftKobo} id={`${basePath}:today`} />
               </div>
               {deducted ? (
                 <div className="mt-1 text-sm text-paper/75">
@@ -315,7 +316,7 @@ function ProgressBar({ percent }: { percent: number }) {
   return (
     <div className="h-2.5 w-full overflow-hidden rounded-full bg-ink-muted/80">
       <div
-        className="h-full rounded-full bg-gradient-to-r from-gold-deep via-gold to-gold-light transition-all duration-500"
+        className="h-full origin-left animate-fill rounded-full bg-gradient-to-r from-gold-deep via-gold to-gold-light transition-all duration-500"
         style={{ width: `${percent}%` }}
       />
     </div>
