@@ -19,8 +19,16 @@ export default async function OffencesPage({
   searchParams: Promise<Record<string, unknown>>;
 }) {
   const ctx = await requirePage("violation.view");
-  const status = queryValue((await searchParams).status);
-  const rows = await listViolations(ctx, status);
+  const query = await searchParams;
+  const status = queryValue(query.status);
+  const { rows, page, hasMore } = await listViolations(ctx, status, Number(queryValue(query.page) ?? 1));
+  const pageHref = (to: number) => {
+    const params = new URLSearchParams();
+    if (status) params.set("status", status);
+    if (to > 1) params.set("page", String(to));
+    const text = params.toString();
+    return text ? `/offences?${text}` : "/offences";
+  };
   const canDecide = can(ctx.actor.role, "violation.confirm");
   const canWaive = can(ctx.actor.role, "violation.waive");
 
@@ -99,6 +107,13 @@ export default async function OffencesPage({
           ))}
         </div>
       )}
+      {page > 1 || hasMore ? (
+        <nav className="mt-4 flex items-center justify-between gap-3" aria-label="Pages">
+          {page > 1 ? <LinkButton href={pageHref(page - 1)} variant="secondary">Newer</LinkButton> : <span />}
+          <span className="text-sm text-muted">Page {page}</span>
+          {hasMore ? <LinkButton href={pageHref(page + 1)} variant="secondary">Older</LinkButton> : <span />}
+        </nav>
+      ) : null}
     </>
   );
 }

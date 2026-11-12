@@ -295,10 +295,14 @@ export async function getMyCompliance(ctx: Ctx) {
 
 const STATUSES = ["proposed", "confirmed", "rejected", "waived"] as const;
 
-export async function listViolations(ctx: Ctx, status?: string) {
+export const OFFENCES_PAGE_SIZE = 30;
+
+/** One page of offences, newest first. Pages start at 1. */
+export async function listViolations(ctx: Ctx, status?: string, page = 1) {
   requirePermission(ctx, "violation.view");
   const wanted = STATUSES.find((s) => s === status);
-  return db
+  const current = Number.isInteger(page) && page > 0 ? page : 1;
+  const rows = await db
     .select({
       id: violations.id,
       ruleCode: violations.ruleCode,
@@ -319,8 +323,10 @@ export async function listViolations(ctx: Ctx, status?: string) {
     .leftJoin(tricycles, eq(tricycles.id, violations.tricycleId))
     .leftJoin(users, eq(users.id, violations.raisedBy))
     .where(wanted ? eq(violations.status, wanted) : undefined)
-    .orderBy(desc(violations.occurredOn), desc(violations.createdAt))
-    .limit(200);
+    .orderBy(desc(violations.occurredOn), desc(violations.createdAt), desc(violations.id))
+    .limit(OFFENCES_PAGE_SIZE + 1)
+    .offset((current - 1) * OFFENCES_PAGE_SIZE);
+  return { rows: rows.slice(0, OFFENCES_PAGE_SIZE), page: current, hasMore: rows.length > OFFENCES_PAGE_SIZE };
 }
 
 export const RULE_NAMES: Record<string, string> = {

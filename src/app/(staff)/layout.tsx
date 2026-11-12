@@ -16,6 +16,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   ];
   if (can(actor.role, "finance.view")) {
     items.push({ href: "/money", label: "Money", icon: "money", primary: true });
+    items.push({ href: "/money/year", label: "Annual balance", icon: "annual", primary: false });
   }
   if (can(actor.role, "inspection.record")) {
     // Supervisors have no Money tab, so this takes that place on the phone.

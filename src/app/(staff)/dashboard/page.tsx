@@ -31,16 +31,15 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("dashboard.view");
   const pulse = parsePulse((await searchParams).pulse);
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [counts, workshop, low, inspections, race] = await Promise.all([
+  const [counts, workshop, low, inspections, race, money, period] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
     can(ctx.actor.role, "inspection.record") ? inspectionToday(ctx) : null,
     getAwardRace(ctx),
+    seesMoney ? financeOverview(ctx) : null,
+    seesMoney && pulse !== "today" ? fleetPeriod(ctx, pulse) : null,
   ]);
-  const [money, period] = seesMoney
-    ? await Promise.all([financeOverview(ctx), pulse === "today" ? null : fleetPeriod(ctx, pulse)])
-    : [null, null];
 
   const inspectionsLeft = inspections
     ? inspections.items.filter((item) => item.washed === null).length

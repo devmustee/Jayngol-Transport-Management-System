@@ -74,6 +74,14 @@ export function MoneySummary({
     money.expectedKobo > 0
       ? Math.min(100, Math.round((money.collectedKobo / money.expectedKobo) * 100))
       : 100;
+  // Before the nightly job raises today's balances there is no target yet, so
+  // "100% collected" would be false comfort.
+  const noTarget = money.expectedKobo === 0;
+  const targetText = noTarget
+    ? money.jobIsCurrent
+      ? "No balances due today"
+      : "Waiting for today's balances"
+    : null;
 
   const hasAlerts =
     !money.jobIsCurrent ||
@@ -236,9 +244,15 @@ export function MoneySummary({
                     <span>•</span>
                   </>
                 ) : null}
-                <span>Target: {formatNaira(money.expectedKobo)}</span>
-                <span>•</span>
-                <span className="font-semibold text-paper/90">{percentCollected}% collected</span>
+                {targetText ? (
+                  <span className="font-semibold text-paper/90">{targetText}</span>
+                ) : (
+                  <>
+                    <span>Target: {formatNaira(money.expectedKobo)}</span>
+                    <span>•</span>
+                    <span className="font-semibold text-paper/90">{percentCollected}% collected</span>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -259,7 +273,7 @@ export function MoneySummary({
           <PeriodProgress data={period} />
         ) : (
           <div className="relative z-10 mt-5">
-            <ProgressBar percent={percentCollected} />
+            <ProgressBar percent={noTarget ? 0 : percentCollected} />
             <div className="mt-2 flex items-center justify-between gap-3 text-xs text-paper/60">
               {money.overdueOperators > 0 ? (
                 <Link
@@ -270,9 +284,9 @@ export function MoneySummary({
                   <ChevronRight size={14} aria-hidden className="transition-transform group-hover/owed:translate-x-0.5" />
                 </Link>
               ) : (
-                <span>All expected balances settled</span>
+                <span>{targetText ?? "All expected balances settled"}</span>
               )}
-              <span className="font-bold text-gold-light">{percentCollected}%</span>
+              {noTarget ? null : <span className="font-bold text-gold-light">{percentCollected}%</span>}
             </div>
           </div>
         )}

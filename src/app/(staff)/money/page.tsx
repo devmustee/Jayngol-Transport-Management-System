@@ -157,12 +157,18 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
         title="Financial Management"
         subtitle="Daily cash collection, cashier reconciliation and arrears management"
         action={
-          money.canCollect ? (
-            <LinkButton href="/payments/new" variant="gold">
-              <Plus size={16} />
-              <span>Take Payment</span>
+          <>
+            <LinkButton href="/money/year">
+              <CalendarRange size={16} />
+              <span>Annual Balance</span>
             </LinkButton>
-          ) : undefined
+            {money.canCollect ? (
+              <LinkButton href="/payments/new" variant="gold">
+                <Plus size={16} />
+                <span>Take Payment</span>
+              </LinkButton>
+            ) : null}
+          </>
         }
       />
 

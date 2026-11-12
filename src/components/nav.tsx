@@ -5,6 +5,7 @@ import {
   Award,
   BarChart3,
   Bike,
+  CalendarRange,
   CalendarDays,
   ChevronRight,
   ClipboardCheck,
@@ -21,7 +22,7 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 
 export const ICONS = {
@@ -40,6 +41,7 @@ export const ICONS = {
   account: UserRound,
   awards: Award,
   reports: BarChart3,
+  annual: CalendarRange,
 } as const;
 
 export type NavItem = {
@@ -50,17 +52,32 @@ export type NavItem = {
   primary: boolean;
 };
 
-function useIsActive() {
+/** Inside a menu link: pulses its icon from the tap until the page arrives. */
+function NavIcon({ icon: Icon, size, className }: { icon: (typeof ICONS)[keyof typeof ICONS]; size: number; className: string }) {
+  const { pending } = useLinkStatus();
+  return <Icon size={size} aria-hidden className={`${className} ${pending ? "animate-pulse text-gold-light" : ""}`} />;
+}
+
+const covers = (href: string, pathname: string) => pathname === href || pathname.startsWith(`${href}/`);
+
+/**
+ * Only the closest menu item is current: on /money/year that is "Annual
+ * balance", not "Money" as well.
+ */
+function useIsActive(items: NavItem[]) {
   const pathname = usePathname();
-  return (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const best = items
+    .filter((item) => covers(item.href, pathname))
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  return (href: string) => best?.href === href;
 }
 
 export function SideNav({ items }: { items: NavItem[] }) {
-  const isActive = useIsActive();
+  const isActive = useIsActive(items);
 
   // Categorize items for desktop sidebar
   const primaryItems = items.filter(
-    (i) => ["home", "tricycles", "operators", "money", "inspect"].includes(i.icon)
+    (i) => ["home", "tricycles", "operators", "money", "annual", "inspect"].includes(i.icon)
   );
   const operationItems = items.filter(
     (i) => ["workshop", "store", "offences", "meetings"].includes(i.icon)
@@ -92,12 +109,12 @@ export function SideNav({ items }: { items: NavItem[] }) {
                   : "text-paper/80 hover:bg-ink-soft hover:text-gold-light"
               }`}
             >
-              <Icon
+              <NavIcon
+                icon={Icon}
                 size={19}
                 className={`transition-transform duration-150 group-hover:scale-110 ${
                   active ? "text-ink" : "text-paper/60 group-hover:text-gold-light"
                 }`}
-                aria-hidden
               />
               <span>{item.label}</span>
             </Link>
@@ -117,7 +134,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
 }
 
 export function BottomNav({ items }: { items: NavItem[] }) {
-  const isActive = useIsActive();
+  const isActive = useIsActive(items);
   const [moreOpen, setMoreOpen] = useState(false);
 
   // Top 4 primary tabs on phone
@@ -168,7 +185,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
                   aria-hidden
                 />
               ) : null}
-              <Icon size={22} aria-hidden className={active ? "text-gold-light" : "text-paper/60"} />
+              <NavIcon icon={Icon} size={22} className={active ? "text-gold-light" : "text-paper/60"} />
               <span>{item.label}</span>
             </Link>
           );

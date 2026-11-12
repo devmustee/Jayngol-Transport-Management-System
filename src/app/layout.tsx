@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { NavProgress } from "@/components/nav-progress";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -12,7 +13,10 @@ export const viewport: Viewport = { themeColor: "#1a150c" };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased">
+        <NavProgress />
+        {children}
+      </body>
     </html>
   );
 }

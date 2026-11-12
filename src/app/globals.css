@@ -33,6 +33,32 @@
 
   --animate-sheet-up: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
   --animate-fade-in: fade-in 0.18s ease-out;
+  /* Fills quickly, then slows so it never reaches the end before the page does. */
+  --animate-nav-progress: nav-progress 8s cubic-bezier(0.1, 0.7, 0.2, 1) forwards;
+  --animate-page-in: page-in 0.2s ease-out;
+}
+
+@keyframes nav-progress {
+  from {
+    width: 0%;
+  }
+  10% {
+    width: 45%;
+  }
+  to {
+    width: 92%;
+  }
+}
+
+@keyframes page-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 @keyframes sheet-up {
@@ -96,4 +122,30 @@ details > summary {
 
 details > summary::-webkit-details-marker {
   display: none;
+}
+
+/*
+ * Annual Balance figures. The page repeats these for every column of every
+ * week, so short shared classes keep it light to download.
+ */
+.yr-row {
+  @apply grid grid-cols-2 gap-x-4 gap-y-1.5 lg:grid-cols-[7.5rem_repeat(4,minmax(0,1fr))] lg:items-baseline lg:gap-x-3 xl:grid-cols-[7.5rem_repeat(8,minmax(0,1fr))] xl:gap-x-2;
+}
+.yr-fig {
+  @apply flex items-baseline justify-between gap-2 lg:block lg:text-right;
+}
+.yr-fig-wide {
+  @apply hidden items-baseline justify-between gap-2 lg:text-right xl:block;
+}
+.yr-label {
+  @apply text-xs font-medium text-muted lg:hidden;
+}
+.yr-val {
+  @apply font-semibold text-ink tabular-nums lg:text-sm;
+}
+.yr-strong {
+  @apply font-extrabold;
+}
+.yr-bad {
+  @apply text-danger;
 }

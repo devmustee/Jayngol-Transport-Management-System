@@ -45,8 +45,7 @@ const COLUMNS: { label: string; value: (f: YearFigures) => number; phone?: boole
 // One grid for the header, every month, week and total, so the columns line up.
 // Phones: two columns of labelled figures. Tablets: the four main figures in a row.
 // Large screens: all eight.
-const ROW =
-  "grid grid-cols-2 gap-x-4 gap-y-1.5 lg:grid-cols-[7.5rem_repeat(4,minmax(0,1fr))] lg:items-baseline lg:gap-x-3 xl:grid-cols-[7.5rem_repeat(8,minmax(0,1fr))] xl:gap-x-2";
+const ROW = "yr-row";
 const SPAN_ALL = "col-span-2 lg:col-span-4 xl:col-span-8";
 /** Where a column shows: the four main figures everywhere, the rest on large screens. */
 const shown = (phone?: boolean) => (phone ? "" : "hidden xl:block");
@@ -57,14 +56,11 @@ function Figures({ figures, strong = false }: { figures: YearFigures; strong?: b
       {COLUMNS.map((column) => {
         const value = column.value(figures);
         return (
-          <div
-            key={column.label}
-            className={`${column.phone ? "flex lg:block" : "hidden xl:block"} items-baseline justify-between gap-2 lg:text-right`}
-          >
-            <span className="text-xs font-medium text-muted lg:hidden">{column.label}</span>
+          <div key={column.label} className={column.phone ? "yr-fig" : "yr-fig-wide"}>
+            <span className="yr-label">{column.label}</span>
             <span
-              className={`tabular-nums lg:text-sm ${strong ? "font-extrabold" : "font-semibold"} ${
-                column.label === "Owed" && value > 0 ? "text-danger" : column.label === "Net" && value < 0 ? "text-danger" : "text-ink"
+              className={`yr-val${strong ? " yr-strong" : ""}${
+                (column.label === "Owed" && value > 0) || (column.label === "Net" && value < 0) ? " yr-bad" : ""
               }`}
             >
               {formatNaira(value)}
@@ -269,7 +265,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
           {report.months.map((month) => (
             <MonthCard key={month.month} month={month} isCurrent={month.month === currentMonth} />
           ))}
-          <div className={`${ROW} rounded-xl border-2 border-ink bg-ink px-4 py-3 text-gold-light [&_.text-ink]:text-gold-light [&_.text-muted]:text-gold-light/70`}>
+          <div className={`${ROW} rounded-xl border-2 border-ink bg-ink px-4 py-3 text-gold-light [&_.yr-val:not(.yr-bad)]:text-gold-light [&_.yr-label]:text-gold-light/70`}>
             <div className="col-span-2 font-extrabold lg:col-span-1">{year} total</div>
             <Figures figures={total} strong />
           </div>
