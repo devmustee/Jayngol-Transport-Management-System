@@ -2,11 +2,11 @@
 
 import { useState } from "react";
 import { Field, SelectField } from "@/components/form";
-import { BALANCE_HINT } from "@/lib/format";
+import { tricycleOptionLabel, type TricycleOption } from "@/lib/tricycle-option";
 
-export type TricycleOption = { id: string; codeNumber: string; registrationNumber: string };
+export type { TricycleOption };
 
-/** The date and balance appear only once a tricycle is chosen. */
+/** The issue date appears only once a tricycle is chosen. The tricycle sets the daily balance. */
 export function AssignTricycle({ tricycles, today }: { tricycles: TricycleOption[]; today: string }) {
   const [chosen, setChosen] = useState("");
   return (
@@ -19,13 +19,12 @@ export function AssignTricycle({ tricycles, today }: { tricycles: TricycleOption
           <SelectField name="tricycleId" label="Assign a tricycle" value={chosen} onChange={(event) => setChosen(event.target.value)}>
             <option value="">No tricycle yet</option>
             {tricycles.map((t) => (
-              <option key={t.id} value={t.id}>{t.codeNumber} ({t.registrationNumber})</option>
+              <option key={t.id} value={t.id} disabled={t.dailyBalanceKobo == null}>{tricycleOptionLabel(t)}</option>
             ))}
           </SelectField>
           {chosen ? (
             <>
-              <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} />
-              <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
+              <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} hint="The daily balance is the tricycle's own amount." />
             </>
           ) : null}
         </div>

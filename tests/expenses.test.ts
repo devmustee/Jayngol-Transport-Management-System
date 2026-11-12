@@ -245,7 +245,7 @@ describe("loans", () => {
   it("has no schedule: it raises no fines and no unpaid days", async () => {
     const t = await makeTricycle(manager);
     const o = await makeOperator(manager);
-    await issueTricycle(on(manager, "2027-01-01"), { tricycleId: t.id, operatorId: o.id, issuedOn: "2027-01-01", dailyBalance: "10,000" });
+    await issueTricycle(on(manager, "2027-01-01"), { tricycleId: t.id, operatorId: o.id, issuedOn: "2027-01-01" });
     await grantLoan(on(manager, "2027-01-01"), { operatorId: o.id, amount: "20,000", source: "bank" });
     await db.delete(jobRuns);
     await db.insert(jobRuns).values({ job: "daily", businessDate: "2027-01-01", finishedAt: wat("2027-01-01") });

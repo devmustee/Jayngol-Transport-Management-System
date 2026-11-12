@@ -37,6 +37,7 @@ export const CATALOGUE = {
   balance_reminder: operatorNotice("action", "Balance due today"),
   late_fine: operatorNotice("action", "Late balance fine"),
   service_reminder: operatorNotice("action", "Service tomorrow"),
+  balance_changed: operatorNotice("action", "Daily balance changed"),
 } as const satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof CATALOGUE;

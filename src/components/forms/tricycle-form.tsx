@@ -1,4 +1,5 @@
 import { ActionForm, Field, SelectField, SubmitButton } from "@/components/form";
+import { BALANCE_HINT } from "@/lib/format";
 import type { FormAction } from "@/lib/form-state";
 
 export type TricycleDefaults = {
@@ -33,6 +34,9 @@ export function TricycleForm({
           inputMode="decimal"
           defaultValue={values?.purchaseCostKobo != null ? values.purchaseCostKobo / 100 : undefined}
         />
+        {values ? null : (
+          <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
+        )}
         <Field name="chassisNumber" label="Chassis number (optional)" defaultValue={values?.chassisNumber ?? undefined} autoCapitalize="characters" />
         <Field name="engineNumber" label="Engine number (optional)" defaultValue={values?.engineNumber ?? undefined} autoCapitalize="characters" />
         <SelectField name="serviceInterval" label="Service cycle" defaultValue={values?.serviceInterval ?? ""}>

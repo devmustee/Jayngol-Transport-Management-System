@@ -4,7 +4,7 @@ import { db, type Executor } from "@/db";
 import { assignments, dismissals, operators, violations } from "@/db/schema";
 import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput } from "@/lib/errors";
-import { dateField, idField, positiveNairaField, requiredText } from "@/lib/fields";
+import { dateField, idField, requiredText } from "@/lib/fields";
 import { closeAssignment, issueTricycle } from "./assignments";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
@@ -100,7 +100,6 @@ export async function appealDue(exec: Executor, operatorId: string) {
 const reinstateSchema = z.object({
   tricycleId: idField("tricycle"),
   issuedOn: dateField("Date issued"),
-  dailyBalance: positiveNairaField("Daily balance"),
 });
 
 export async function reinstateOperator(ctx: Ctx, rawId: unknown, raw: unknown) {
@@ -122,7 +121,7 @@ export async function reinstateOperator(ctx: Ctx, rawId: unknown, raw: unknown) 
     await tx.update(operators).set({ status: "active" }).where(eq(operators.id, row.operatorId));
     await issueTricycle(
       ctx,
-      { ...raw as object, operatorId: row.operatorId, dailyBalance: String(input.dailyBalance / 100) },
+      { ...raw as object, operatorId: row.operatorId },
       tx,
     );
     await tx

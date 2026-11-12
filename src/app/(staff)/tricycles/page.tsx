@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Bike, ChevronRight, Plus } from "lucide-react";
 import { Badge, Empty, LinkButton, PageHeader, SearchBar, tricycleTone } from "@/components/ui";
 import { formatDate, queryValue, TRICYCLE_STATUS_LABELS } from "@/lib/format";
+import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { LIST_LIMIT, listTricycles } from "@/services/tricycles";
@@ -73,6 +74,11 @@ export default async function TricyclesPage({
                         </>
                       ) : (
                         <>In depot · bought {formatDate(t.purchasedOn)}</>
+                      )}
+                      {t.status === "retired" ? null : t.dailyBalanceKobo == null ? (
+                        <> · <span className="font-bold text-warning">Daily balance not set</span></>
+                      ) : (
+                        <> · {formatNaira(t.dailyBalanceKobo)} a day</>
                       )}
                     </div>
                   </div>

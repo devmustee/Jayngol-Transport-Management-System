@@ -76,6 +76,14 @@ export const nairaField = (label: string) =>
 export const positiveNairaField = (label: string) =>
   nairaField(label).refine((kobo) => kobo > 0, `${label} must be more than zero`);
 
+/** A tricycle's daily balance. The range catches a missing or extra zero. */
+export const DAILY_BALANCE_MIN_KOBO = 5_000_00;
+export const DAILY_BALANCE_MAX_KOBO = 30_000_00;
+export const dailyBalanceField = nairaField("Daily balance").refine(
+  (kobo) => kobo >= DAILY_BALANCE_MIN_KOBO && kobo <= DAILY_BALANCE_MAX_KOBO,
+  "Daily balance must be between ₦5,000 and ₦30,000",
+);
+
 export const optionalNairaField = (label: string) =>
   z.preprocess(blankToUndefined, nairaField(label).optional());
 

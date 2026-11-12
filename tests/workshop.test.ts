@@ -79,7 +79,6 @@ async function held(serviceCycleStart = "2026-02-01", serviceInterval = "fortnig
     tricycleId: tricycle.id,
     operatorId: operator.id,
     issuedOn: "2026-11-01",
-    dailyBalance: "10,000",
   });
   return { tricycle, operator };
 }
@@ -296,7 +295,7 @@ describe("repairs and the balance", () => {
     await repair(tricycle.id);
     const operator = await makeOperator(manager);
     await expect(
-      issueTricycle(on(manager, MON), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn: MON, dailyBalance: "10,000" }),
+      issueTricycle(on(manager, MON), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn: MON }),
     ).rejects.toThrow(/off the road/);
   });
 

@@ -64,7 +64,6 @@ async function operatorWith({ issuedOn = FROM, uninspected = 0, latePayments = 0
     tricycleId: tricycle.id,
     operatorId: operator.id,
     issuedOn,
-    dailyBalance: "10000",
   }))!;
   await db.execute(sql`
     INSERT INTO charges (type, operator_id, tricycle_id, assignment_id, amount_kobo, business_date, due_on, created_at)
@@ -393,7 +392,7 @@ describe("award tracker", () => {
     const day = "2033-05-10";
     const { id: operatorId } = await makeOperator(manager);
     const tricycle = await makeTricycle(manager);
-    await issueTricycle(on(manager, "2033-05-01"), { tricycleId: tricycle.id, operatorId, issuedOn: "2033-05-01", dailyBalance: "10000" });
+    await issueTricycle(on(manager, "2033-05-01"), { tricycleId: tricycle.id, operatorId, issuedOn: "2033-05-01" });
     await processDay(day, () => wat(addDays(day, 9)));
     const paid = (await recordPayment(on(manager, addDays(day, 1)), {
       operatorId,
@@ -417,7 +416,7 @@ describe("award tracker", () => {
   it("does not call a balance late while it is within its deadline", async () => {
     const operator = await makeOperator(manager);
     const tricycle = await makeTricycle(manager);
-    await issueTricycle(on(manager, "2033-03-01"), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn: "2033-03-01", dailyBalance: "10000" });
+    await issueTricycle(on(manager, "2033-03-01"), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn: "2033-03-01" });
     await processDay("2033-03-02", () => wat("2033-03-02"));
     expect((await getMyAwardJourney(portal(operator.id, "2033-03-03"))).lastBreak).toBeNull();
     expect((await getMyAwardJourney(portal(operator.id, "2033-03-04"))).lastBreak).toEqual({ on: "2033-03-02", reason: "late_balance" });
@@ -541,7 +540,7 @@ describe("notices", () => {
     const operator = await makeOperator(manager);
     const tricycle = await makeTricycle(manager);
     const issuedOn = addDays(day, -2);
-    await issueTricycle(on(manager, issuedOn), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn, dailyBalance: "10000" });
+    await issueTricycle(on(manager, issuedOn), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn });
     return operator;
   }
 
@@ -581,7 +580,7 @@ describe("celebrations", () => {
   async function issued(issuedOn: string) {
     const operator = await makeOperator(manager);
     const tricycle = await makeTricycle(manager);
-    await issueTricycle(on(manager, issuedOn), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn, dailyBalance: "10000" });
+    await issueTricycle(on(manager, issuedOn), { tricycleId: tricycle.id, operatorId: operator.id, issuedOn });
     return { operator, tricycle };
   }
 

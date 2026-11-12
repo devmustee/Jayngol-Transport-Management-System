@@ -13,7 +13,7 @@ import {
 } from "@/db/schema";
 import { addDays } from "@/lib/clock";
 import { ForbiddenError } from "@/lib/errors";
-import { issueTricycle, returnTricycle, changeRate } from "@/services/assignments";
+import { issueTricycle, returnTricycle, changeTricycleBalance } from "@/services/assignments";
 import type { Ctx } from "@/services/context";
 import { runDailyJob } from "@/services/daily-job";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
@@ -50,14 +50,13 @@ async function runDays(from: string, to: string) {
 
 /** An operator holding a tricycle since the day before the given date. */
 async function operatorFrom(startDate: string, balance = "12000") {
-  const t = await makeTricycle(manager);
+  const t = await makeTricycle(manager, { dailyBalance: balance });
   const o = await makeOperator(manager);
   const issued = addDays(startDate, -1);
   const assignment = (await issueTricycle(on(manager, issued), {
     tricycleId: t.id,
     operatorId: o.id,
     issuedOn: issued,
-    dailyBalance: balance,
   }))!;
   return { operatorId: o.id, tricycleId: t.id, assignmentId: assignment.id };
 }
@@ -83,15 +82,16 @@ const alertsFor = (operatorId: string) =>
 describe("daily balance job", () => {
   it("charges from the day after issue at the rate in force", async () => {
     await baseline("2026-10-31");
-    const { operatorId, assignmentId } = await operatorFrom("2026-11-02");
+    const { operatorId, tricycleId } = await operatorFrom("2026-11-02");
     await runDays("2026-11-01", "2026-11-03");
     const before = await getStatement(manager, operatorId);
     expect(before.unpaidDays).toBe(2); // 2 and 3 November, not the 1st (issue date)
     expect(before.balanceOwedKobo).toBe(2_400_000);
 
-    await changeRate(on(manager, "2026-11-03"), assignmentId, {
+    await changeTricycleBalance(on(manager, "2026-11-03"), tricycleId, {
       dailyBalance: "15000",
       effectiveFrom: "2026-11-04",
+      reason: "Newer engine",
     });
     await job("2026-11-04");
     expect((await getStatement(manager, operatorId)).balanceOwedKobo).toBe(3_900_000);
@@ -302,11 +302,15 @@ describe("payments", () => {
       reason: "reassigned",
     });
     const second = await makeOperator(manager);
+    await changeTricycleBalance(on(manager, "2026-11-10"), first.tricycleId, {
+      dailyBalance: "15000",
+      effectiveFrom: "2026-11-10",
+      reason: "Reassigned at a new amount",
+    });
     await issueTricycle(on(manager, "2026-11-10"), {
       tricycleId: first.tricycleId,
       operatorId: second.id,
       issuedOn: "2026-11-10",
-      dailyBalance: "15000",
     });
     await job("2026-11-11");
     expect((await getStatement(manager, first.operatorId)).balanceOwedKobo).toBe(2_400_000);
@@ -374,7 +378,6 @@ describe("sacking and appeal", () => {
       tricycleId,
       operatorId: next.id,
       issuedOn: "2026-11-15",
-      dailyBalance: "12000",
     });
     expect(issued).toBeDefined();
     const [t] = await db.select().from(tricycles).where(eq(tricycles.id, tricycleId));
@@ -385,7 +388,7 @@ describe("sacking and appeal", () => {
     const { operatorId, tricycleId, alertId } = await flagged();
     await confirmSacking(on(manager, "2026-11-14"), alertId, { returnedOn: "2026-11-14" });
     const statement = await getStatement(manager, operatorId);
-    const form = { tricycleId, issuedOn: "2026-11-15", dailyBalance: "12000" };
+    const form = { tricycleId, issuedOn: "2026-11-15" };
 
     await expect(reinstateOperator(on(manager, "2026-11-15"), alertId, form)).rejects.toThrow(/must be paid/);
     await pay(on(manager, "2026-11-15"), operatorId, String(statement.balanceOwedKobo / 100));

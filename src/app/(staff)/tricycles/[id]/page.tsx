@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Pencil } from "lucide-react";
 import { notFound } from "next/navigation";
 import {
-  changeRateAction,
+  changeTricycleBalanceAction,
   issueTricycleAction,
   retireTricycleAction,
   returnTricycleAction,
@@ -45,6 +46,46 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
   const canIssue = canManage && tricycle.status === "in_stock";
   const available = canIssue ? await listAvailableOperators(ctx) : [];
   const work = await tricycleWorkHistory(ctx, id);
+  const { balance } = detail;
+
+  const balanceValue = (kobo: number | null) => (
+    <div>
+      {kobo == null ? <Badge tone="warning">Not set</Badge> : formatNaira(kobo)}
+      {balance.upcoming.map((b) => (
+        <div key={b.id} className="text-xs font-medium text-muted">
+          {formatNaira(b.amountKobo)} from {formatDate(b.effectiveFrom)}
+        </div>
+      ))}
+    </div>
+  );
+
+  const balanceChange =
+    can(ctx.actor.role, "rate.change") && tricycle.status !== "retired" ? (
+      <details className="group mt-3" open={balance.today == null && balance.upcoming.length === 0}>
+        <summary className="inline-flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-bold text-gold-deep transition-colors hover:bg-gold-wash/50 [&::-webkit-details-marker]:hidden">
+          <Pencil size={16} aria-hidden />
+          <span className="group-open:hidden">{balance.today == null ? "Set daily balance" : "Change daily balance"}</span>
+          <span className="hidden group-open:inline">Close</span>
+        </summary>
+        <div className="mt-3 rounded-xl border border-line/60 bg-card-subtle/50 p-4">
+          <ActionForm action={changeTricycleBalanceAction.bind(null, tricycle.id)}>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
+              <Field
+                name="effectiveFrom"
+                label="Starts on"
+                type="date"
+                min={today}
+                defaultValue={today}
+                hint={current ? "Charges change from this day. It cannot be in the past." : "It cannot be in the past."}
+              />
+            </div>
+            <TextareaField name="reason" label="Reason" />
+            <SubmitButton>Save daily balance</SubmitButton>
+          </ActionForm>
+        </div>
+      </details>
+    ) : null;
 
   return (
     <>
@@ -66,22 +107,25 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
               rows={[
                 ["Operator", <Link key="o" href={`/operators/${current.assignment.operatorId}`} className="text-gold-deep underline">{current.operatorName}</Link>],
                 ["Date issued", formatDate(current.assignment.issuedOn)],
-                ["Daily balance", current.dailyBalanceKobo != null ? formatNaira(current.dailyBalanceKobo) : "—"],
+                ["Daily balance", balanceValue(current.dailyBalanceKobo)],
               ]}
             />
-            {current.rates.length > 1 ? (
-              <ul className="mt-2 text-sm text-muted">
-                {current.rates.map((r) => (
-                  <li key={r.id}>{formatNaira(r.amountKobo)} from {formatDate(r.effectiveFrom)}</li>
-                ))}
-              </ul>
-            ) : null}
+            {balanceChange}
+          </Card>
+        ) : null}
+
+        {!current && tricycle.status !== "retired" ? (
+          <Card title="Daily balance">
+            <Details rows={[["Daily balance", balanceValue(balance.today)]]} />
+            {balanceChange}
           </Card>
         ) : null}
 
         {canIssue ? (
           <Card title="Issue to an operator">
-            {available.length === 0 ? (
+            {balance.today == null ? (
+              <p className="text-muted">Set this tricycle&apos;s daily balance before issuing it.</p>
+            ) : available.length === 0 ? (
               <p className="text-muted">
                 No active operator is free. <Link href="/operators/new" className="text-gold-deep underline">Add an operator</Link> first.
               </p>
@@ -96,8 +140,10 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
                     ))}
                   </SelectField>
                   <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} />
-                  <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
                 </div>
+                <p className="text-sm text-muted">
+                  The operator will pay this tricycle&apos;s daily balance of {formatNaira(balance.today)}.
+                </p>
                 <SubmitButton>Issue tricycle</SubmitButton>
               </ActionForm>
             )}
@@ -178,15 +224,18 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
           )}
         </Card>
 
-        {current && can(ctx.actor.role, "rate.change") ? (
-          <Disclosure label="Change daily balance">
-            <ActionForm action={changeRateAction.bind(null, current.assignment.id)}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field name="dailyBalance" label="New daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
-                <Field name="effectiveFrom" label="Starts on" type="date" min={today} defaultValue={today} />
-              </div>
-              <SubmitButton>Save new balance</SubmitButton>
-            </ActionForm>
+        {balance.history.length > 0 ? (
+          <Disclosure label="Daily balance history">
+            <ul className="divide-y divide-line">
+              {balance.history.map((b) => (
+                <li key={b.id} className="py-2">
+                  <div className="font-semibold">
+                    {formatNaira(b.amountKobo)} from {formatDate(b.effectiveFrom)}
+                  </div>
+                  {b.reason ? <div className="text-sm text-muted">{b.reason}</div> : null}
+                </li>
+              ))}
+            </ul>
           </Disclosure>
         ) : null}
 

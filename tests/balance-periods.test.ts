@@ -6,7 +6,7 @@ import { charges, jobRuns } from "@/db/schema";
 import { addDays } from "@/lib/clock";
 import { ForbiddenError } from "@/lib/errors";
 import { monthEnd, parsePulse, parseRange, periodOf, weekStart } from "@/lib/periods";
-import { changeRate, issueTricycle } from "@/services/assignments";
+import { changeTricycleBalance, issueTricycle } from "@/services/assignments";
 import {
   balanceStillToCome,
   balanceTotals,
@@ -92,16 +92,15 @@ describe("weekly and monthly balances", () => {
   let lateCatchUp: string;
 
   async function operatorFrom(firstChargeDay: string, balance = "10000") {
-    const t = await makeTricycle(manager);
+    const t = await makeTricycle(manager, { dailyBalance: balance });
     const o = await makeOperator(manager);
     const issued = addDays(firstChargeDay, -1);
     const assignment = (await issueTricycle(on(manager, issued), {
       tricycleId: t.id,
       operatorId: o.id,
       issuedOn: issued,
-      dailyBalance: balance,
     }))!;
-    return { operatorId: o.id, assignmentId: assignment.id };
+    return { operatorId: o.id, tricycleId: t.id, assignmentId: assignment.id };
   }
 
   const pay = (ctx: Ctx, operatorId: string, amount: string, extra: Record<string, unknown> = {}) =>
@@ -126,7 +125,11 @@ describe("weekly and monthly balances", () => {
     a = (await operatorFrom("2028-02-07")).operatorId;
     const second = await operatorFrom("2028-02-07");
     b = second.operatorId;
-    await changeRate(on(manager, "2028-02-07"), second.assignmentId, { dailyBalance: "15000", effectiveFrom: "2028-02-10" });
+    await changeTricycleBalance(on(manager, "2028-02-07"), second.tricycleId, {
+      dailyBalance: "15000",
+      effectiveFrom: "2028-02-10",
+      reason: "Newer tricycle",
+    });
     c = (await operatorFrom("2028-02-07")).operatorId;
     d = (await operatorFrom("2028-02-07")).operatorId;
 

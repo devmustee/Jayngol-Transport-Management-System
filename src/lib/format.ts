@@ -95,7 +95,7 @@ export const MOVEMENT_LABELS = {
 /** Reads one query-string value, ignoring repeated parameters. */
 export const queryValue = (value: unknown) => (typeof value === "string" ? value : undefined);
 
-export const BALANCE_HINT = "Usually 10,000, 12,000 or 15,000.";
+export const BALANCE_HINT = "What this tricycle pays each day, from 5,000 to 30,000.";
 
 export const EXPENSE_CATEGORY_LABELS = {
   store_purchase: "Store purchase",

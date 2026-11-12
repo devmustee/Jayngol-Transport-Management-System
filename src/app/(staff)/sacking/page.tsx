@@ -7,6 +7,7 @@ import { businessDate } from "@/lib/clock";
 import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
+import { tricycleOptionLabel } from "@/lib/tricycle-option";
 import { requirePage } from "@/lib/session";
 import { listDismissals } from "@/services/dismissals";
 import { listInStockTricycles } from "@/services/tricycles";
@@ -70,11 +71,10 @@ export default async function SackingPage() {
                             <SelectField name="tricycleId" label="Tricycle" defaultValue="">
                               <option value="" disabled>Choose…</option>
                               {inStock.map((t) => (
-                                <option key={t.id} value={t.id}>{t.codeNumber} ({t.registrationNumber})</option>
+                                <option key={t.id} value={t.id} disabled={t.dailyBalanceKobo == null}>{tricycleOptionLabel(t)}</option>
                               ))}
                             </SelectField>
                             <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} />
-                            <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" />
                             <SubmitButton>Reinstate operator</SubmitButton>
                           </ActionForm>
                         )}

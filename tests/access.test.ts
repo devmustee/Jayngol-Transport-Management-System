@@ -47,14 +47,13 @@ const ip = () => `10.0.0.${++ipCounter}`;
 
 /** Creates an operator with a tricycle and a portal login. */
 async function makePortalOperator() {
-  const t = await makeTricycle(manager);
+  const t = await makeTricycle(manager, { dailyBalance: "12000" });
   const phone = uniquePhone();
   const o = await makeOperator(manager, { phone });
   await issueTricycle(manager, {
     tricycleId: t.id,
     operatorId: o.id,
     issuedOn: TODAY,
-    dailyBalance: "12000",
   });
   await setOperatorPin(manager, o.id, { pin: "123456" });
   const { token } = await login({ phone, secret: "123456", ip: ip() }, fixedClock);

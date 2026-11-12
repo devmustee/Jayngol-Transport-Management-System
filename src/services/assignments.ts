@@ -1,19 +1,21 @@
-import { and, desc, eq, gt, gte, isNull, lte, ne, or } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lte, ne, or } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
-import { assignments, balanceRates, offRoadPeriods, operators, tricycles, workOrders } from "@/db/schema";
+import { assignments, balanceRates, offRoadPeriods, operators, tricycleBalances, tricycles, workOrders } from "@/db/schema";
 import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
-import { dateField, idField, optionalText, positiveNairaField } from "@/lib/fields";
+import { dailyBalanceField, dateField, idField, optionalText, requiredText } from "@/lib/fields";
+import { formatDate } from "@/lib/format";
+import { formatNaira } from "@/lib/money";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { voidBalancesAfter } from "./ledger";
+import { notifyOperators } from "./notices";
 
 const issueSchema = z.object({
   tricycleId: idField("tricycle"),
   operatorId: idField("operator"),
   issuedOn: dateField("Date issued"),
-  dailyBalance: positiveNairaField("Daily balance"),
 });
 
 const returnSchema = z.object({
@@ -22,9 +24,10 @@ const returnSchema = z.object({
   note: optionalText(),
 });
 
-const rateSchema = z.object({
-  dailyBalance: positiveNairaField("Daily balance"),
+const balanceSchema = z.object({
+  dailyBalance: dailyBalanceField,
   effectiveFrom: dateField("Start date"),
+  reason: requiredText("Reason", 500),
 });
 
 const OVERLAPS = {
@@ -74,6 +77,16 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
         throw fieldError("operatorId", "Only an active operator can be issued a tricycle");
       }
 
+      // The operator is charged the tricycle's own amount, including any change
+      // already set to start after the issue date.
+      const rates = scheduleFrom(await balancesOf(tx, tricycle.id), input.issuedOn);
+      if (rates === "not_set") {
+        throw fieldError("tricycleId", "Set this tricycle's daily balance first");
+      }
+      if (rates === "not_yet") {
+        throw fieldError("issuedOn", "This tricycle has no daily balance on that date");
+      }
+
       const [assignment] = await tx
         .insert(assignments)
         .values({
@@ -83,12 +96,14 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
           issuedBy: ctx.actor.userId,
         })
         .returning({ id: assignments.id });
-      await tx.insert(balanceRates).values({
-        assignmentId: assignment!.id,
-        amountKobo: input.dailyBalance,
-        effectiveFrom: input.issuedOn,
-        createdBy: ctx.actor.userId,
-      });
+      await tx.insert(balanceRates).values(
+        rates.map((rate) => ({
+          assignmentId: assignment!.id,
+          amountKobo: rate.amountKobo,
+          effectiveFrom: rate.effectiveFrom,
+          createdBy: ctx.actor.userId,
+        })),
+      );
       await tx.update(tricycles).set({ status: "issued" }).where(eq(tricycles.id, tricycle.id));
       await auditFrom(ctx, tx, {
         action: "assignment.issue",
@@ -97,7 +112,7 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
         after: {
           operatorId: operator.id,
           issuedOn: input.issuedOn,
-          dailyBalanceKobo: input.dailyBalance,
+          dailyBalanceKobo: rates[0]!.amountKobo,
         },
       });
       return assignment!;
@@ -182,42 +197,123 @@ export async function closeAssignment(
 }
 
 /**
- * Rates cannot start in the past. Daily balances will be charged at the rate
- * in force on the day, so a backdated rate would disagree with those charges.
+ * Changes a tricycle's daily balance from a date. If it is with an operator,
+ * their charges follow from that date. A change cannot start in the past:
+ * daily balances already raised were charged at the amount in force then.
  */
-export async function changeRate(ctx: Ctx, rawId: unknown, raw: unknown) {
+export async function changeTricycleBalance(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "rate.change");
-  const id = parseInput(idField("assignment"), rawId);
-  const input = parseInput(rateSchema, raw);
+  const id = parseInput(idField("tricycle"), rawId);
+  const input = parseInput(balanceSchema, raw);
   if (input.effectiveFrom < businessDate(ctx.clock())) {
     throw fieldError("effectiveFrom", "A new daily balance cannot start in the past");
   }
 
   await db.transaction(async (tx) => {
-    const [assignment] = await tx
-      .select()
-      .from(assignments)
-      .where(eq(assignments.id, id))
-      .for("update");
-    if (!assignment) throw new DomainError("Issue record not found.");
-    if (assignment.returnedOn) throw new DomainError("This tricycle has already been returned.");
+    const [tricycle] = await tx.select().from(tricycles).where(eq(tricycles.id, id)).for("update");
+    if (!tricycle) throw new DomainError("Tricycle not found.");
+    if (tricycle.status === "retired") throw new DomainError("A retired tricycle has no daily balance.");
 
-    const before = await rateOn(tx, id, input.effectiveFrom);
-    await tx.insert(balanceRates).values({
-      assignmentId: id,
+    const before = await balanceOn(tx, id, input.effectiveFrom);
+    await tx.insert(tricycleBalances).values({
+      tricycleId: id,
       amountKobo: input.dailyBalance,
       effectiveFrom: input.effectiveFrom,
+      reason: input.reason,
       createdBy: ctx.actor.userId,
     });
+
+    const [open] = await tx
+      .select()
+      .from(assignments)
+      .where(and(eq(assignments.tricycleId, id), isNull(assignments.returnedOn)))
+      .for("update");
+    if (open) {
+      await tx.insert(balanceRates).values({
+        assignmentId: open.id,
+        amountKobo: input.dailyBalance,
+        effectiveFrom: input.effectiveFrom,
+        createdBy: ctx.actor.userId,
+      });
+      const from = before === null ? "" : ` from ${formatNaira(before)}`;
+      await notifyOperators(tx, ctx.clock(), [
+        {
+          operatorId: open.operatorId,
+          kind: "balance_changed",
+          body: `Your daily balance for ${tricycle.codeNumber} changes${from} to ${formatNaira(input.dailyBalance)}, starting ${formatDate(input.effectiveFrom)}.`,
+        },
+      ]);
+    }
+
     await auditFrom(ctx, tx, {
-      action: "assignment.change_rate",
+      action: "tricycle.change_balance",
       entityType: "tricycle",
-      entityId: assignment.tricycleId,
+      entityId: id,
       before: { dailyBalanceKobo: before },
-      after: { dailyBalanceKobo: input.dailyBalance, effectiveFrom: input.effectiveFrom },
+      after: {
+        dailyBalanceKobo: input.dailyBalance,
+        effectiveFrom: input.effectiveFrom,
+        operatorId: open?.operatorId ?? null,
+      },
+      reason: input.reason,
     });
   });
 }
+
+type BalanceRow = { amountKobo: number; effectiveFrom: string; createdAt: Date };
+
+const balancesOf = (exec: Executor, tricycleId: string): Promise<BalanceRow[]> =>
+  exec
+    .select({
+      amountKobo: tricycleBalances.amountKobo,
+      effectiveFrom: tricycleBalances.effectiveFrom,
+      createdAt: tricycleBalances.createdAt,
+    })
+    .from(tricycleBalances)
+    .where(eq(tricycleBalances.tricycleId, tricycleId))
+    .orderBy(asc(tricycleBalances.effectiveFrom), asc(tricycleBalances.createdAt));
+
+/**
+ * The amounts to charge from `from` onwards: the one in force that day, then
+ * each later change. Where two rows start the same day, the newer one wins.
+ */
+export function scheduleFrom(rows: BalanceRow[], from: string) {
+  if (rows.length === 0) return "not_set" as const;
+  const byDate = new Map<string, number>();
+  for (const row of rows) byDate.set(row.effectiveFrom, row.amountKobo);
+  const dates = [...byDate.keys()].sort();
+  const start = dates.filter((d) => d <= from).at(-1);
+  if (!start) return "not_yet" as const;
+  return [
+    { effectiveFrom: from, amountKobo: byDate.get(start)! },
+    ...dates.filter((d) => d > from).map((d) => ({ effectiveFrom: d, amountKobo: byDate.get(d)! })),
+  ];
+}
+
+/** A tricycle's daily balance on a date, or null when none is set by then. */
+export async function balanceOn(exec: Executor, tricycleId: string, date: string): Promise<number | null> {
+  const [row] = await exec
+    .select({ amountKobo: tricycleBalances.amountKobo })
+    .from(tricycleBalances)
+    .where(and(eq(tricycleBalances.tricycleId, tricycleId), lte(tricycleBalances.effectiveFrom, date)))
+    .orderBy(desc(tricycleBalances.effectiveFrom), desc(tricycleBalances.createdAt))
+    .limit(1);
+  return row?.amountKobo ?? null;
+}
+
+/** Every amount a tricycle has had, newest first. */
+export const tricycleBalanceHistory = (tricycleId: string) =>
+  db
+    .select({
+      id: tricycleBalances.id,
+      amountKobo: tricycleBalances.amountKobo,
+      effectiveFrom: tricycleBalances.effectiveFrom,
+      reason: tricycleBalances.reason,
+      createdAt: tricycleBalances.createdAt,
+    })
+    .from(tricycleBalances)
+    .where(eq(tricycleBalances.tricycleId, tricycleId))
+    .orderBy(desc(tricycleBalances.effectiveFrom), desc(tricycleBalances.createdAt));
 
 /** The daily balance in force for an assignment on a given business date. */
 export async function rateOn(

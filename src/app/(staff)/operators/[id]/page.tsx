@@ -8,10 +8,11 @@ import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/c
 import { Badge, Card, Details, Disclosure, Empty, LinkButton, operatorTone, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { isUuid } from "@/lib/fields";
-import { BALANCE_HINT, CLOSED_REASON_LABELS, formatDate, METHOD_LABELS, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { CLOSED_REASON_LABELS, formatDate, METHOD_LABELS, OPERATOR_STATUS_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
+import { tricycleOptionLabel } from "@/lib/tricycle-option";
 import { requirePage } from "@/lib/session";
 import { getOperatorJourney } from "@/services/award-tracker";
 import { operatorBalancePeriods } from "@/services/balance-periods";
@@ -141,11 +142,10 @@ export default async function OperatorPage({
                   <SelectField name="tricycleId" label="Tricycle" defaultValue="">
                     <option value="" disabled>Choose…</option>
                     {inStock.map((t) => (
-                      <option key={t.id} value={t.id}>{t.codeNumber} ({t.registrationNumber})</option>
+                      <option key={t.id} value={t.id} disabled={t.dailyBalanceKobo == null}>{tricycleOptionLabel(t)}</option>
                     ))}
                   </SelectField>
                   <Field name="issuedOn" label="Date issued" type="date" max={businessDate(ctx.clock())} defaultValue={businessDate(ctx.clock())} />
-                  <Field name="dailyBalance" label="Daily balance (₦)" inputMode="decimal" hint={BALANCE_HINT} />
                 </div>
                 <SubmitButton>Issue tricycle</SubmitButton>
               </ActionForm>

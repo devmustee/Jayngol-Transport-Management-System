@@ -6,7 +6,7 @@ import { systemClock } from "@/lib/clock";
 import { DomainError } from "@/lib/errors";
 import type { FormState } from "@/lib/form-state";
 import { clearSession, clientIp, requireCtx, setSessionCookie } from "@/lib/session";
-import { changeRate, issueTricycle, returnTricycle } from "@/services/assignments";
+import { changeTricycleBalance, issueTricycle, returnTricycle } from "@/services/assignments";
 import { login } from "@/services/auth";
 import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
@@ -175,8 +175,8 @@ export async function returnTricycleAction(assignmentId: string, _: FormState, d
   return perform((ctx) => returnTricycle(ctx, assignmentId, values(data)), "Tricycle returned.");
 }
 
-export async function changeRateAction(assignmentId: string, _: FormState, data: FormData) {
-  return perform((ctx) => changeRate(ctx, assignmentId, values(data)), "Daily balance updated.");
+export async function changeTricycleBalanceAction(tricycleId: string, _: FormState, data: FormData) {
+  return perform((ctx) => changeTricycleBalance(ctx, tricycleId, values(data)), "Daily balance saved.");
 }
 
 export async function createStaffAction(_: FormState, data: FormData) {

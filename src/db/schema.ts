@@ -219,6 +219,30 @@ export const balanceRates = pgTable(
   ],
 );
 
+// Each tricycle's daily balance and when each amount starts. The amount on a
+// date is the newest row starting on or before it. A tricycle with no row has
+// no balance set and cannot be issued. Append-only (drizzle/0025).
+export const tricycleBalances = pgTable(
+  "tricycle_balances",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tricycleId: uuid("tricycle_id")
+      .notNull()
+      .references(() => tricycles.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+    reason: text("reason"),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    index("tricycle_balances_lookup_idx").on(t.tricycleId, t.effectiveFrom),
+    check("tricycle_balances_positive", sql`${t.amountKobo} > 0`),
+  ],
+);
+
 // Append-only, enforced by triggers in drizzle/0001_constraints.sql.
 export const auditLog = pgTable(
   "audit_log",

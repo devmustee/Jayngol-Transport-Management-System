@@ -1,10 +1,11 @@
-import { and, asc, count, desc, eq, gte, ilike, isNull, or, type SQL } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
-import { assignments, operators, tricycles, workOrders } from "@/db/schema";
+import { assignments, operators, tricycleBalances, tricycles, workOrders } from "@/db/schema";
 import { businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import {
+  dailyBalanceField,
   dateField,
   tricycleCodeField,
   tricycleRegistrationField,
@@ -15,7 +16,7 @@ import {
 } from "@/lib/fields";
 import { auditFrom } from "./audit";
 import { likePattern, requirePermission, type Ctx } from "./context";
-import { currentRate, ratesFor } from "./assignments";
+import { balanceOn, currentRate, ratesFor, tricycleBalanceHistory } from "./assignments";
 
 const tricycleSchema = z.object({
   registrationNumber: tricycleRegistrationField,
@@ -27,6 +28,8 @@ const tricycleSchema = z.object({
   serviceInterval: z.enum(["fortnightly", "monthly"], "Choose a service cycle"),
   serviceCycleStart: dateField("Service cycle start"),
 });
+
+const createSchema = z.object({ dailyBalance: dailyBalanceField });
 
 const DUPLICATES = {
   tricycles_registration_unique: fieldError(
@@ -56,14 +59,23 @@ function validated(ctx: Ctx, raw: unknown) {
 export async function createTricycle(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "tricycle.manage");
   const values = validated(ctx, raw);
+  const { dailyBalance } = parseInput(createSchema, raw);
   try {
     return await db.transaction(async (tx) => {
       const [row] = await tx.insert(tricycles).values(values).returning({ id: tricycles.id });
+      // From the purchase date, so an issue recorded late still has an amount.
+      await tx.insert(tricycleBalances).values({
+        tricycleId: row!.id,
+        amountKobo: dailyBalance,
+        effectiveFrom: values.purchasedOn,
+        reason: "Set when the tricycle was added",
+        createdBy: ctx.actor.userId,
+      });
       await auditFrom(ctx, tx, {
         action: "tricycle.create",
         entityType: "tricycle",
         entityId: row!.id,
-        after: values,
+        after: { ...values, dailyBalanceKobo: dailyBalance },
       });
       return row!;
     });
@@ -146,6 +158,17 @@ export async function retireTricycle(ctx: Ctx, rawId: unknown, raw: unknown) {
   });
 }
 
+/**
+ * Each tricycle's daily balance today, for lists. The tricycle id is written
+ * out in full: in a query without joins Drizzle leaves it unqualified, and
+ * "id" would then mean the balance row's own id.
+ */
+const balanceToday = (ctx: Ctx) => sql<number | null>`(
+  SELECT b.amount_kobo::float8 FROM tricycle_balances b
+  WHERE b.tricycle_id = "tricycles"."id" AND b.effective_from <= ${businessDate(ctx.clock())}
+  ORDER BY b.effective_from DESC, b.created_at DESC LIMIT 1
+)`;
+
 export const LIST_LIMIT = 200;
 const STATUSES = ["in_stock", "issued", "off_road", "retired"] as const;
 
@@ -174,6 +197,7 @@ export async function listTricycles(ctx: Ctx, filter: { q?: string; status?: str
       purchasedOn: tricycles.purchasedOn,
       operatorName: operators.name,
       issuedOn: assignments.issuedOn,
+      dailyBalanceKobo: balanceToday(ctx),
     })
     .from(tricycles)
     .leftJoin(
@@ -208,7 +232,14 @@ export async function getTricycle(ctx: Ctx, id: string) {
       }
     : null;
 
-  return { tricycle, current, history };
+  const balances = await tricycleBalanceHistory(id);
+  const balance = {
+    today: await balanceOn(db, id, today),
+    upcoming: balances.filter((b) => b.effectiveFrom > today).reverse(),
+    history: balances,
+  };
+
+  return { tricycle, current, history, balance };
 }
 
 /** Tricycles that can be issued right now. */
@@ -219,6 +250,7 @@ export async function listInStockTricycles(ctx: Ctx) {
       id: tricycles.id,
       codeNumber: tricycles.codeNumber,
       registrationNumber: tricycles.registrationNumber,
+      dailyBalanceKobo: balanceToday(ctx),
     })
     .from(tricycles)
     .where(eq(tricycles.status, "in_stock"))

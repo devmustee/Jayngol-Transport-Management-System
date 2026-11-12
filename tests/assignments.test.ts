@@ -5,15 +5,16 @@ import { assignments, operators, tricycles } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import { asPgError, DomainError, ForbiddenError } from "@/lib/errors";
 import {
-  changeRate,
+  balanceOn,
+  changeTricycleBalance,
   issueTricycle,
   rateOn,
   returnTricycle,
 } from "@/services/assignments";
 import type { Ctx } from "@/services/context";
 import { createOperator, markOperatorLeft } from "@/services/operators";
-import { getTricycle, retireTricycle } from "@/services/tricycles";
-import { makeOperator, makeTricycle, makeUser, TODAY, uniquePhone } from "./helpers";
+import { createTricycle, getTricycle, listInStockTricycles, listTricycles, retireTricycle } from "@/services/tricycles";
+import { makeOperator, makeTricycle, makeUser, noticesFor, TODAY, tricycleInput, uniquePhone } from "./helpers";
 
 let manager: Ctx;
 let assistant: Ctx;
@@ -23,14 +24,13 @@ beforeAll(async () => {
   assistant = (await makeUser("assistant_manager")).ctx;
 });
 
-async function issue(overrides: Record<string, unknown> = {}) {
-  const t = await makeTricycle(manager);
+async function issue({ dailyBalance = "12,000", ...overrides }: Record<string, unknown> = {}) {
+  const t = await makeTricycle(manager, { dailyBalance });
   const o = await makeOperator(manager);
   const a = (await issueTricycle(manager, {
     tricycleId: t.id,
     operatorId: o.id,
     issuedOn: "2026-03-01",
-    dailyBalance: "12,000",
     ...overrides,
   }))!;
   return { tricycleId: t.id, operatorId: o.id, assignmentId: a.id };
@@ -57,7 +57,6 @@ describe("issuing a tricycle", () => {
         tricycleId,
         operatorId: other.id,
         issuedOn: TODAY,
-        dailyBalance: "10000",
       }),
     ).rejects.toThrow(/cannot be issued while it is with an operator/);
   });
@@ -70,7 +69,6 @@ describe("issuing a tricycle", () => {
         tricycleId: free.id,
         operatorId,
         issuedOn: TODAY,
-        dailyBalance: "10000",
       }),
     ).rejects.toMatchObject({
       fieldErrors: { issuedOn: "This operator already had a tricycle on that date" },
@@ -78,7 +76,7 @@ describe("issuing a tricycle", () => {
   });
 
   it("lets exactly one of two simultaneous issues succeed", async () => {
-    const t = await makeTricycle(manager);
+    const t = await makeTricycle(manager, { dailyBalance: "15000" });
     const [a, b] = await Promise.all([makeOperator(manager), makeOperator(manager)]);
     const results = await Promise.allSettled(
       [a, b].map((o) =>
@@ -86,7 +84,6 @@ describe("issuing a tricycle", () => {
           tricycleId: t.id,
           operatorId: o.id,
           issuedOn: TODAY,
-          dailyBalance: "15000",
         }),
       ),
     );
@@ -111,7 +108,7 @@ describe("issuing a tricycle", () => {
     const t = await makeTricycle(manager, { purchasedOn: "2026-06-01" });
     const o = await makeOperator(manager);
     const attempt = (issuedOn: string) =>
-      issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn, dailyBalance: "10000" });
+      issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn });
     await expect(attempt("2026-05-31")).rejects.toThrow(DomainError);
     await expect(attempt("2026-11-11")).rejects.toThrow(DomainError);
   });
@@ -121,13 +118,13 @@ describe("issuing a tricycle", () => {
     await markOperatorLeft(manager, leaver.id, { reason: "Moved away" });
     const t = await makeTricycle(manager);
     await expect(
-      issueTricycle(manager, { tricycleId: t.id, operatorId: leaver.id, issuedOn: TODAY, dailyBalance: "10000" }),
+      issueTricycle(manager, { tricycleId: t.id, operatorId: leaver.id, issuedOn: TODAY }),
     ).rejects.toThrow(DomainError);
 
     await retireTricycle(manager, t.id, { reason: "Sold" });
     const o = await makeOperator(manager);
     await expect(
-      issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: TODAY, dailyBalance: "10000" }),
+      issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: TODAY }),
     ).rejects.toThrow(/retired/);
   });
 });
@@ -138,15 +135,13 @@ describe("returning a tricycle", () => {
     await returnTricycle(manager, assignmentId, { returnedOn: "2026-10-01", reason: "reassigned" });
     expect(await statusOf(tricycleId)).toBe("in_stock");
 
+    await changeTricycleBalance(manager, tricycleId, { dailyBalance: "15000", effectiveFrom: TODAY, reason: "Overhauled" });
     const next = await makeOperator(manager);
-    await issueTricycle(manager, {
-      tricycleId,
-      operatorId: next.id,
-      issuedOn: "2026-10-01",
-      dailyBalance: "15000",
-    });
+    const reissued = (await issueTricycle(manager, { tricycleId, operatorId: next.id, issuedOn: "2026-10-01" }))!;
     const detail = await getTricycle(manager, tricycleId);
     expect(detail!.history).toHaveLength(2);
+    // Backdated to 1 October: the old amount until today, when the change starts.
+    expect(await rateOn(db, reissued.id, "2026-10-01")).toBe(1_200_000);
     expect(detail!.current!.dailyBalanceKobo).toBe(1_500_000);
   });
 
@@ -159,7 +154,6 @@ describe("returning a tricycle", () => {
         tricycleId,
         operatorId: next.id,
         issuedOn: "2026-05-01",
-        dailyBalance: "10000",
       }),
     ).rejects.toMatchObject({
       fieldErrors: { issuedOn: "This tricycle was already with an operator on that date" },
@@ -185,39 +179,111 @@ describe("returning a tricycle", () => {
   });
 });
 
-describe("changing the daily balance", () => {
-  it("applies from its start date and leaves earlier days unchanged", async () => {
-    const { assignmentId } = await issue();
-    await changeRate(manager, assignmentId, { dailyBalance: "15,000", effectiveFrom: "2026-12-01" });
+describe("each tricycle's daily balance", () => {
+  const change = (ctx: Ctx, tricycleId: string, dailyBalance: string, effectiveFrom = TODAY) =>
+    changeTricycleBalance(ctx, tricycleId, { dailyBalance, effectiveFrom, reason: "Test" });
+
+  /** A tricycle from before balances were kept on tricycles, with none set. */
+  async function withoutBalance() {
+    const { dailyBalance: _, purchaseCost: __, ...input } = tricycleInput();
+    const [row] = await db.insert(tricycles).values(input as typeof tricycles.$inferInsert).returning();
+    return row!;
+  }
+
+  it("must be entered when a tricycle is added, between ₦5,000 and ₦30,000", async () => {
+    await expect(createTricycle(manager, tricycleInput({ dailyBalance: "" }))).rejects.toMatchObject({
+      fieldErrors: { dailyBalance: expect.any(String) },
+    });
+    for (const outside of ["4,999", "30,001"]) {
+      await expect(createTricycle(manager, tricycleInput({ dailyBalance: outside }))).rejects.toMatchObject({
+        fieldErrors: { dailyBalance: "Daily balance must be between ₦5,000 and ₦30,000" },
+      });
+    }
+    for (const [amount, kobo] of [["5,000", 500_000], ["30,000", 3_000_000]] as const) {
+      const t = (await createTricycle(manager, tricycleInput({ dailyBalance: amount, purchasedOn: "2026-01-15" })))!;
+      expect(await balanceOn(db, t.id, "2026-01-15")).toBe(kobo);
+      expect(await balanceOn(db, t.id, "2026-01-14")).toBeNull();
+    }
+  });
+
+  it("is what the operator is charged, without being typed at issue", async () => {
+    const { assignmentId } = await issue({ dailyBalance: "15,000" });
+    expect(await rateOn(db, assignmentId, "2026-03-01")).toBe(1_500_000);
+  });
+
+  it("cannot be issued until one is set", async () => {
+    const t = await withoutBalance();
+    const o = await makeOperator(manager);
+    await expect(issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: TODAY })).rejects.toMatchObject({
+      fieldErrors: { tricycleId: "Set this tricycle's daily balance first" },
+    });
+    await change(manager, t.id, "13,000");
+    const a = (await issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: TODAY }))!;
+    expect(await rateOn(db, a.id, TODAY)).toBe(1_300_000);
+  });
+
+  it("changes an issued tricycle's charges from the start date only, and tells the operator", async () => {
+    const { tricycleId, operatorId, assignmentId } = await issue();
+    await change(manager, tricycleId, "15,000", "2026-12-01");
     expect(await rateOn(db, assignmentId, "2026-11-30")).toBe(1_200_000);
     expect(await rateOn(db, assignmentId, "2026-12-01")).toBe(1_500_000);
+    const [notice] = await noticesFor(operatorId, "balance_changed");
+    expect(notice!.body).toMatch(/from ₦12,000 to ₦15,000, starting 1 Dec 2026/);
+  });
+
+  it("changes an in-stock tricycle for its next operator, including a change still to come", async () => {
+    const t = await makeTricycle(manager, { dailyBalance: "12,000" });
+    await change(manager, t.id, "14,000");
+    await change(manager, t.id, "16,000", "2026-12-01");
+    const o = await makeOperator(manager);
+    const a = (await issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: "2026-11-01" }))!;
+    expect(await rateOn(db, a.id, "2026-11-01")).toBe(1_200_000);
+    expect(await rateOn(db, a.id, TODAY)).toBe(1_400_000);
+    expect(await rateOn(db, a.id, "2026-12-01")).toBe(1_600_000);
+    const detail = await getTricycle(manager, t.id);
+    expect(detail!.balance.today).toBe(1_400_000);
+    expect(detail!.balance.upcoming.map((b) => b.amountKobo)).toEqual([1_600_000]);
+  });
+
+  it("shows each tricycle's amount today in the lists", async () => {
+    const input = tricycleInput({ dailyBalance: "13,500" });
+    const t = (await createTricycle(manager, input))!;
+    const bare = await withoutBalance();
+    const inStock = await listInStockTricycles(manager);
+    expect(inStock.find((row) => row.id === t.id)?.dailyBalanceKobo).toBe(1_350_000);
+    expect(inStock.find((row) => row.id === bare.id)?.dailyBalanceKobo).toBeNull();
+    const [listed] = await listTricycles(manager, { q: input.codeNumber as string });
+    expect(listed!.dailyBalanceKobo).toBe(1_350_000);
   });
 
   it("lets the latest entry correct a mistake on the same date", async () => {
-    const { assignmentId } = await issue();
-    await changeRate(manager, assignmentId, { dailyBalance: "100", effectiveFrom: TODAY });
-    await changeRate(manager, assignmentId, { dailyBalance: "10,000", effectiveFrom: TODAY });
+    const { tricycleId, assignmentId } = await issue();
+    await change(manager, tricycleId, "25,000");
+    await change(manager, tricycleId, "10,000");
     expect(await rateOn(db, assignmentId, TODAY)).toBe(1_000_000);
+    expect(await balanceOn(db, tricycleId, TODAY)).toBe(1_000_000);
   });
 
-  it("cannot start in the past and is Manager-only", async () => {
-    const { assignmentId } = await issue();
+  it("cannot start in the past, needs a reason and is Manager-only", async () => {
+    const { tricycleId } = await issue();
+    await expect(change(manager, tricycleId, "10000", "2026-11-09")).rejects.toThrow(DomainError);
     await expect(
-      changeRate(manager, assignmentId, { dailyBalance: "10000", effectiveFrom: "2026-11-09" }),
+      changeTricycleBalance(manager, tricycleId, { dailyBalance: "10000", effectiveFrom: TODAY, reason: "" }),
     ).rejects.toThrow(DomainError);
-    await expect(
-      changeRate(assistant, assignmentId, { dailyBalance: "10000", effectiveFrom: TODAY }),
-    ).rejects.toThrow(ForbiddenError);
+    await expect(change(manager, tricycleId, "50,000")).rejects.toThrow(DomainError);
+    await expect(change(assistant, tricycleId, "10000")).rejects.toThrow(ForbiddenError);
   });
 
   it("cannot be edited or deleted in the database", async () => {
-    const { assignmentId } = await issue();
-    await expect(
-      db.execute(sql`UPDATE balance_rates SET amount_kobo = 1 WHERE assignment_id = ${assignmentId}`),
-    ).rejects.toThrow();
-    await expect(
-      db.execute(sql`DELETE FROM balance_rates WHERE assignment_id = ${assignmentId}`),
-    ).rejects.toThrow();
+    const { tricycleId, assignmentId } = await issue();
+    for (const statement of [
+      sql`UPDATE balance_rates SET amount_kobo = 1 WHERE assignment_id = ${assignmentId}`,
+      sql`DELETE FROM balance_rates WHERE assignment_id = ${assignmentId}`,
+      sql`UPDATE tricycle_balances SET amount_kobo = 1 WHERE tricycle_id = ${tricycleId}`,
+      sql`DELETE FROM tricycle_balances WHERE tricycle_id = ${tricycleId}`,
+    ]) {
+      await expect(db.execute(statement)).rejects.toThrow();
+    }
   });
 });
 
@@ -230,7 +296,6 @@ describe("adding an operator with a tricycle", () => {
     phone: uniquePhone(),
     tricycleId,
     issuedOn: TODAY,
-    dailyBalance: "12,000",
     ...overrides,
   });
 
@@ -243,7 +308,7 @@ describe("adding an operator with a tricycle", () => {
   });
 
   it("adds an operator with no tricycle when none is chosen", async () => {
-    const o = (await createOperator(manager, form("", { dailyBalance: "" })))!;
+    const o = (await createOperator(manager, form("")))!;
     expect(await db.select().from(assignments).where(eq(assignments.operatorId, o.id))).toHaveLength(0);
   });
 
@@ -254,12 +319,11 @@ describe("adding an operator with a tricycle", () => {
     expect(await named(input.name)).toHaveLength(0);
   });
 
-  it("asks for the daily balance and saves nothing without it", async () => {
-    const t = await makeTricycle(manager);
-    const input = form(t.id, { dailyBalance: "" });
-    await expect(createOperator(manager, input)).rejects.toBeInstanceOf(DomainError);
-    expect(await named(input.name)).toHaveLength(0);
-    expect(await status(t.id)).toBe("in_stock");
+  it("charges the tricycle's own balance", async () => {
+    const t = await makeTricycle(manager, { dailyBalance: "15,000" });
+    await createOperator(manager, form(t.id));
+    const [held] = await db.select().from(assignments).where(eq(assignments.tricycleId, t.id));
+    expect(await rateOn(db, held!.id, TODAY)).toBe(1_500_000);
   });
 
   it("leaves the tricycle in stock if the phone number is already used", async () => {

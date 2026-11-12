@@ -57,6 +57,7 @@ export function tricycleInput(overrides: Record<string, unknown> = {}) {
     purchaseCost: "2,500,000",
     serviceInterval: "fortnightly",
     serviceCycleStart: "2026-02-01",
+    dailyBalance: "10000",
     ...overrides,
   };
 }

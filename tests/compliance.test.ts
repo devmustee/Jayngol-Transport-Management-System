@@ -50,7 +50,6 @@ async function held() {
     tricycleId: tricycle.id,
     operatorId: operator.id,
     issuedOn: "2026-11-01",
-    dailyBalance: "10,000",
   });
   return { tricycle, operator };
 }
@@ -476,7 +475,6 @@ describe("R7 working after 10:00 pm", () => {
       tricycleId: tricycle.id,
       operatorId: next.id,
       issuedOn: "2026-11-10",
-      dailyBalance: "10,000",
     });
     await late(supervisor, tricycle.id, "2026-11-08T22:30");
     expect(await offences(operator.id, "R7")).toHaveLength(1);

@@ -230,6 +230,7 @@ async function main() {
       purchaseCost: pick(["2,450,000", "2,600,000", "2,750,000"]),
       serviceInterval: bike.interval,
       serviceCycleStart: dayOf(bike.firstService),
+      dailyBalance: bike.rate.toLocaleString("en-NG"),
     });
     const serial = String(1001 + index).padStart(4, "0");
     const operator = await createOperator(manager, {
@@ -244,7 +245,6 @@ async function main() {
       tricycleId: tricycle!.id,
       operatorId: operator!.id,
       issuedOn: start,
-      dailyBalance: bike.rate.toLocaleString("en-NG"),
     });
     bikes.push({ ...bike, tricycleId: tricycle!.id, operatorId: operator!.id, cycleStart: dayOf(bike.firstService) });
   }
@@ -255,6 +255,7 @@ async function main() {
     purchaseCost: "2,750,000",
     serviceInterval: "fortnightly",
     serviceCycleStart: dayOf(30),
+    dailyBalance: "15,000",
   });
   await setOperatorPin(manager, bikes[0]!.operatorId, { pin: OPERATOR_PIN });
 
