@@ -1,5 +1,6 @@
+import { and, desc, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { users } from "@/db/schema";
+import { notificationRecipients, notifications, users } from "@/db/schema";
 import type { Clock } from "@/lib/clock";
 import type { Role } from "@/lib/permissions";
 import { hashCredential } from "@/services/auth";
@@ -70,4 +71,20 @@ export async function makeOperator(ctx: Ctx, overrides: Record<string, unknown> 
     phone: uniquePhone(),
     ...overrides,
   }))!;
+}
+
+/** An operator's notices, newest first, optionally of one kind. */
+export async function noticesFor(operatorId: string, kind?: string) {
+  const rows = await db
+    .select({
+      kind: notifications.kind,
+      body: notifications.body,
+      dedupeKey: notifications.dedupeKey,
+      readAt: notificationRecipients.readAt,
+    })
+    .from(notificationRecipients)
+    .innerJoin(notifications, eq(notifications.id, notificationRecipients.notificationId))
+    .where(and(eq(notificationRecipients.operatorId, operatorId), kind ? eq(notifications.kind, kind) : undefined))
+    .orderBy(desc(notificationRecipients.createdAt));
+  return rows;
 }

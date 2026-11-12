@@ -2,9 +2,13 @@ import Link from "next/link";
 import { BottomNav, SideNav, type NavItem } from "@/components/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
+import { NotificationBell } from "@/components/notification-bell";
+import { inboxSummary } from "@/services/notifications";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
-  const { actor } = await requireStaffCtx();
+  const ctx = await requireStaffCtx();
+  const { actor } = ctx;
+  const bell = await inboxSummary(ctx);
   const items: NavItem[] = [
     { href: "/dashboard", label: "Home", icon: "home", primary: true },
     { href: "/tricycles", label: "Tricycles", icon: "tricycles", primary: true },
@@ -73,6 +77,10 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           </div>
         </Link>
 
+        <div className="mt-5">
+          <NotificationBell href="/notifications" initial={bell} label />
+        </div>
+
         <SideNav items={items} />
 
         {/* User Profile Pill at Sidebar Bottom */}
@@ -111,14 +119,17 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             </div>
           </Link>
 
-          <Link
-            href="/account"
-            aria-label={`Account: ${actor.name}`}
-            className="flex min-h-10 max-w-[45vw] items-center gap-2 rounded-full border border-gold/30 bg-ink-soft px-3.5 text-xs font-bold text-gold-light active:scale-95 transition-transform"
-          >
-            <span className="truncate">{actor.name.split(" ")[0]}</span>
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
-          </Link>
+          <div className="flex items-center gap-2.5">
+            <NotificationBell href="/notifications" initial={bell} />
+            <Link
+              href="/account"
+              aria-label={`Account: ${actor.name}`}
+              className="flex min-h-10 max-w-[40vw] items-center gap-2 rounded-full border border-gold/30 bg-ink-soft px-3.5 text-xs font-bold text-gold-light active:scale-95 transition-transform"
+            >
+              <span className="truncate">{actor.name.split(" ")[0]}</span>
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ok" aria-hidden />
+            </Link>
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6 md:p-8 pb-28 md:pb-12">

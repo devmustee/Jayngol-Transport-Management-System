@@ -71,6 +71,9 @@ export function can(role: Role, permission: Permission): boolean {
 
 export const isStaff = (role: Role) => STAFF.includes(role);
 
+/** Every role holding a permission, for reaching staff by what they can do. */
+export const rolesWith = (permission: Permission): Role[] => [...(MATRIX[permission] as readonly Role[])];
+
 export const ROLE_LABELS: Record<Role, string> = {
   owner: "Owner",
   manager: "Manager",

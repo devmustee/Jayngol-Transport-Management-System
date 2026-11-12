@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { assignments, auditLog, awardCandidates, awardMilestones, awards, jobRuns, operatorNotices, photos, violations } from "@/db/schema";
+import { assignments, auditLog, awardCandidates, awardMilestones, awards, jobRuns, photos, violations } from "@/db/schema";
 import { addDays, addMonths } from "@/lib/clock";
 import { ForbiddenError } from "@/lib/errors";
 import type { AwardType } from "@/lib/award-progress";
@@ -24,7 +24,7 @@ import { recordPayment, reversePayment } from "@/services/payments";
 import { notifyOperators } from "@/services/notices";
 import { getMyRecords } from "@/services/portal";
 import { reportCsv, REPORTS, runReport, type ReportKey } from "@/services/reports";
-import { makeOperator, makeTricycle, makeUser, nextReference } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, nextReference, noticesFor } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
 const on = (ctx: Ctx, date: string, time?: string): Ctx => ({ ...ctx, clock: () => wat(date, time) });
@@ -213,7 +213,7 @@ describe("proposing and deciding", () => {
     const [award] = await db.select().from(awards).where(eq(awards.candidateId, candidate.id));
     expect(award).toMatchObject({ given: "Smartphone", givenOn: "2029-01-03" });
     expect((await candidatesOf(operator.id)).find((row) => row.id === candidate.id)!.status).toBe("approved");
-    const sms = await db.select().from(operatorNotices).where(and(eq(operatorNotices.operatorId, operator.id), eq(operatorNotices.kind, "award")));
+    const sms = await noticesFor(operator.id, "award");
     expect(sms).toHaveLength(1);
     const audit = await db.select().from(auditLog).where(and(eq(auditLog.action, "award.approve"), eq(auditLog.entityId, operator.id)));
     expect(audit).toHaveLength(1);
@@ -535,7 +535,7 @@ describe("award tracker", () => {
 
 describe("notices", () => {
   const smsOf = (operatorId: string, kind: string) =>
-    db.select().from(operatorNotices).where(and(eq(operatorNotices.operatorId, operatorId), eq(operatorNotices.kind, kind)));
+    noticesFor(operatorId, kind);
 
   async function withUnpaid(day: string) {
     const operator = await makeOperator(manager);
@@ -569,7 +569,7 @@ describe("notices", () => {
 
 describe("celebrations", () => {
   const noticesOf = (operatorId: string, kind: string) =>
-    db.select().from(operatorNotices).where(and(eq(operatorNotices.operatorId, operatorId), eq(operatorNotices.kind, kind)));
+    noticesFor(operatorId, kind);
   const milestonesOf = (operatorId: string) => db.select().from(awardMilestones).where(eq(awardMilestones.operatorId, operatorId));
   const live = (rows: { voidedAt: Date | null; code: string }[]) => rows.filter((row) => !row.voidedAt).map((row) => row.code);
   const atNight = (day: string) => () => wat(day, "00:05");
@@ -635,7 +635,7 @@ describe("celebrations", () => {
 
   it("will not store the same once-only notice twice", async () => {
     const { operator } = await issued("2034-04-20");
-    const row = { operatorId: operator.id, kind: "milestone", body: "Once", dedupeKey: "milestone:test" };
+    const row = { operatorId: operator.id, kind: "milestone" as const, body: "Once", dedupeKey: "milestone:test" };
     await db.transaction((tx) => notifyOperators(tx, new Date(), [row]));
     await db.transaction((tx) => notifyOperators(tx, new Date(), [row]));
     expect(await noticesOf(operator.id, "milestone")).toHaveLength(1);

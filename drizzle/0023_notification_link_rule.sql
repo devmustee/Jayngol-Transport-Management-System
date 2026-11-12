@@ -1,0 +1,2 @@
+ALTER TABLE "notifications" DROP CONSTRAINT "notification_link_inside_app";--> statement-breakpoint
+ALTER TABLE "notifications" ADD CONSTRAINT "notification_link_inside_app" CHECK (link IS NULL OR (link LIKE '/%' AND link NOT LIKE '//%' AND strpos(link, chr(92)) = 0 AND link !~ '[[:space:][:cntrl:]]'));

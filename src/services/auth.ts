@@ -112,7 +112,17 @@ export async function login(input: LoginInput, clock: Clock) {
   return { token, role: user.role };
 }
 
-export async function resolveSession(token: string, clock: Clock): Promise<Actor | null> {
+/**
+ * The person behind a session token. A request the person made counts as
+ * activity and keeps them logged in. Background checks pass `touch: false`, so
+ * a page left open (the notification bell checks every minute) still logs out
+ * after the idle limit.
+ */
+export async function resolveSession(
+  token: string,
+  clock: Clock,
+  { touch = true }: { touch?: boolean } = {},
+): Promise<Actor | null> {
   const now = clock();
   const tokenHash = hashToken(token);
   const [row] = await db
@@ -128,7 +138,7 @@ export async function resolveSession(token: string, clock: Clock): Promise<Actor
     await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
     return null;
   }
-  if (now.getTime() - row.session.lastSeenAt.getTime() > TOUCH_AFTER_MS) {
+  if (touch && now.getTime() - row.session.lastSeenAt.getTime() > TOUCH_AFTER_MS) {
     await db
       .update(sessions)
       .set({

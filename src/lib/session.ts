@@ -15,6 +15,12 @@ export const getActor = cache(async (): Promise<Actor | null> => {
   return token ? resolveSession(token, systemClock) : null;
 });
 
+/** For background checks: who is logged in, without counting it as activity. */
+export async function getActorQuietly(): Promise<Actor | null> {
+  const token = (await cookies()).get(COOKIE)?.value;
+  return token ? resolveSession(token, systemClock, { touch: false }) : null;
+}
+
 export async function requireCtx(): Promise<Ctx> {
   const actor = await getActor();
   if (!actor) redirect("/login");

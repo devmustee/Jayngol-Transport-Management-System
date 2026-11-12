@@ -8,7 +8,6 @@ import {
   jobRuns,
   operators,
   payments,
-  operatorNotices,
   tricycles,
   violations,
 } from "@/db/schema";
@@ -22,7 +21,7 @@ import { addNonCollectionDay, cashDay, closeCash, getStatement } from "@/service
 import { recordPayment, reversePayment } from "@/services/payments";
 import { listInStockTricycles } from "@/services/tricycles";
 import { confirmViolation, rejectViolation, waiveViolation } from "@/services/violations";
-import { makeOperator, makeTricycle, makeUser, nextReference } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, nextReference, noticesFor } from "./helpers";
 
 const at = (date: string, time = "00:05") => new Date(`${date}T${time}:00+01:00`);
 const clockAt = (date: string, time?: string) => () => at(date, time);
@@ -326,7 +325,7 @@ describe("payments", () => {
     await baseline("2026-11-08");
     const { operatorId } = await operatorFrom("2026-11-09");
     await pay(on(manager, "2026-11-09"), operatorId, "12000");
-    const queued = await db.select().from(operatorNotices).where(eq(operatorNotices.operatorId, operatorId));
+    const queued = await noticesFor(operatorId);
     expect(queued[0]).toMatchObject({ kind: "receipt", readAt: null });
     expect(queued[0]!.body).toContain("₦12,000");
   });

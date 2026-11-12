@@ -14,6 +14,9 @@ import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpenin
 import { recordDeposit, reverseDeposit } from "@/services/deposits";
 import { addNonCollectionDay, checkCashClose, closeCash, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
+import { markAllRead, openNotification } from "@/services/notifications";
+import { isStaff } from "@/lib/permissions";
+import { isAppLink } from "@/lib/notification-catalogue";
 import { acceptTransfer, createTransfer, rejectTransfer, voidTransfer } from "@/services/transfers";
 import {
   addExpenseLine,
@@ -425,4 +428,23 @@ export async function recordReconciliationAction(_: FormState, data: FormData) {
 
 export async function markNoticesReadAction(_state: FormState, _data: FormData) {
   return perform((ctx) => markMyNoticesRead(ctx), "Marked as read.");
+}
+
+export async function markAllNotificationsReadAction(_state: FormState, _data: FormData) {
+  return perform((ctx) => markAllRead(ctx), "All marked as read.");
+}
+
+/** Marks a notification read and goes where it leads. */
+export async function openNotificationAction(id: string) {
+  const ctx = await requireCtx();
+  const inbox = isStaff(ctx.actor.role) ? "/notifications" : "/me/notifications";
+  let link: string | null = null;
+  try {
+    ({ link } = await openNotification(ctx, id));
+  } catch (error) {
+    if (!(error instanceof DomainError)) throw error;
+  }
+  revalidatePath("/", "layout");
+  // Checked again here, so a bad link saved by any route can never send someone off Jayngol.
+  redirect(link && isAppLink(link) ? link : inbox);
 }

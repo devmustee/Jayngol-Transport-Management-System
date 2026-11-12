@@ -148,6 +148,27 @@
       "when": 1794373909073,
       "tag": "0020_balance_period_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1794441843094,
+      "tag": "0021_notifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1794441844287,
+      "tag": "0022_notification_guarantees",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1794445155714,
+      "tag": "0023_notification_link_rule",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { NotificationBell } from "@/components/notification-bell";
 import { Bell, BellRing, Bike, CalendarDays, LogOut } from "lucide-react";
 import { logoutAction, markNoticesReadAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/form";
@@ -80,6 +82,8 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
           </div>
         </div>
 
+        <div className="flex shrink-0 items-center gap-2">
+        <NotificationBell href="/me/notifications" initial={{ unread: notices.unread, critical: notices.critical }} variant="light" />
         <form action={logoutAction}>
           <button
             type="submit"
@@ -90,6 +94,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
             <span className="hidden sm:inline">Log out</span>
           </button>
         </form>
+        </div>
       </header>
 
       <div className="space-y-4">
@@ -97,6 +102,13 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         <Card
           title="Notices"
           subtitle={notices.unread > 0 ? `${notices.unread} new` : "You are up to date"}
+          action={
+            notices.items.length > 0 ? (
+              <Link href="/me/notifications" className="inline-flex min-h-11 items-center text-sm font-bold text-gold-deep">
+                See all
+              </Link>
+            ) : undefined
+          }
         >
           {notices.items.length === 0 ? (
             <p className="text-sm text-muted">Messages from Jayngol will appear here.</p>

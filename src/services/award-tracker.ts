@@ -240,7 +240,7 @@ export async function recordAwardProgress(tx: Tx, date: string, now: Date, notif
       .filter(({ item }) => item.reachedOn === date && !item.code.startsWith("winner_"))
       .map(({ row, item }) => ({
         operatorId: row.operatorId,
-        kind: "milestone",
+        kind: "milestone" as const,
         body: milestoneNotice(item.code, item.label, row.progress),
         dedupeKey: `milestone:${item.code}`,
       }));
@@ -253,7 +253,7 @@ export async function recordAwardProgress(tx: Tx, date: string, now: Date, notif
       return [
         {
           operatorId: row.operatorId,
-          kind: "run_ended",
+          kind: "run_ended" as const,
           body: `Your ${run.days}-day run has ended.${aim} You can do this.`,
           dedupeKey: `run_ended:${run.endedOn}`,
         },
@@ -263,7 +263,7 @@ export async function recordAwardProgress(tx: Tx, date: string, now: Date, notif
     const near = date.endsWith("-01")
       ? rows.flatMap((row) => {
           const body = nearAwardNotice(row.progress);
-          return body ? [{ operatorId: row.operatorId, kind: "award_near", body, dedupeKey: `award_near:${date}` }] : [];
+          return body ? [{ operatorId: row.operatorId, kind: "award_near" as const, body, dedupeKey: `award_near:${date}` }] : [];
         })
       : [];
 

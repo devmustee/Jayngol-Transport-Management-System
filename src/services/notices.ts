@@ -1,25 +1,33 @@
-import { and, count, desc, eq, isNull, sql } from "drizzle-orm";
-import { db, type Executor, type Tx } from "@/db";
-import { operatorNotices } from "@/db/schema";
+import { sql } from "drizzle-orm";
+import type { Executor, Tx } from "@/db";
 import { addDays } from "@/lib/clock";
+import type { NotificationKind } from "@/lib/notification-catalogue";
 import { DomainError } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { NOTABLE_RUN_DAYS } from "@/lib/award-progress";
 import { requirePermission, type Ctx } from "./context";
+import { inboxSummary, markAllRead, myInbox, notifyMany } from "./notifications";
 
-const NOTICE_LIMIT = 30;
-
+/**
+ * One notice per operator, each with its own wording. A dedupe key is per
+ * operator, so the same milestone can reach every operator once.
+ */
 export async function notifyOperators(
   tx: Tx,
   at: Date,
-  rows: { operatorId: string; kind: string; body: string; dedupeKey?: string }[],
+  rows: { operatorId: string; kind: NotificationKind; body: string; dedupeKey?: string }[],
 ) {
-  if (rows.length === 0) return;
-  await tx
-    .insert(operatorNotices)
-    .values(rows.map((row) => ({ ...row, createdAt: at })))
-    .onConflictDoNothing();
+  await notifyMany(
+    tx,
+    rows.map((row) => ({
+      kind: row.kind,
+      body: row.body,
+      at,
+      operatorIds: [row.operatorId],
+      dedupeKey: row.dedupeKey ? `op:${row.operatorId}:${row.dedupeKey}` : undefined,
+    })),
+  );
 }
 
 /** What each operator still has to pay by the end of `date`, to the kobo. */
@@ -38,36 +46,21 @@ export async function unpaidDueOn(exec: Executor, date: string, operatorId?: str
   `)) as unknown as { operator_id: string; owed: number }[];
 }
 
-function myOperatorId(ctx: Ctx) {
+function requireOperator(ctx: Ctx) {
   requirePermission(ctx, "portal.viewOwn");
   if (!ctx.actor.operatorId) throw new DomainError("This login is not linked to an operator.");
-  return ctx.actor.operatorId;
 }
 
-/** The operator comes only from the login session. */
+/** The portal's latest notices. The operator comes only from the login session. */
 export async function getMyNotices(ctx: Ctx) {
-  const operatorId = myOperatorId(ctx);
-  const [items, unread] = await Promise.all([
-    db
-      .select()
-      .from(operatorNotices)
-      .where(eq(operatorNotices.operatorId, operatorId))
-      .orderBy(desc(operatorNotices.createdAt))
-      .limit(NOTICE_LIMIT),
-    db
-      .select({ value: count() })
-      .from(operatorNotices)
-      .where(and(eq(operatorNotices.operatorId, operatorId), isNull(operatorNotices.readAt))),
-  ]);
-  return { items, unread: unread[0]?.value ?? 0 };
+  requireOperator(ctx);
+  const [{ items }, { unread, critical }] = await Promise.all([myInbox(ctx), inboxSummary(ctx)]);
+  return { items, unread, critical };
 }
 
 export async function markMyNoticesRead(ctx: Ctx) {
-  const operatorId = myOperatorId(ctx);
-  await db
-    .update(operatorNotices)
-    .set({ readAt: ctx.clock() })
-    .where(and(eq(operatorNotices.operatorId, operatorId), isNull(operatorNotices.readAt)));
+  requireOperator(ctx);
+  await markAllRead(ctx);
 }
 
 /** Runs inside the nightly job, so one night can never post these twice. */

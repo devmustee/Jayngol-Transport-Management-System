@@ -881,6 +881,10 @@ export const awards = pgTable(
 
 /* ---------- Operator notices ---------- */
 
+/**
+ * Retired: copied into notifications by drizzle/0022 and no longer written or
+ * read. Kept until the copy has been checked on production, then dropped.
+ */
 export const operatorNotices = pgTable(
   "operator_notices",
   {
@@ -898,6 +902,74 @@ export const operatorNotices = pgTable(
   (t) => [
     index("operator_notices_idx").on(t.operatorId, t.createdAt),
     uniqueIndex("operator_notices_once").on(t.operatorId, t.dedupeKey).where(sql`${t.dedupeKey} IS NOT NULL`),
+  ],
+);
+
+/* ---------- Notifications (NOTIFICATION_PLAN.md) ---------- */
+
+export const notificationSeverity = pgEnum("notification_severity", ["info", "action", "critical"]);
+
+/**
+ * One row per event. What it says never changes once saved (drizzle/0022), so
+ * what someone was told stays on record. Written in the same transaction as the
+ * event, through notify() only.
+ */
+export const notifications = pgTable(
+  "notifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    severity: notificationSeverity("severity").notNull(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    /** A page inside the app, always starting with "/". */
+    link: text("link"),
+    entityType: text("entity_type"),
+    entityId: text("entity_id"),
+    /** Set on events that must only ever be posted once. */
+    dedupeKey: text("dedupe_key").unique(),
+    requiresAck: boolean("requires_ack").notNull().default(false),
+    expiresAt: timestamp("expires_at", tz),
+    /** Empty when the system posted it. */
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", tz).notNull(),
+  },
+  // Same rule as isAppLink: a page inside the app, never "//site" or "/\site" (chr(92) is a backslash).
+  (t) => [
+    check(
+      "notification_link_inside_app",
+      sql`link IS NULL OR (link LIKE '/%' AND link NOT LIKE '//%' AND strpos(link, chr(92)) = 0 AND link !~ '[[:space:][:cntrl:]]')`,
+    ),
+  ],
+);
+
+/**
+ * One row per person told. Staff are addressed by user and operators by
+ * operator, so an operator can be told things before a login exists. Only
+ * read_at and acknowledged_at may change (drizzle/0022).
+ */
+export const notificationRecipients = pgTable(
+  "notification_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    notificationId: uuid("notification_id")
+      .notNull()
+      .references(() => notifications.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").references(() => users.id),
+    operatorId: uuid("operator_id").references(() => operators.id),
+    /** Copied from the notification, so each inbox is read from one index. */
+    createdAt: timestamp("created_at", tz).notNull(),
+    readAt: timestamp("read_at", tz),
+    acknowledgedAt: timestamp("acknowledged_at", tz),
+  },
+  (t) => [
+    check("recipient_is_one_person", sql`num_nonnulls(user_id, operator_id) = 1`),
+    uniqueIndex("one_notice_per_user").on(t.notificationId, t.userId).where(sql`${t.userId} IS NOT NULL`),
+    uniqueIndex("one_notice_per_operator").on(t.notificationId, t.operatorId).where(sql`${t.operatorId} IS NOT NULL`),
+    index("user_inbox_idx").on(t.userId, t.createdAt).where(sql`${t.userId} IS NOT NULL`),
+    index("operator_inbox_idx").on(t.operatorId, t.createdAt).where(sql`${t.operatorId} IS NOT NULL`),
+    index("user_unread_idx").on(t.userId).where(sql`${t.userId} IS NOT NULL AND ${t.readAt} IS NULL`),
+    index("operator_unread_idx").on(t.operatorId).where(sql`${t.operatorId} IS NOT NULL AND ${t.readAt} IS NULL`),
   ],
 );
 

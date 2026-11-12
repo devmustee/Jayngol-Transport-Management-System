@@ -1,6 +1,15 @@
 # Jayngol Global Notification Plan
 
-Status: proposed. Nothing in this plan has been built yet.
+Status: Phase 1 built (12 Nov 2026). The two tables, the catalogue, `notify()`, the bell on every page with a check every minute, and the inbox (`/notifications` for staff, `/me/notifications` for operators) are in place. Every operator notice now goes through `notify()`, and migration 0022 copied the existing notices across with their read state. `operator_notices` is no longer used and can be dropped once the copy is checked on production. Covered by tests/notifications.test.ts. Phases 2 to 5 are not started, and the decisions below still use the recommendations.
+
+## Releasing Phase 1 (order matters)
+
+Payments, deposits, offences, meetings, awards and the nightly job now save their notice in the same database transaction. If the new code is live before the new tables exist, every one of them fails. So:
+
+1. **Migrate first:** `npx tsx --env-file=.env.production.local src/db/migrate.ts` (adds 0021 to 0023 and copies the existing notices).
+2. **Then push**, so Vercel deploys the new code.
+3. **Then catch up once:** `npx tsx --env-file=.env.production.local src/db/copy-old-notices.ts` copies any notice the old code wrote between steps 1 and 2, and anything read there. It is safe to run again.
+4. Later, once the copy has been checked, drop `operator_notices`.
 
 ## 1. Goal
 
