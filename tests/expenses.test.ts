@@ -14,6 +14,8 @@ import {
   cancelAdvance,
   correctExpense,
   countersignAdvance,
+  finishAdvance,
+  REST_OF_FUNDS,
   createAdvance,
   advanceCounts,
   getAdvance,
@@ -645,5 +647,76 @@ describe("expenses recorded in one step", () => {
     await spend(id, "1,000");
     await expect(correctExpense(on(manager, DAY), id, fix("1,000", { spentOn: DAY }))).rejects.toThrow(/line by line/);
     expect((await getAdvance(manager, id))!.single).toBe(false);
+  });
+});
+
+describe("finishing older records", () => {
+  const DATE = "2039-07-08";
+  const older = (who: Ctx, amount = "30,000") =>
+    createAdvance(on(who, "2039-07-01"), { purpose: "Office supplies and transport", amount, source: "bank" }).then((a) => a!);
+  const itemise = (id: string, who: Ctx, amount: string) =>
+    addExpenseLine(on(who, "2039-07-02"), id, {
+      kind: "spent",
+      category: "office",
+      description: "Paper",
+      amount,
+      spentOn: "2039-07-02",
+    });
+
+  it("counts what was not itemised as Other, and the Manager's own is final at once", async () => {
+    const { id } = await older(manager);
+    await itemise(id, manager, "8,000");
+    await finishAdvance(on(manager, DATE), id);
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance).toMatchObject({ status: "countersigned", countersignedBy: null });
+    expect(data.leftKobo).toBe(0);
+    expect(data.spentKobo).toBe(3_000_000);
+    const rest = data.lines.find((row) => row.line.description === REST_OF_FUNDS)!.line;
+    expect(rest).toMatchObject({ category: "other", amountKobo: 2_200_000, spentOn: DATE });
+  });
+
+  it("is final at once for the Manager's record even when the Assistant Manager finishes it", async () => {
+    const { id } = await older(manager, "5,000");
+    await finishAdvance(on(assistant, DATE), id);
+    expect((await getAdvance(manager, id))!.advance.status).toBe("countersigned");
+  });
+
+  it("sends the Assistant Manager's record to the Manager for approval", async () => {
+    const { id } = await older(assistant, "6,000");
+    await itemise(id, assistant, "6,000");
+    await finishAdvance(on(assistant, DATE), id);
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance.status).toBe("submitted");
+    expect(data.lines.some((row) => row.line.description === REST_OF_FUNDS)).toBe(false);
+    await countersignAdvance(manager, id);
+  });
+
+  it("puts nothing back on the balance, and shows in the report as Other", async () => {
+    const { id } = await older(manager, "4,000");
+    const out = async () => {
+      const rows = (await db.execute(sql`
+        SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS total FROM bank_movements WHERE source_id = ${id}
+      `)) as unknown as { total: number }[];
+      return rows[0]!.total;
+    };
+    await finishAdvance(on(manager, DATE), id);
+    expect(await out()).toBe(-400_000);
+    const report = await runReport(manager, "expenses", { from: DATE, to: DATE }, "day");
+    expect(Number(report.totals.other)).toBeGreaterThanOrEqual(400_000);
+  });
+
+  it("refuses a finished record, and an expense recorded in one step", async () => {
+    const { id } = await older(manager, "1,000");
+    await finishAdvance(on(manager, DATE), id);
+    await expect(finishAdvance(on(manager, DATE), id)).rejects.toThrow(/no longer/);
+    const one = (await recordExpense(on(assistant, DATE), {
+      description: "Fuel",
+      category: "transport",
+      amount: "500",
+      spentOn: DATE,
+    }))!;
+    await sendBackAdvance(manager, one.id, { reason: "Check" });
+    await expect(finishAdvance(on(assistant, DATE), one.id)).rejects.toThrow(/Correct this expense/);
+    await expect(finishAdvance(supervisor, id)).rejects.toBeInstanceOf(ForbiddenError);
   });
 });

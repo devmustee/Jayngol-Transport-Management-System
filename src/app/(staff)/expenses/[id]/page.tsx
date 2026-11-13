@@ -5,9 +5,9 @@ import {
   cancelAdvanceAction,
   correctExpenseAction,
   countersignAdvanceAction,
+  finishAdvanceAction,
   removeExpenseAction,
   sendBackAdvanceAction,
-  submitAdvanceAction,
   voidExpenseLineAction,
 } from "@/app/actions";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
@@ -54,6 +54,8 @@ export default async function ExpensePage({
         back={{ href: "/expenses", label: "Expenses" }}
         action={<Badge tone={TONE[advance.status]}>{oneStep && advance.status === "cancelled"
               ? "Removed"
+              : !oneStep && advance.status === "open"
+                ? "To finish"
               : data.noApprovalNeeded
                 ? "No approval needed"
                 : ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
@@ -100,7 +102,7 @@ export default async function ExpensePage({
                 ["Collected by", data.collectedByName],
                 ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : "Bank"],
                 ["Spent", formatNaira(spentKobo)],
-                ["Still to account for", formatNaira(leftKobo)],
+                ...(advance.status === "open" ? ([["Not itemised yet", formatNaira(leftKobo)]] as [string, string][]) : []),
                 ...(data.countersignedByName && advance.countersignedAt
                   ? ([["Approved by", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
                   : data.noApprovalNeeded
@@ -189,20 +191,21 @@ export default async function ExpensePage({
                 <SubmitButton>Save</SubmitButton>
               </ActionForm>
             </Disclosure>
-            <Disclosure label="Record change returned">
-              <ActionForm action={addExpenseLineAction.bind(null, advance.id)}>
-                <input type="hidden" name="kind" value="change" />
-                <Field name="amount" label="Change returned (₦)" inputMode="decimal" autoComplete="off" hint={`It goes back to ${data.sourceName ?? "the bank"}.`} />
-                <SubmitButton>Save</SubmitButton>
-              </ActionForm>
-            </Disclosure>
           </>
         ) : null}
 
-        {advanceEditable && leftKobo === 0 ? (
-          <ActionForm action={submitAdvanceAction.bind(null, advance.id)}>
-            <SubmitButton>Send for countersign</SubmitButton>
-          </ActionForm>
+        {advanceEditable ? (
+          <Card title="Finish this record">
+            <p className="mb-3 text-sm text-muted">
+              {leftKobo > 0
+                ? `${formatNaira(leftKobo)} is not itemised yet. Add what it was spent on above, or finish now and count the rest as Other. Money is not paid back.`
+                : "Everything is itemised."}{" "}
+              The Manager's own record is final at once; anyone else's waits for the Manager's approval.
+            </p>
+            <ActionForm action={finishAdvanceAction.bind(null, advance.id)}>
+              <SubmitButton>{leftKobo > 0 ? `Finish, count ${formatNaira(leftKobo)} as Other` : "Finish"}</SubmitButton>
+            </ActionForm>
+          </Card>
         ) : null}
 
         {current ? (

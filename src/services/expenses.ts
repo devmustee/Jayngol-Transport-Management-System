@@ -409,6 +409,22 @@ export async function voidExpenseLine(ctx: Ctx, rawId: unknown, raw: unknown) {
   });
 }
 
+/**
+ * Sends a fully accounted record on. The Manager's own needs no approval, so it
+ * is final at once; anyone else's waits for the Manager.
+ */
+async function sendOn(tx: Tx, advance: { id: string; collectedBy: string }, now: Date) {
+  const [recorder] = await tx.select({ role: users.role }).from(users).where(eq(users.id, advance.collectedBy));
+  await tx
+    .update(expenseAdvances)
+    .set(
+      recorder?.role === "manager"
+        ? { status: "countersigned", submittedAt: now, countersignedAt: now, returnNote: null }
+        : { status: "submitted", submittedAt: now, returnNote: null },
+    )
+    .where(eq(expenseAdvances.id, advance.id));
+}
+
 export async function submitAdvance(ctx: Ctx, rawId: unknown) {
   requirePermission(ctx, "expense.record");
   const id = parseInput(idField("expense record"), rawId);
@@ -417,16 +433,46 @@ export async function submitAdvance(ctx: Ctx, rawId: unknown) {
     requireOpen(advance);
     const left = advance.amountKobo - (await accountedFor(tx, id));
     if (left !== 0) throw new DomainError(`${formatNaira(left)} is still to be accounted for.`);
-    const now = ctx.clock();
-    await tx
-      .update(expenseAdvances)
-      .set(
-        finalOnSaving(ctx) && advance.collectedBy === ctx.actor.userId
-          ? { status: "countersigned", submittedAt: now, countersignedAt: now, returnNote: null }
-          : { status: "submitted", submittedAt: now, returnNote: null },
-      )
-      .where(eq(expenseAdvances.id, id));
+    await sendOn(tx, advance, ctx.clock());
     await auditFrom(ctx, tx, { action: "expense.submit", entityType: "expense_advance", entityId: id });
+  });
+}
+
+/** What is left on an older record when it is finished without being itemised. */
+export const REST_OF_FUNDS = "Rest of the funds, not itemised";
+
+/**
+ * Finishes an older record from when funds were collected first. Whatever was
+ * not itemised is counted as spent under Other, since money is not paid back.
+ */
+export async function finishAdvance(ctx: Ctx, rawId: unknown) {
+  requirePermission(ctx, "expense.record");
+  const id = parseInput(idField("expense record"), rawId);
+  await db.transaction(async (tx) => {
+    const advance = await lockAdvance(tx, id);
+    requireOpen(advance);
+    if (advance.oneStep) throw new DomainError("Correct this expense instead.");
+    const now = ctx.clock();
+    const left = advance.amountKobo - (await accountedFor(tx, id));
+    if (left > 0) {
+      await tx.insert(expenseLines).values({
+        advanceId: id,
+        kind: "spent",
+        category: "other",
+        description: REST_OF_FUNDS,
+        amountKobo: left,
+        spentOn: businessDate(now),
+        createdBy: ctx.actor.userId,
+        createdAt: now,
+      });
+    }
+    await sendOn(tx, advance, now);
+    await auditFrom(ctx, tx, {
+      action: "expense.finish",
+      entityType: "expense_advance",
+      entityId: id,
+      after: { otherKobo: left },
+    });
   });
 }
 

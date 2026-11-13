@@ -24,6 +24,7 @@ import {
   countersignAdvance,
   correctExpense,
   createAdvance,
+  finishAdvance,
   recordExpense,
   removeExpense,
   sendBackAdvance,
@@ -372,6 +373,10 @@ export async function recordExpenseAction(_: FormState, data: FormData) {
   }, "");
   if (!id) return state;
   redirect(`/expenses/${id}?recorded=1`);
+}
+
+export async function finishAdvanceAction(id: string) {
+  return perform((ctx) => finishAdvance(ctx, id), "Finished.");
 }
 
 export async function correctExpenseAction(id: string, _: FormState, data: FormData) {
