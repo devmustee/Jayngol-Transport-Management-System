@@ -3,7 +3,9 @@ import { notFound } from "next/navigation";
 import {
   addExpenseLineAction,
   cancelAdvanceAction,
+  correctExpenseAction,
   countersignAdvanceAction,
+  removeExpenseAction,
   sendBackAdvanceAction,
   submitAdvanceAction,
   voidExpenseLineAction,
@@ -22,13 +24,23 @@ export const metadata: Metadata = { title: "Expense record" };
 
 const TONE = { open: "gold", submitted: "gold", countersigned: "good", cancelled: "plain" } as const;
 
-export default async function ExpensePage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ExpensePage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ recorded?: string }>;
+}) {
   const ctx = await requirePage("finance.view");
   const { id } = await params;
+  const recorded = (await searchParams).recorded === "1";
   const data = isUuid(id) ? await getAdvance(ctx, id) : null;
   if (!data) notFound();
-  const { advance, lines, leftKobo, accountedKobo, spentKobo } = data;
+  const { advance, lines, leftKobo, accountedKobo, spentKobo, single, correctable } = data;
   const editable = data.canRecord && advance.status === "open";
+  /** An expense recorded in one step: corrected or removed whole, only while sent back. */
+  const current = correctable ? lines.find((row) => row.voidReason === null)!.line : null;
+  const advanceEditable = editable && !single;
   const today = businessDate(ctx.clock());
 
   return (
@@ -37,9 +49,16 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
         title={advance.purpose}
         subtitle={formatNaira(advance.amountKobo)}
         back={{ href: "/expenses", label: "Expenses" }}
-        action={<Badge tone={TONE[advance.status]}>{ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
+        action={<Badge tone={TONE[advance.status]}>{single && advance.status === "open" ? "Sent back" : ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
       />
       <div className="space-y-4">
+        {recorded && advance.status !== "cancelled" ? (
+          <p role="status" className="rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-medium text-ok">
+            {data.noApprovalNeeded
+              ? "Expense recorded. It needs no approval and is final from tomorrow."
+              : "Expense recorded. It is waiting for the Manager's approval."}
+          </p>
+        ) : null}
         {advance.returnNote ? (
           <p role="alert" className="rounded-lg bg-danger-wash px-3 py-2 font-semibold text-danger">Sent back: {advance.returnNote}</p>
         ) : null}
@@ -48,12 +67,14 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
             rows={[
               ["Collected", formatDate(advance.collectedOn)],
               ["Collected by", data.collectedByName],
-              ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : "Bank"],
+              ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : single ? "Company balance" : "Bank"],
               ["Spent", formatNaira(spentKobo)],
               ["Still to account for", formatNaira(leftKobo)],
               ...(data.countersignedByName && advance.countersignedAt
-                ? ([["Countersigned", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
-                : []),
+                ? ([["Approved by", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
+                : data.noApprovalNeeded
+                  ? ([["Approval", "Not needed, recorded by the Manager"]] as [string, string][])
+                  : []),
               ...(advance.cancelReason ? ([["Why cancelled", advance.cancelReason]] as [string, string][]) : []),
             ]}
           />
@@ -80,7 +101,7 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
                     </div>
                     <span className={`shrink-0 font-semibold tabular-nums ${voidReason ? "line-through" : ""}`}>{formatNaira(line.amountKobo)}</span>
                   </div>
-                  {editable && !voidReason ? (
+                  {advanceEditable && !voidReason ? (
                     <div className="mt-2">
                       <Disclosure label="Remove this entry">
                         <ActionForm action={voidExpenseLineAction.bind(null, line.id)}>
@@ -96,7 +117,7 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
           )}
         </Card>
 
-        {editable && leftKobo > 0 ? (
+        {advanceEditable && leftKobo > 0 ? (
           <>
             <Disclosure label="Add what was spent">
               <ActionForm action={addExpenseLineAction.bind(null, advance.id)}>
@@ -124,18 +145,53 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
           </>
         ) : null}
 
-        {editable && leftKobo === 0 ? (
+        {advanceEditable && leftKobo === 0 ? (
           <ActionForm action={submitAdvanceAction.bind(null, advance.id)}>
             <SubmitButton>Send for countersign</SubmitButton>
           </ActionForm>
         ) : null}
 
-        {data.canCountersign && advance.status === "submitted" ? (
+        {current ? (
+          <>
+            <Card title={correctable === "same_day" ? "Correct a mistake today" : "Correct and send again"}>
+              {correctable === "same_day" ? (
+                <p className="mb-3 text-sm text-muted">You can correct or remove it until the end of today. From tomorrow it is final.</p>
+              ) : null}
+              <ActionForm action={correctExpenseAction.bind(null, advance.id)}>
+                <TextareaField name="description" label="What it was for" defaultValue={current.description} />
+                <SelectField name="category" label="Category" defaultValue={current.category ?? ""}>
+                  {Object.entries(EXPENSE_CATEGORY_LABELS).map(([value, label]) => (
+                    <option key={value} value={value}>{label}</option>
+                  ))}
+                </SelectField>
+                <Field
+                  name="amount"
+                  label="Amount (₦)"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  defaultValue={String(current.amountKobo / 100)}
+                  hint="Only the difference comes off or goes back to the balance."
+                />
+                <Field name="spentOn" label="Date spent" type="date" max={today} defaultValue={current.spentOn} />
+                <SubmitButton>{correctable === "same_day" ? "Save correction" : "Correct and send for approval"}</SubmitButton>
+              </ActionForm>
+            </Card>
+            <Disclosure label="Remove, it was entered by mistake">
+              <ActionForm action={removeExpenseAction.bind(null, advance.id)}>
+                <TextareaField name="reason" label="Reason" />
+                <SubmitButton tone="plain">Remove and put the money back on the balance</SubmitButton>
+              </ActionForm>
+            </Disclosure>
+          </>
+        ) : null}
+
+        {data.canCountersign && advance.status === "submitted" && advance.collectedBy !== ctx.actor.userId ? (
           <>
             <ActionForm action={countersignAdvanceAction.bind(null, advance.id)}>
-              <SubmitButton>Countersign</SubmitButton>
+              <SubmitButton>Approve</SubmitButton>
             </ActionForm>
-            <Disclosure label="Send back to the Manager">
+            <p className="text-sm text-muted">Once approved, the expense is final.</p>
+            <Disclosure label={`Send back to ${data.collectedByName ?? "the person who recorded it"}`}>
               <ActionForm action={sendBackAdvanceAction.bind(null, advance.id)}>
                 <TextareaField name="reason" label="What needs correcting" />
                 <SubmitButton tone="plain">Send back</SubmitButton>
@@ -144,7 +200,7 @@ export default async function ExpensePage({ params }: { params: Promise<{ id: st
           </>
         ) : null}
 
-        {editable && accountedKobo === 0 ? (
+        {advanceEditable && accountedKobo === 0 ? (
           <Disclosure label="Cancel and put the money back">
             <ActionForm action={cancelAdvanceAction.bind(null, advance.id)}>
               <TextareaField name="reason" label="Reason" />

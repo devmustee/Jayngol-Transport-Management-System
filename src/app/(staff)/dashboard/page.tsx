@@ -56,9 +56,9 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           can(ctx.actor.role, "tricycle.manage") || can(ctx.actor.role, "expense.record") ? (
             <div className="flex flex-wrap items-center gap-2">
               {can(ctx.actor.role, "expense.record") ? (
-                <LinkButton href="/expenses?collect=1">
+                <LinkButton href="/expenses?record=1">
                   <Receipt size={16} />
-                  <span>Collect funds for expenses</span>
+                  <span>Record an expense</span>
                 </LinkButton>
               ) : null}
               {can(ctx.actor.role, "tricycle.manage") ? (

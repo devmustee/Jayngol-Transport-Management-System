@@ -12,10 +12,13 @@ import { runDailyJob } from "@/services/daily-job";
 import {
   addExpenseLine,
   cancelAdvance,
+  correctExpense,
   countersignAdvance,
   createAdvance,
   getAdvance,
   listAdvances,
+  recordExpense,
+  removeExpense,
   sendBackAdvance,
   submitAdvance,
   voidExpenseLine,
@@ -57,8 +60,8 @@ const change = (id: string, amount: string, ctx = on(manager, DAY)) =>
   addExpenseLine(ctx, id, { kind: "change", amount });
 
 describe("expense funds", () => {
-  it("lets only the Manager record them", async () => {
-    await expect(createAdvance(assistant, { purpose: "x", amount: "1", source: "bank" })).rejects.toBeInstanceOf(ForbiddenError);
+  it("lets only the Manager and Assistant Manager record them", async () => {
+    await expect(createAdvance(supervisor, { purpose: "x", amount: "1", source: "bank" })).rejects.toBeInstanceOf(ForbiddenError);
     await expect(createAdvance(owner, { purpose: "x", amount: "1", source: "bank" })).rejects.toBeInstanceOf(ForbiddenError);
   });
 
@@ -90,7 +93,7 @@ describe("expense funds", () => {
     await expect(submitAdvance(on(manager, DAY), id)).rejects.toThrow(/₦4,000 is still/);
     await change(id, "4,000");
     await submitAdvance(on(manager, DAY), id);
-    expect((await getAdvance(manager, id))!.advance.status).toBe("submitted");
+    expect((await getAdvance(manager, id))!.advance.status).toBe("countersigned");
   });
 
   it("shows an unaccounted advance as outstanding until it is dealt with", async () => {
@@ -110,25 +113,34 @@ describe("expense funds", () => {
     expect(await expectedCash(db, manager.actor.userId, date)).toBe(after + 300_000);
   });
 
-  it("needs the Assistant Manager's countersign, after it is submitted", async () => {
+  it("is final once the Manager submits their own, with no approver", async () => {
     const { id } = await bankAdvance();
     await spend(id, "10,000");
-    await expect(countersignAdvance(assistant, id)).rejects.toThrow(/not waiting/);
     await submitAdvance(on(manager, DAY), id);
-    await expect(countersignAdvance(manager, id)).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(countersignAdvance(owner, id)).rejects.toBeInstanceOf(ForbiddenError);
-    await countersignAdvance(assistant, id);
-    expect((await getAdvance(manager, id))!.advance).toMatchObject({ status: "countersigned", countersignedBy: assistant.actor.userId });
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance).toMatchObject({ status: "countersigned", countersignedBy: null });
+    expect(data.noApprovalNeeded).toBe(true);
     await expect(spend(id, "1")).rejects.toThrow(/no longer/);
   });
 
+  it("needs the Manager's approval when the Assistant Manager submits", async () => {
+    const { id } = (await createAdvance(on(assistant, DAY), { purpose: "Tyres", amount: "10,000", source: "bank" }))!;
+    await spend(id, "10,000", on(assistant, DAY));
+    await expect(countersignAdvance(manager, id)).rejects.toThrow(/not waiting/);
+    await submitAdvance(on(assistant, DAY), id);
+    await expect(countersignAdvance(assistant, id)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(countersignAdvance(owner, id)).rejects.toBeInstanceOf(ForbiddenError);
+    await countersignAdvance(manager, id);
+    expect((await getAdvance(manager, id))!.advance).toMatchObject({ status: "countersigned", countersignedBy: manager.actor.userId });
+  });
+
   it("can be sent back with a reason and corrected", async () => {
-    const { id } = await bankAdvance();
-    const line = (await spend(id, "10,000"))!;
-    await submitAdvance(on(manager, DAY), id);
-    await sendBackAdvance(assistant, id, { reason: "No receipt" });
+    const { id } = (await createAdvance(on(assistant, DAY), { purpose: "Tyres", amount: "10,000", source: "bank" }))!;
+    const line = (await spend(id, "10,000", on(assistant, DAY)))!;
+    await submitAdvance(on(assistant, DAY), id);
+    await sendBackAdvance(manager, id, { reason: "No receipt" });
     expect((await getAdvance(manager, id))!.advance).toMatchObject({ status: "open", returnNote: "No receipt" });
-    await voidExpenseLine(on(manager, DAY), line.id, { reason: "Wrong amount" });
+    await voidExpenseLine(on(assistant, DAY), line.id, { reason: "Wrong amount" });
     const data = (await getAdvance(manager, id))!;
     expect(data.leftKobo).toBe(1_000_000);
     expect(data.lines).toHaveLength(1);
@@ -418,5 +430,176 @@ describe("the expense report by day, week, month and year", () => {
   it("is not for the Supervisor", async () => {
     const supervisor = (await makeUser("supervisor")).ctx;
     await expect(runReport(supervisor, "expenses", feb, "day")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("expenses recorded in one step", () => {
+  const SPENT = "2039-05-14";
+  const by = (who: Ctx, date = SPENT, time?: string) => on(who, date, time);
+  const expense = (amount = "4,800", extra: Record<string, unknown> = {}, ctx = by(assistant)) =>
+    recordExpense(ctx, {
+      description: "Engine oil",
+      category: "store_purchase",
+      amount,
+      spentOn: SPENT,
+      ...extra,
+    }).then((e) => e!);
+  const bankOut = async (id: string) => {
+    const rows = (await db.execute(sql`
+      SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS total FROM bank_movements WHERE source_id = ${id}
+    `)) as unknown as { total: number }[];
+    return rows[0]!.total;
+  };
+  const fix = (amount: string, extra: Record<string, unknown> = {}) => ({
+    description: "Engine oil",
+    category: "store_purchase",
+    amount,
+    spentOn: SPENT,
+    ...extra,
+  });
+
+  it("from the Assistant Manager: off the balance once, waiting for the Manager", async () => {
+    const { id } = await expense();
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance.status).toBe("submitted");
+    expect(data.single).toBe(true);
+    expect(data.noApprovalNeeded).toBe(false);
+    expect(data.spentKobo).toBe(480_000);
+    expect(await bankOut(id)).toBe(-480_000);
+    await expect(countersignAdvance(assistant, id)).rejects.toBeInstanceOf(ForbiddenError);
+    await countersignAdvance(manager, id);
+    expect((await getAdvance(manager, id))!.advance.countersignedBy).toBe(manager.actor.userId);
+  });
+
+  it("from the Manager: approved and final on saving, with no approver", async () => {
+    const { id } = await expense("2,000", {}, by(manager));
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance).toMatchObject({ status: "countersigned", countersignedBy: null });
+    expect(data.noApprovalNeeded).toBe(true);
+    await expect(countersignAdvance(manager, id)).rejects.toThrow(/not waiting/);
+    expect(await bankOut(id)).toBe(-200_000);
+  });
+
+  it("comes off the company balance, never out of anyone's cash in hand", async () => {
+    const date = "2039-05-15";
+    const day = by(manager, date);
+    await cashIn(day, "5,000");
+    const before = await expectedCash(db, manager.actor.userId, date);
+    const { id } = (await recordExpense(day, {
+      description: "Fuel",
+      category: "transport",
+      spentOn: date,
+      amount: "2,000",
+      source: manager.actor.userId,
+    }))!;
+    expect(await expectedCash(db, manager.actor.userId, date)).toBe(before);
+    expect(await bankOut(id)).toBe(-200_000);
+    expect((await getAdvance(manager, id))!.advance).toMatchObject({ custodianId: null, account: "bank" });
+  });
+
+  it("refuses a future date, and anyone but the Manager or Assistant Manager", async () => {
+    await expect(expense("100", { spentOn: addDays(SPENT, 1) })).rejects.toMatchObject({
+      fieldErrors: { spentOn: expect.stringContaining("future") },
+    });
+    for (const who of [supervisor, owner]) {
+      await expect(recordExpense(by(who), fix("1"))).rejects.toBeInstanceOf(ForbiddenError);
+    }
+  });
+
+  it("lets the Manager correct their own only on the day it was saved", async () => {
+    const { id } = await expense("3,000", {}, by(manager, SPENT, "09:00"));
+    await correctExpense(by(manager, SPENT, "18:00"), id, fix("2,500", { category: "office" }));
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance).toMatchObject({ status: "countersigned", countersignedBy: null, amountKobo: 250_000 });
+    expect(await bankOut(id)).toBe(-250_000);
+    const tomorrow = by(manager, addDays(SPENT, 1));
+    await expect(correctExpense(tomorrow, id, fix("2,000"))).rejects.toThrow(/approved and final/);
+    await expect(removeExpense(tomorrow, id, { reason: "x" })).rejects.toThrow(/approved and final/);
+    expect((await getAdvance(tomorrow, id))!.correctable).toBeNull();
+  });
+
+  it("lets the Manager remove their own on the same day, putting the money back", async () => {
+    const { id } = await expense("1,200", {}, by(manager));
+    await removeExpense(by(manager), id, { reason: "Entered twice" });
+    expect((await getAdvance(manager, id))!.advance.status).toBe("cancelled");
+    expect(await bankOut(id)).toBe(0);
+  });
+
+  it("is final once the Manager approves: no correction, removal or old-style change", async () => {
+    const { id } = await expense();
+    await countersignAdvance(manager, id);
+    await expect(correctExpense(by(assistant), id, fix("1,000"))).rejects.toThrow(/approved and final/);
+    await expect(removeExpense(by(assistant), id, { reason: "x" })).rejects.toThrow(/approved and final/);
+    await expect(correctExpense(by(manager), id, fix("1,000"))).rejects.toThrow(/approved and final/);
+    await expect(cancelAdvance(by(assistant), id, { reason: "x" })).rejects.toThrow();
+    await expect(change(id, "100", by(assistant))).rejects.toThrow();
+    expect(await bankOut(id)).toBe(-480_000);
+  });
+
+  it("is corrected only by the Assistant Manager who recorded it, after it is sent back", async () => {
+    const { id } = await expense();
+    await expect(correctExpense(by(assistant), id, fix("4,000"))).rejects.toThrow(/sent back/);
+    await sendBackAdvance(manager, id, { reason: "The receipt says ₦4,000" });
+    await expect(correctExpense(by(manager), id, fix("4,000"))).rejects.toThrow(/person who recorded/);
+    await correctExpense(by(assistant), id, fix("4,000", { description: "Engine oil, 4 litres" }));
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance).toMatchObject({ status: "submitted", amountKobo: 400_000, returnNote: null });
+    expect(data.spentKobo).toBe(400_000);
+    expect(await bankOut(id)).toBe(-400_000);
+  });
+
+  it("moves only the difference when corrected upwards, and changes the date", async () => {
+    const { id } = await expense("1,000");
+    await sendBackAdvance(manager, id, { reason: "Wrong amount" });
+    const earlier = addDays(SPENT, -2);
+    await correctExpense(by(assistant), id, fix("1,500", { category: "office", spentOn: earlier }));
+    const data = (await getAdvance(manager, id))!;
+    expect(await bankOut(id)).toBe(-150_000);
+    expect(data.advance.collectedOn).toBe(earlier);
+    const line = data.lines.find((row) => row.voidReason === null)!.line;
+    expect(line).toMatchObject({ category: "office", spentOn: earlier });
+  });
+
+  it("can be removed while sent back, putting the money back", async () => {
+    const { id } = await expense("2,500");
+    await expect(removeExpense(by(assistant), id, { reason: "Entered twice" })).rejects.toThrow(/sent back/);
+    await sendBackAdvance(manager, id, { reason: "Entered twice" });
+    await removeExpense(by(assistant), id, { reason: "Entered twice" });
+    const data = (await getAdvance(manager, id))!;
+    expect(data.advance.status).toBe("cancelled");
+    expect(data.spentKobo).toBe(0);
+    expect(await bankOut(id)).toBe(0);
+    await expect(removeExpense(by(assistant), id, { reason: "again" })).rejects.toThrow();
+  });
+
+  it("tells the owner about a Manager expense over ₦50,000, and only then", async () => {
+    const notices = async (id: string) => {
+      const rows = (await db.execute(sql`
+        SELECT r.user_id FROM notifications n JOIN notification_recipients r ON r.notification_id = n.id
+        WHERE n.kind = 'large_expense' AND n.entity_id = ${id}
+      `)) as unknown as { user_id: string }[];
+      return rows.map((row) => row.user_id);
+    };
+    const big = await expense("50,001", {}, by(manager));
+    expect(await notices(big.id)).toContain(owner.actor.userId);
+    expect(await notices(big.id)).not.toContain(manager.actor.userId);
+    const exact = await expense("50,000", {}, by(manager));
+    expect(await notices(exact.id)).toEqual([]);
+    const assistants = await expense("80,000");
+    expect(await notices(assistants.id)).toEqual([]);
+  });
+
+  it("counts in the expense report on the day it was spent", async () => {
+    const day = "2039-05-09";
+    await expense("3,000", { spentOn: day, category: "office" });
+    const report = await runReport(manager, "expenses", { from: day, to: day }, "day");
+    expect(report.totals).toMatchObject({ spent: 300_000, office: 300_000, collected: 300_000, change: 0 });
+  });
+
+  it("leaves older advances to be corrected line by line", async () => {
+    const { id } = await bankAdvance("3,000");
+    await spend(id, "1,000");
+    await expect(correctExpense(on(manager, DAY), id, fix("1,000", { spentOn: DAY }))).rejects.toThrow(/line by line/);
+    expect((await getAdvance(manager, id))!.single).toBe(false);
   });
 });

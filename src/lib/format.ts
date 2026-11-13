@@ -113,8 +113,8 @@ export const EXPENSE_CATEGORY_LABELS = {
 
 export const ADVANCE_STATUS_LABELS = {
   open: "To account for",
-  submitted: "Waiting for countersign",
-  countersigned: "Countersigned",
+  submitted: "Waiting for approval",
+  countersigned: "Approved",
   cancelled: "Cancelled",
 } as const;
 

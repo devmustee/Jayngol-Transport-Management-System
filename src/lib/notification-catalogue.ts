@@ -38,6 +38,12 @@ export const CATALOGUE = {
   late_fine: operatorNotice("action", "Late balance fine"),
   service_reminder: operatorNotice("action", "Service tomorrow"),
   balance_changed: operatorNotice("action", "Daily balance changed"),
+  large_expense: {
+    severity: "info",
+    title: "Large expense by the Manager",
+    link: "/expenses",
+    audience: { permission: "expense.oversee" },
+  },
 } as const satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof CATALOGUE;

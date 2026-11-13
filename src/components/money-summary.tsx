@@ -177,7 +177,7 @@ export function MoneySummary({
             <AlertRow
               href="/expenses"
               icon={Receipt}
-              title={`${money.advances.submitted} expense${money.advances.submitted === 1 ? "" : "s"} waiting for countersign`}
+              title={`${money.advances.submitted} expense${money.advances.submitted === 1 ? "" : "s"} waiting for approval`}
               count={money.advances.submitted}
               tone="warning"
             />

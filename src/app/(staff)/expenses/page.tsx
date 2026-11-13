@@ -1,13 +1,13 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { createAdvanceAction } from "@/app/actions";
-import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
-import { MoneySourceField } from "@/components/money-source";
+import { recordExpenseAction } from "@/app/actions";
+import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
+import { PhotoInput } from "@/components/photo-input";
 import { Badge, Card, Disclosure, Empty, LinkButton, PageHeader } from "@/components/ui";
-import { ADVANCE_STATUS_LABELS, formatDate } from "@/lib/format";
+import { businessDate } from "@/lib/clock";
+import { ADVANCE_STATUS_LABELS, EXPENSE_CATEGORY_LABELS, formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
-import { moneySources } from "@/services/cash-book";
 import { listAdvances } from "@/services/expenses";
 
 export const metadata: Metadata = { title: "Expenses" };
@@ -40,10 +40,12 @@ function Advances({ rows }: { rows: Row[] }) {
   );
 }
 
-export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ collect?: string }> }) {
+export default async function ExpensesPage({ searchParams }: { searchParams: Promise<{ record?: string; collect?: string }> }) {
   const ctx = await requirePage("finance.view");
-  const collect = (await searchParams).collect === "1";
-  const [data, sources] = await Promise.all([listAdvances(ctx), moneySources(ctx)]);
+  const query = await searchParams;
+  const record = query.record === "1" || query.collect === "1";
+  const today = businessDate(ctx.clock());
+  const data = await listAdvances(ctx);
   return (
     <>
       <PageHeader
@@ -58,23 +60,31 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
       />
       <div className="space-y-4">
         {data.canRecord ? (
-          <Disclosure label="Collect funds for expenses" open={collect}>
-            <ActionForm action={createAdvanceAction}>
-              <TextareaField name="purpose" label="What the money is for" />
+          <Disclosure label="Record an expense" open={record}>
+            <ActionForm action={recordExpenseAction}>
+              <TextareaField name="description" label="What it was for" />
+              <SelectField name="category" label="Category" defaultValue="">
+                <option value="" disabled>Choose…</option>
+                {Object.entries(EXPENSE_CATEGORY_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>{label}</option>
+                ))}
+              </SelectField>
               <Field name="amount" label="Amount (₦)" inputMode="decimal" autoComplete="off" />
-              <MoneySourceField sources={sources} />
-              <SubmitButton>Record funds collected</SubmitButton>
+              <Field name="spentOn" label="Date spent" type="date" max={today} defaultValue={today} />
+              <PhotoInput name="photo" label="Receipt photo (optional)" />
+              <p className="text-sm text-muted">It comes off the company balance now.</p>
+              <SubmitButton>Record expense</SubmitButton>
             </ActionForm>
           </Disclosure>
         ) : null}
         <Card title={`To account for (${data.open.length})`}>
           {data.open.length === 0 ? <Empty>Nothing is waiting to be accounted for.</Empty> : <Advances rows={data.open} />}
         </Card>
-        <Card title={`Waiting for countersign (${data.submitted.length})`}>
-          {data.submitted.length === 0 ? <Empty>Nothing is waiting for a countersign.</Empty> : <Advances rows={data.submitted} />}
+        <Card title={`Waiting for approval (${data.submitted.length})`}>
+          {data.submitted.length === 0 ? <Empty>Nothing is waiting for approval.</Empty> : <Advances rows={data.submitted} />}
         </Card>
         {data.done.length > 0 ? (
-          <Card title="Countersigned">
+          <Card title="Approved">
             <Advances rows={data.done} />
           </Card>
         ) : null}

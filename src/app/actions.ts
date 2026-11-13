@@ -22,7 +22,10 @@ import {
   addExpenseLine,
   cancelAdvance,
   countersignAdvance,
+  correctExpense,
   createAdvance,
+  recordExpense,
+  removeExpense,
   sendBackAdvance,
   submitAdvance,
   voidExpenseLine,
@@ -362,6 +365,23 @@ export async function createAdvanceAction(_: FormState, data: FormData) {
   return perform((ctx) => createAdvance(ctx, values(data)), "Expense funds recorded.");
 }
 
+export async function recordExpenseAction(_: FormState, data: FormData) {
+  let id: string | undefined;
+  const state = await perform(async (ctx) => {
+    id = (await recordExpense(ctx, values(data)))?.id;
+  }, "");
+  if (!id) return state;
+  redirect(`/expenses/${id}?recorded=1`);
+}
+
+export async function correctExpenseAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => correctExpense(ctx, id, values(data)), "Corrected.");
+}
+
+export async function removeExpenseAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => removeExpense(ctx, id, values(data)), "Removed and the money put back on the balance.");
+}
+
 export async function addExpenseLineAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => addExpenseLine(ctx, id, values(data)), "Saved.");
 }
@@ -375,11 +395,11 @@ export async function submitAdvanceAction(id: string) {
 }
 
 export async function countersignAdvanceAction(id: string) {
-  return perform((ctx) => countersignAdvance(ctx, id), "Countersigned.");
+  return perform((ctx) => countersignAdvance(ctx, id), "Approved. It is now final.");
 }
 
 export async function sendBackAdvanceAction(id: string, _: FormState, data: FormData) {
-  return perform((ctx) => sendBackAdvance(ctx, id, values(data)), "Sent back to the Manager.");
+  return perform((ctx) => sendBackAdvance(ctx, id, values(data)), "Sent back for correcting.");
 }
 
 export async function cancelAdvanceAction(id: string, _: FormState, data: FormData) {

@@ -9,6 +9,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { photoField } from "@/lib/photo";
 import { auditFrom } from "./audit";
+import { notifyMany } from "./notifications";
 import { moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { savePhoto } from "./violations";
@@ -75,6 +76,229 @@ export async function createAdvance(ctx: Ctx, raw: unknown) {
       after: { amountKobo: input.amount, purpose: input.purpose },
     });
     return advance!;
+  });
+}
+
+const expenseSchema = z.object({
+  description: requiredText("What it was for", 300),
+  category: z.enum(expenseCategory.enumValues, "Choose a category"),
+  amount: positiveNairaField("Amount"),
+  spentOn: dateField("Date spent"),
+  photo: photoField("Receipt"),
+});
+
+const correctionSchema = expenseSchema.omit({ photo: true });
+
+/** A Manager's expense over this is reported to the owner, since nobody approves it. */
+export const LARGE_EXPENSE_KOBO = 5_000_000;
+
+/** The Manager's own expenses need no approval; everyone else's wait for the Manager. */
+const finalOnSaving = (ctx: Ctx) => ctx.actor.role === "manager";
+
+/** Expenses come straight off the company balance, never out of a person's cash in hand. */
+const BALANCE = { custodianId: null, account: "bank" as const };
+
+function refuseFuture(spentOn: string, now: Date) {
+  if (spentOn > businessDate(now)) throw fieldError("spentOn", "This date cannot be in the future");
+}
+
+/**
+ * An expense is money spent, recorded once: it comes off the company balance now
+ * and waits for the Assistant Manager's approval. It is never paid back.
+ */
+export async function recordExpense(ctx: Ctx, raw: unknown) {
+  requirePermission(ctx, "expense.record");
+  const input = parseInput(expenseSchema, raw);
+  const now = ctx.clock();
+  refuseFuture(input.spentOn, now);
+  return db.transaction(async (tx) => {
+    const [advance] = await tx
+      .insert(expenseAdvances)
+      .values({
+        purpose: input.description,
+        amountKobo: input.amount,
+        ...BALANCE,
+        status: finalOnSaving(ctx) ? "countersigned" : "submitted",
+        collectedOn: input.spentOn,
+        collectedBy: ctx.actor.userId,
+        createdAt: now,
+        submittedAt: now,
+        countersignedAt: finalOnSaving(ctx) ? now : null,
+      })
+      .returning({ id: expenseAdvances.id });
+    const id = advance!.id;
+    await takeMoneyOut(tx, {
+      ...BALANCE,
+      amountKobo: input.amount,
+      sourceType: "expense_advance",
+      sourceId: id,
+      at: now,
+    });
+    const photoId = input.photo ? await savePhoto(tx, ctx, input.photo) : null;
+    await tx.insert(expenseLines).values({
+      advanceId: id,
+      kind: "spent",
+      category: input.category,
+      description: input.description,
+      amountKobo: input.amount,
+      spentOn: input.spentOn,
+      photoId,
+      createdBy: ctx.actor.userId,
+      createdAt: now,
+    });
+    await auditFrom(ctx, tx, {
+      action: "expense.record",
+      entityType: "expense_advance",
+      entityId: id,
+      after: { amountKobo: input.amount, category: input.category, spentOn: input.spentOn },
+    });
+    if (finalOnSaving(ctx)) await tellOwner(tx, id, input.description, input.amount, now, ctx);
+    return advance!;
+  });
+}
+
+async function tellOwner(tx: Tx, id: string, description: string, amountKobo: number, at: Date, ctx: Ctx) {
+  if (amountKobo <= LARGE_EXPENSE_KOBO) return;
+  await notifyMany(tx, [
+    {
+      kind: "large_expense",
+      body: `${formatNaira(amountKobo)}: ${description}`,
+      at,
+      link: `/expenses/${id}`,
+      entity: { type: "expense_advance", id },
+      dedupeKey: `large_expense:${id}:${amountKobo}`,
+      createdBy: ctx.actor.userId,
+    },
+  ]);
+}
+
+/** The one spent line of an expense recorded in one step, or null for an older advance. */
+async function singleLine(tx: Tx, advance: { id: string; amountKobo: number }) {
+  const lines = await tx
+    .select({ line: expenseLines, voided: expenseLineVoids.lineId })
+    .from(expenseLines)
+    .leftJoin(expenseLineVoids, eq(expenseLineVoids.lineId, expenseLines.id))
+    .where(eq(expenseLines.advanceId, advance.id));
+  if (lines.some((row) => row.line.kind === "change")) return null;
+  const active = lines.filter((row) => row.voided === null);
+  if (active.length !== 1 || active[0]!.line.amountKobo !== advance.amountKobo) return null;
+  return active[0]!.line;
+}
+
+type Correctable = {
+  status: string;
+  collectedBy: string;
+  countersignedBy: string | null;
+  createdAt: Date;
+};
+
+/**
+ * Whether the person may still correct or remove an expense: their own one sent
+ * back, or the Manager's own one (which nobody approves) on the day it was saved.
+ */
+export function correctableBy(ctx: Ctx, advance: Correctable): "sent_back" | "same_day" | null {
+  if (advance.collectedBy !== ctx.actor.userId) return null;
+  if (advance.status === "open") return "sent_back";
+  const sameDay = businessDate(advance.createdAt) === businessDate(ctx.clock());
+  if (advance.status === "countersigned" && advance.countersignedBy === null && finalOnSaving(ctx) && sameDay) {
+    return "same_day";
+  }
+  return null;
+}
+
+function requireCorrectable(ctx: Ctx, advance: Correctable) {
+  const how = correctableBy(ctx, advance);
+  if (how) return how;
+  if (advance.status === "countersigned") throw new DomainError("This expense is approved and final.");
+  if (advance.collectedBy !== ctx.actor.userId && advance.status !== "cancelled") {
+    throw new DomainError("Only the person who recorded it can correct it.");
+  }
+  throw new DomainError("Only an expense sent back can be corrected.");
+}
+
+/**
+ * Corrects a wrong entry: one sent back goes for approval again, the Manager's
+ * own stays final. The money moves by the difference only.
+ */
+export async function correctExpense(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "expense.record");
+  const id = parseInput(idField("expense"), rawId);
+  const input = parseInput(correctionSchema, raw);
+  const now = ctx.clock();
+  refuseFuture(input.spentOn, now);
+  await db.transaction(async (tx) => {
+    const advance = await lockAdvance(tx, id);
+    const how = requireCorrectable(ctx, advance);
+    const line = await singleLine(tx, advance);
+    if (!line) throw new DomainError("This older record is corrected line by line.");
+    const difference = input.amount - advance.amountKobo;
+    const money = { custodianId: advance.custodianId, account: advance.account, sourceId: id, at: now };
+    if (difference > 0) {
+      await takeMoneyOut(tx, { ...money, amountKobo: difference, sourceType: "expense_advance" }, "amount");
+    } else if (difference < 0) {
+      await recordMovement(tx, { ...money, amountKobo: -difference, sourceType: "expense_advance_cancel" });
+    }
+    await tx.insert(expenseLineVoids).values({ lineId: line.id, voidedBy: ctx.actor.userId, reason: "Corrected", voidedAt: now });
+    await tx.insert(expenseLines).values({
+      advanceId: id,
+      kind: "spent",
+      category: input.category,
+      description: input.description,
+      amountKobo: input.amount,
+      spentOn: input.spentOn,
+      photoId: line.photoId,
+      createdBy: ctx.actor.userId,
+      createdAt: now,
+    });
+    await tx
+      .update(expenseAdvances)
+      .set({
+        purpose: input.description,
+        amountKobo: input.amount,
+        collectedOn: input.spentOn,
+        // Sent back: it goes for approval again. The Manager's own stays final.
+        ...(how === "sent_back" ? { status: "submitted" as const, submittedAt: now, returnNote: null } : {}),
+      })
+      .where(eq(expenseAdvances.id, id));
+    if (how === "same_day") await tellOwner(tx, id, input.description, input.amount, now, ctx);
+    await auditFrom(ctx, tx, {
+      action: "expense.correct",
+      entityType: "expense_advance",
+      entityId: id,
+      before: { amountKobo: line.amountKobo, category: line.category, spentOn: line.spentOn },
+      after: { amountKobo: input.amount, category: input.category, spentOn: input.spentOn },
+    });
+  });
+}
+
+/**
+ * Removes an expense entered by mistake while it can still be corrected, and
+ * puts the money back on the balance. Not a refund.
+ */
+export async function removeExpense(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "expense.record");
+  const id = parseInput(idField("expense"), rawId);
+  const { reason } = parseInput(reasonSchema, raw);
+  const now = ctx.clock();
+  await db.transaction(async (tx) => {
+    const advance = await lockAdvance(tx, id);
+    requireCorrectable(ctx, advance);
+    const line = await singleLine(tx, advance);
+    if (!line) throw new DomainError("This older record is corrected line by line.");
+    await tx.insert(expenseLineVoids).values({ lineId: line.id, voidedBy: ctx.actor.userId, reason, voidedAt: now });
+    await tx
+      .update(expenseAdvances)
+      .set({ status: "cancelled", cancelReason: reason })
+      .where(eq(expenseAdvances.id, id));
+    await recordMovement(tx, {
+      custodianId: advance.custodianId,
+      account: advance.account,
+      amountKobo: advance.amountKobo,
+      sourceType: "expense_advance_cancel",
+      sourceId: id,
+      at: now,
+    });
+    await auditFrom(ctx, tx, { action: "expense.remove", entityType: "expense_advance", entityId: id, reason });
   });
 }
 
@@ -191,9 +415,14 @@ export async function submitAdvance(ctx: Ctx, rawId: unknown) {
     requireOpen(advance);
     const left = advance.amountKobo - (await accountedFor(tx, id));
     if (left !== 0) throw new DomainError(`${formatNaira(left)} is still to be accounted for.`);
+    const now = ctx.clock();
     await tx
       .update(expenseAdvances)
-      .set({ status: "submitted", submittedAt: ctx.clock(), returnNote: null })
+      .set(
+        finalOnSaving(ctx) && advance.collectedBy === ctx.actor.userId
+          ? { status: "countersigned", submittedAt: now, countersignedAt: now, returnNote: null }
+          : { status: "submitted", submittedAt: now, returnNote: null },
+      )
       .where(eq(expenseAdvances.id, id));
     await auditFrom(ctx, tx, { action: "expense.submit", entityType: "expense_advance", entityId: id });
   });
@@ -209,7 +438,10 @@ export async function countersignAdvance(ctx: Ctx, rawId: unknown) {
   requirePermission(ctx, "expense.countersign");
   const id = parseInput(idField("expense record"), rawId);
   await db.transaction(async (tx) => {
-    await requireSubmitted(tx, id);
+    const advance = await requireSubmitted(tx, id);
+    if (advance.collectedBy === ctx.actor.userId) {
+      throw new DomainError("Someone else must approve an expense you recorded.");
+    }
     await tx
       .update(expenseAdvances)
       .set({ status: "countersigned", countersignedBy: ctx.actor.userId, countersignedAt: ctx.clock() })
@@ -304,10 +536,20 @@ export async function getAdvance(ctx: Ctx, id: string) {
   const people = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids));
   const nameOf = (value: string | null) => people.find((person) => person.id === value)?.name ?? null;
   const active = lines.filter((row) => row.voidReason === null);
+  const single =
+    !lines.some((row) => row.line.kind === "change") &&
+    active.length === 1 &&
+    active[0]!.line.kind === "spent" &&
+    active[0]!.line.amountKobo === advance.amountKobo;
   const accountedKobo = active.reduce((sum, row) => sum + row.line.amountKobo, 0);
   return {
     advance,
     lines,
+    single,
+    /** How this person may still correct or remove it, if at all. */
+    correctable: single && can(ctx.actor.role, "expense.record") ? correctableBy(ctx, advance) : null,
+    /** The Manager's own expense: final on saving, approved by nobody. */
+    noApprovalNeeded: advance.status === "countersigned" && advance.countersignedBy === null,
     accountedKobo,
     leftKobo: advance.amountKobo - accountedKobo,
     spentKobo: active.filter((row) => row.line.kind === "spent").reduce((sum, row) => sum + row.line.amountKobo, 0),

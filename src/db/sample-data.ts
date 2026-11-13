@@ -439,8 +439,8 @@ async function main() {
         if (plan.change) await addExpenseLine(manager, id, { kind: "change", amount: plan.change });
       }
       if (id && index === plan.day + 3 && plan.end !== "open") {
+        // The Manager's own expenses need no approval, so submitting finishes them.
         await submitAdvance(manager, id);
-        if (plan.end === "countersigned") await countersignAdvance(assistant, id);
       }
     }
 

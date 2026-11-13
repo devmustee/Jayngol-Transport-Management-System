@@ -36,8 +36,11 @@ const MATRIX = {
   "money.transfer": OFFICE,
   "bank.reconcile": OFFICE,
   "bank.opening": ["manager"],
-  "expense.record": ["manager"],
-  "expense.countersign": ["assistant_manager"],
+  // The Manager's own expenses need no approval; the Assistant Manager's wait for the Manager.
+  "expense.record": OFFICE,
+  "expense.countersign": ["manager"],
+  // Told about the Manager's large expenses, which nobody approves.
+  "expense.oversee": ["owner"],
   "loan.approve": ["manager"],
   "award.approve": ["manager"],
   "awards.track": STAFF,
