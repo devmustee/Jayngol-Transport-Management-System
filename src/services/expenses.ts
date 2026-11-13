@@ -124,6 +124,7 @@ export async function recordExpense(ctx: Ctx, raw: unknown) {
         createdAt: now,
         submittedAt: now,
         countersignedAt: finalOnSaving(ctx) ? now : null,
+        oneStep: true,
       })
       .returning({ id: expenseAdvances.id });
     const id = advance!.id;
@@ -173,7 +174,8 @@ async function tellOwner(tx: Tx, id: string, description: string, amountKobo: nu
 }
 
 /** The one spent line of an expense recorded in one step, or null for an older advance. */
-async function singleLine(tx: Tx, advance: { id: string; amountKobo: number }) {
+async function singleLine(tx: Tx, advance: { id: string; amountKobo: number; oneStep: boolean }) {
+  if (!advance.oneStep) return null;
   const lines = await tx
     .select({ line: expenseLines, voided: expenseLineVoids.lineId })
     .from(expenseLines)
@@ -487,37 +489,66 @@ export async function cancelAdvance(ctx: Ctx, rawId: unknown, raw: unknown) {
   });
 }
 
-export async function advanceCounts() {
-  const rows = await db
-    .select({ status: expenseAdvances.status, value: count() })
-    .from(expenseAdvances)
-    .where(inArray(expenseAdvances.status, ["open", "submitted"]))
-    .groupBy(expenseAdvances.status);
-  const of = (status: string) => rows.find((row) => row.status === status)?.value ?? 0;
-  return { open: of("open"), submitted: of("submitted") };
+/** What waits on this person: expenses to approve, and their own sent back. */
+export async function advanceCounts(ctx: Ctx) {
+  const mine = eq(expenseAdvances.collectedBy, ctx.actor.userId);
+  const [toApprove, sentBack] = await Promise.all([
+    can(ctx.actor.role, "expense.countersign")
+      ? db
+          .select({ value: count() })
+          .from(expenseAdvances)
+          .where(and(eq(expenseAdvances.status, "submitted"), sql`NOT ${mine}`))
+      : Promise.resolve([{ value: 0 }]),
+    db
+      .select({ value: count() })
+      .from(expenseAdvances)
+      .where(and(eq(expenseAdvances.status, "open"), mine, sql`${expenseAdvances.returnNote} IS NOT NULL`)),
+  ]);
+  return { toApprove: toApprove[0]?.value ?? 0, sentBack: sentBack[0]?.value ?? 0 };
 }
 
 export async function listAdvances(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
-  const rows = await db
-    .select({
-      id: expenseAdvances.id,
-      purpose: expenseAdvances.purpose,
-      amountKobo: expenseAdvances.amountKobo,
-      status: expenseAdvances.status,
-      collectedOn: expenseAdvances.collectedOn,
-      returnNote: expenseAdvances.returnNote,
-      accountedKobo: accounted,
-    })
-    .from(expenseAdvances)
-    .orderBy(desc(expenseAdvances.collectedOn), desc(expenseAdvances.createdAt))
-    .limit(200);
-  const open = rows.filter((row) => row.status === "open");
+  const today = businessDate(ctx.clock());
+  const monthStart = `${today.slice(0, 7)}-01`;
+  const listed = () =>
+    db
+      .select({
+        id: expenseAdvances.id,
+        purpose: expenseAdvances.purpose,
+        amountKobo: expenseAdvances.amountKobo,
+        status: expenseAdvances.status,
+        collectedOn: expenseAdvances.collectedOn,
+        collectedBy: expenseAdvances.collectedBy,
+        countersignedBy: expenseAdvances.countersignedBy,
+        returnNote: expenseAdvances.returnNote,
+        accountedKobo: accounted,
+        oneStep: expenseAdvances.oneStep,
+        recordedBy: users.name,
+      })
+      .from(expenseAdvances)
+      .innerJoin(users, eq(users.id, expenseAdvances.collectedBy))
+      .orderBy(desc(expenseAdvances.collectedOn), desc(expenseAdvances.createdAt));
+  const [waiting, approved, month] = await Promise.all([
+    // Everything still waiting on someone is always listed; approved ones only the latest.
+    listed().where(inArray(expenseAdvances.status, ["open", "submitted"])),
+    listed().where(eq(expenseAdvances.status, "countersigned")).limit(100),
+    // Same rule as the report: spent lines by the day spent, voided lines and removed records left out.
+    db.execute(sql`
+      SELECT COALESCE(SUM(l.amount_kobo), 0)::float8 AS total FROM expense_lines l
+      JOIN expense_advances a ON a.id = l.advance_id AND a.status <> 'cancelled'
+      WHERE l.kind = 'spent' AND l.spent_on BETWEEN ${monthStart}::date AND ${today}::date
+        AND NOT EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = l.id)
+    `) as unknown as Promise<{ total: number }[]>,
+  ]);
+  const open = waiting.filter((row) => row.status === "open");
   return {
-    open,
-    outstandingKobo: open.reduce((sum, row) => sum + row.amountKobo - row.accountedKobo, 0),
-    submitted: rows.filter((row) => row.status === "submitted"),
-    done: rows.filter((row) => row.status === "countersigned"),
+    sentBack: open.filter((row) => row.oneStep),
+    /** Older records from when funds were collected first (phase 3 clears these). */
+    older: open.filter((row) => !row.oneStep),
+    submitted: waiting.filter((row) => row.status === "submitted"),
+    done: approved,
+    spentThisMonthKobo: month[0]?.total ?? 0,
     canRecord: can(ctx.actor.role, "expense.record"),
   };
 }
@@ -536,6 +567,7 @@ export async function getAdvance(ctx: Ctx, id: string) {
   const people = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids));
   const nameOf = (value: string | null) => people.find((person) => person.id === value)?.name ?? null;
   const active = lines.filter((row) => row.voidReason === null);
+  const oneStepRecord = advance.oneStep;
   const single =
     !lines.some((row) => row.line.kind === "change") &&
     active.length === 1 &&
@@ -546,8 +578,10 @@ export async function getAdvance(ctx: Ctx, id: string) {
     advance,
     lines,
     single,
+    /** Recorded in one step, so shown as one expense rather than funds to account for. */
+    oneStep: oneStepRecord,
     /** How this person may still correct or remove it, if at all. */
-    correctable: single && can(ctx.actor.role, "expense.record") ? correctableBy(ctx, advance) : null,
+    correctable: single && oneStepRecord && can(ctx.actor.role, "expense.record") ? correctableBy(ctx, advance) : null,
     /** The Manager's own expense: final on saving, approved by nobody. */
     noApprovalNeeded: advance.status === "countersigned" && advance.countersignedBy === null,
     accountedKobo,

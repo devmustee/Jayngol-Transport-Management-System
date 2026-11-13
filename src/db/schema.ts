@@ -821,6 +821,8 @@ export const expenseAdvances = pgTable(
     /** Why the Assistant Manager last sent it back. */
     returnNote: text("return_note"),
     cancelReason: text("cancel_reason"),
+    /** Recorded as one expense (what it was for, amount, date), not as funds collected first. */
+    oneStep: boolean("one_step").notNull().default(false),
   },
   (t) => [
     index("advances_status_idx").on(t.status),

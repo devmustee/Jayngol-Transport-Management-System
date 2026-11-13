@@ -266,7 +266,6 @@ export const REPORTS = {
     groupable: true,
     columns: (group) => [
       ...periodColumns(group),
-      { key: "collected", label: "Funds collected", kind: "naira", total: true },
       { key: "spent", label: "Spent", kind: "naira", total: true },
       ...EXPENSE_CATEGORIES.map((category) => ({
         key: category,
@@ -274,20 +273,16 @@ export const REPORTS = {
         kind: "naira" as const,
         total: true,
       })),
-      { key: "change", label: "Change returned", kind: "naira", total: true },
     ],
-    // Same rule as the annual balance: spent lines by the day spent, voided lines and cancelled funds left out.
-    // A day with nothing collected, spent or returned is left out; weeks, months and years always show.
+    // Same rule as the annual balance: spent lines by the day spent, voided lines and removed records left out.
+    // A day with nothing spent is left out; weeks, months and years always show.
     query: (range, group) => sql`
       WITH ${periodsCte(range, group)}
       SELECT * FROM (
-        SELECT periods.lo::text AS day, periods.hi::text AS "to",
-          (SELECT COALESCE(SUM(a.amount_kobo), 0) FROM expense_advances a
-            WHERE a.status <> 'cancelled' AND a.collected_on BETWEEN periods.lo AND periods.hi)::float8 AS collected,
-          l.spent, ${sql.join(
+        SELECT periods.lo::text AS day, periods.hi::text AS "to", l.spent, ${sql.join(
             EXPENSE_CATEGORIES.map((category) => sql`${sql.identifier(`c_${category}`)} AS ${sql.identifier(category)}`),
             sql`, `,
-          )}, l.change
+          )}
         FROM periods
         CROSS JOIN LATERAL (
           SELECT COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'spent'), 0)::float8 AS spent,
@@ -297,15 +292,14 @@ export const REPORTS = {
                        sql`COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'spent' AND x.category = ${category}), 0)::float8 AS ${sql.identifier(`c_${category}`)}`,
                    ),
                    sql`, `,
-                 )},
-                 COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'change'), 0)::float8 AS change
+                 )}
           FROM expense_lines x
           JOIN expense_advances a ON a.id = x.advance_id AND a.status <> 'cancelled'
           WHERE x.spent_on BETWEEN periods.lo AND periods.hi
             AND NOT EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = x.id)
         ) l
       ) r
-      WHERE ${group !== "day"}::boolean OR r.collected > 0 OR r.spent > 0 OR r.change > 0
+      WHERE ${group !== "day"}::boolean OR r.spent > 0
       ORDER BY r.day DESC`,
   },
   loan_book: {

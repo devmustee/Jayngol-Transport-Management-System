@@ -92,7 +92,8 @@ export function MoneySummary({
     money.cashNotClosed.length > 0 ||
     money.handoversWaiting > 0 ||
     money.closesToCheck > 0 ||
-    money.advances.submitted > 0;
+    money.advances.toApprove > 0 ||
+    money.advances.sentBack > 0;
 
   return (
     <div className="mb-6 space-y-4">
@@ -173,12 +174,22 @@ export function MoneySummary({
             />
           ) : null}
 
-          {money.advances.submitted > 0 ? (
+          {money.advances.toApprove > 0 ? (
             <AlertRow
               href="/expenses"
               icon={Receipt}
-              title={`${money.advances.submitted} expense${money.advances.submitted === 1 ? "" : "s"} waiting for approval`}
-              count={money.advances.submitted}
+              title={`${money.advances.toApprove} expense${money.advances.toApprove === 1 ? "" : "s"} waiting for your approval`}
+              count={money.advances.toApprove}
+              tone="warning"
+            />
+          ) : null}
+
+          {money.advances.sentBack > 0 ? (
+            <AlertRow
+              href="/expenses"
+              icon={Receipt}
+              title={`${money.advances.sentBack} of your expense${money.advances.sentBack === 1 ? " was" : "s were"} sent back to correct`}
+              count={money.advances.sentBack}
               tone="warning"
             />
           ) : null}

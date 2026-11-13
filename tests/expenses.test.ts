@@ -15,6 +15,7 @@ import {
   correctExpense,
   countersignAdvance,
   createAdvance,
+  advanceCounts,
   getAdvance,
   listAdvances,
   recordExpense,
@@ -99,8 +100,9 @@ describe("expense funds", () => {
   it("shows an unaccounted advance as outstanding until it is dealt with", async () => {
     const { id } = await bankAdvance("7,000");
     await spend(id, "2,000");
-    const row = (await listAdvances(manager)).open.find((a) => a.id === id)!;
+    const row = (await listAdvances(manager)).older.find((a) => a.id === id)!;
     expect(row.amountKobo - row.accountedKobo).toBe(500_000);
+    expect(row.oneStep).toBe(false);
   });
 
   it("puts returned change back with the person it came from", async () => {
@@ -399,9 +401,12 @@ describe("the expense report by day, week, month and year", () => {
     const report = await runReport(manager, "expenses", feb, "day");
     expect(report.title).toBe("Daily expenses");
     expect(report.rows.map((row) => row.day)).toEqual([D2, D1]);
-    expect(report.rows[1]).toMatchObject({ collected: 3_000_000, spent: 1_000_000, store_purchase: 1_000_000, transport: 0, change: 0 });
-    expect(report.rows[0]).toMatchObject({ collected: 0, spent: 500_000, transport: 500_000, office: 0, change: 200_000 });
-    expect(report.totals).toMatchObject({ collected: 3_000_000, spent: 1_500_000, change: 200_000 });
+    expect(report.rows[1]).toMatchObject({ spent: 1_000_000, store_purchase: 1_000_000, transport: 0 });
+    expect(report.rows[0]).toMatchObject({ spent: 500_000, transport: 500_000, office: 0 });
+    expect(report.totals).toMatchObject({ spent: 1_500_000 });
+    // Money is no longer collected first or handed back, so neither is shown.
+    expect(report.columns.map((column) => column.key)).not.toContain("collected");
+    expect(report.columns.map((column) => column.key)).not.toContain("change");
   });
 
   it("adds up by week, month and year", async () => {
@@ -416,7 +421,7 @@ describe("the expense report by day, week, month and year", () => {
       ["2039-01-01", 0],
     ]);
     const years = await runReport(manager, "expenses", { from: "2039-01-01", to: "2039-12-31" }, "year");
-    expect(years.rows).toEqual([expect.objectContaining({ day: "2039-01-01", to: "2039-12-31", spent: 1_500_000, collected: 3_000_000 })]);
+    expect(years.rows).toEqual([expect.objectContaining({ day: "2039-01-01", to: "2039-12-31", spent: 1_500_000 })]);
   });
 
   it("starts each grouping from a useful date", () => {
@@ -593,7 +598,46 @@ describe("expenses recorded in one step", () => {
     const day = "2039-05-09";
     await expense("3,000", { spentOn: day, category: "office" });
     const report = await runReport(manager, "expenses", { from: day, to: day }, "day");
-    expect(report.totals).toMatchObject({ spent: 300_000, office: 300_000, collected: 300_000, change: 0 });
+    expect(report.totals).toMatchObject({ spent: 300_000, office: 300_000 });
+  });
+
+  it("lists each expense where it stands, and what waits on whom", async () => {
+    const waiting = await expense("700");
+    const sentBack = await expense("800");
+    await sendBackAdvance(manager, sentBack.id, { reason: "No receipt" });
+    const own = await expense("900", {}, by(manager));
+    const list = await listAdvances(by(manager));
+    expect(list.submitted.map((row) => row.id)).toContain(waiting.id);
+    expect(list.sentBack.map((row) => row.id)).toContain(sentBack.id);
+    expect(list.older.map((row) => row.id)).not.toContain(sentBack.id);
+    expect(list.done.find((row) => row.id === own.id)).toMatchObject({ oneStep: true, countersignedBy: null });
+
+    const forManager = await advanceCounts(manager);
+    const forAssistant = await advanceCounts(assistant);
+    expect(forManager.toApprove).toBeGreaterThanOrEqual(1);
+    expect(forAssistant.toApprove).toBe(0);
+    expect(forAssistant.sentBack).toBeGreaterThanOrEqual(1);
+    expect((await advanceCounts(owner)).toApprove).toBe(0);
+    await countersignAdvance(manager, waiting.id);
+    expect((await advanceCounts(manager)).toApprove).toBe(forManager.toApprove - 1);
+  });
+
+  it("totals what was spent this month, leaving out removed expenses", async () => {
+    const day = "2039-06-10";
+    const before = (await listAdvances(by(manager, day))).spentThisMonthKobo;
+    await expense("1,000", { spentOn: day }, by(manager, day));
+    const gone = await expense("4,000", { spentOn: day }, by(manager, day));
+    await removeExpense(by(manager, day), gone.id, { reason: "Mistake" });
+    expect((await listAdvances(by(manager, day))).spentThisMonthKobo).toBe(before + 100_000);
+  });
+
+  it("shows a corrected expense as one expense, not an older advance", async () => {
+    const { id } = await expense("600");
+    await sendBackAdvance(manager, id, { reason: "Wrong" });
+    await correctExpense(by(assistant), id, fix("650"));
+    const data = (await getAdvance(manager, id))!;
+    expect(data.oneStep).toBe(true);
+    expect(data.lines).toHaveLength(2);
   });
 
   it("leaves older advances to be corrected line by line", async () => {

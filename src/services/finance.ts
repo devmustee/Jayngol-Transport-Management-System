@@ -382,7 +382,7 @@ export async function financeOverview(ctx: Ctx) {
     db.select({ value: count() }).from(dismissals).where(eq(dismissals.status, "flagged")),
     lastJobDate(),
     cashAlerts(db, today),
-    advanceCounts(),
+    advanceCounts(ctx),
     awardsToDecide(),
     givenOutOn(db, today),
     loansToCollect(db),

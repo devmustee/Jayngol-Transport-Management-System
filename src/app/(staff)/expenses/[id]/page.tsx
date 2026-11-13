@@ -36,11 +36,14 @@ export default async function ExpensePage({
   const recorded = (await searchParams).recorded === "1";
   const data = isUuid(id) ? await getAdvance(ctx, id) : null;
   if (!data) notFound();
-  const { advance, lines, leftKobo, accountedKobo, spentKobo, single, correctable } = data;
+  const { advance, lines, leftKobo, accountedKobo, spentKobo, correctable, oneStep } = data;
+  /** A one-step expense shows as itself: its latest entry, with earlier versions below. */
+  const latest = lines.find((row) => row.voidReason === null)?.line ?? lines.at(-1)?.line ?? null;
+  const earlier = lines.filter((row) => row.line.id !== latest?.id);
   const editable = data.canRecord && advance.status === "open";
   /** An expense recorded in one step: corrected or removed whole, only while sent back. */
   const current = correctable ? lines.find((row) => row.voidReason === null)!.line : null;
-  const advanceEditable = editable && !single;
+  const advanceEditable = editable && !oneStep;
   const today = businessDate(ctx.clock());
 
   return (
@@ -49,7 +52,11 @@ export default async function ExpensePage({
         title={advance.purpose}
         subtitle={formatNaira(advance.amountKobo)}
         back={{ href: "/expenses", label: "Expenses" }}
-        action={<Badge tone={TONE[advance.status]}>{single && advance.status === "open" ? "Sent back" : ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
+        action={<Badge tone={TONE[advance.status]}>{oneStep && advance.status === "cancelled"
+              ? "Removed"
+              : data.noApprovalNeeded
+                ? "No approval needed"
+                : ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
       />
       <div className="space-y-4">
         {recorded && advance.status !== "cancelled" ? (
@@ -62,60 +69,107 @@ export default async function ExpensePage({
         {advance.returnNote ? (
           <p role="alert" className="rounded-lg bg-danger-wash px-3 py-2 font-semibold text-danger">Sent back: {advance.returnNote}</p>
         ) : null}
-        <Card title="Details">
-          <Details
-            rows={[
-              ["Collected", formatDate(advance.collectedOn)],
-              ["Collected by", data.collectedByName],
-              ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : single ? "Company balance" : "Bank"],
-              ["Spent", formatNaira(spentKobo)],
-              ["Still to account for", formatNaira(leftKobo)],
-              ...(data.countersignedByName && advance.countersignedAt
-                ? ([["Approved by", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
-                : data.noApprovalNeeded
-                  ? ([["Approval", "Not needed, recorded by the Manager"]] as [string, string][])
-                  : []),
-              ...(advance.cancelReason ? ([["Why cancelled", advance.cancelReason]] as [string, string][]) : []),
-            ]}
-          />
-        </Card>
+        {oneStep && latest ? (
+          <Card title="Details">
+            <Details
+              rows={[
+                ["Amount", formatNaira(advance.amountKobo)],
+                ["Category", latest.category ? EXPENSE_CATEGORY_LABELS[latest.category] : null],
+                ["Date spent", formatDate(latest.spentOn)],
+                ["Recorded by", data.collectedByName],
+                ["Paid from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : "Company balance"],
+                ...(data.countersignedByName && advance.countersignedAt
+                  ? ([["Approved by", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
+                  : data.noApprovalNeeded
+                    ? ([["Approval", "Not needed, recorded by the Manager"]] as [string, string][])
+                    : advance.status === "submitted"
+                      ? ([["Approval", "Waiting for the Manager"]] as [string, string][])
+                      : []),
+                ...(advance.cancelReason ? ([["Why removed", advance.cancelReason]] as [string, string][]) : []),
+              ]}
+            />
+            {latest.photoId ? (
+              <a href={`/api/photos/${latest.photoId}`} className="mt-2 inline-block text-sm text-gold-deep underline">View receipt</a>
+            ) : null}
+          </Card>
+        ) : (
+          <Card title="Details">
+            <Details
+              rows={[
+                ["Collected", formatDate(advance.collectedOn)],
+                ["Collected by", data.collectedByName],
+                ["Money came from", data.sourceName ? `Cash held by ${data.sourceName}` : data.sourceAccount === "owner" ? "Owner's own money" : "Bank"],
+                ["Spent", formatNaira(spentKobo)],
+                ["Still to account for", formatNaira(leftKobo)],
+                ...(data.countersignedByName && advance.countersignedAt
+                  ? ([["Approved by", `${data.countersignedByName}, ${formatDateTime(advance.countersignedAt)}`]] as [string, string][])
+                  : data.noApprovalNeeded
+                    ? ([["Approval", "Not needed, recorded by the Manager"]] as [string, string][])
+                    : []),
+                ...(advance.cancelReason ? ([["Why cancelled", advance.cancelReason]] as [string, string][]) : []),
+              ]}
+            />
+          </Card>
+        )}
 
-        <Card title="How it was used">
-          {lines.length === 0 ? (
-            <Empty>Nothing recorded yet.</Empty>
-          ) : (
-            <ul className="divide-y divide-line">
-              {lines.map(({ line, voidReason }) => (
-                <li key={line.id} className="py-2">
-                  <div className="flex items-start justify-between gap-3">
+        {oneStep ? (
+          earlier.length > 0 ? (
+            <Card title="Earlier versions">
+              <ul className="divide-y divide-line">
+                {earlier.map(({ line, voidReason }) => (
+                  <li key={line.id} className="flex items-start justify-between gap-3 py-2 text-sm">
                     <div className="min-w-0">
-                      <div className={`font-semibold ${voidReason ? "line-through" : ""}`}>{line.description}</div>
-                      <div className="text-sm text-muted">
+                      <div className="font-semibold line-through">{line.description}</div>
+                      <div className="text-muted">
                         {line.category ? `${EXPENSE_CATEGORY_LABELS[line.category]} · ` : ""}
                         {formatDate(line.spentOn)}
+                        {voidReason ? ` · ${voidReason}` : ""}
                       </div>
-                      {line.photoId ? (
-                        <a href={`/api/photos/${line.photoId}`} className="text-sm text-gold-deep underline">View receipt</a>
-                      ) : null}
-                      {voidReason ? <div className="text-sm text-danger">Removed: {voidReason}</div> : null}
                     </div>
-                    <span className={`shrink-0 font-semibold tabular-nums ${voidReason ? "line-through" : ""}`}>{formatNaira(line.amountKobo)}</span>
-                  </div>
-                  {advanceEditable && !voidReason ? (
-                    <div className="mt-2">
-                      <Disclosure label="Remove this entry">
-                        <ActionForm action={voidExpenseLineAction.bind(null, line.id)}>
-                          <TextareaField name="reason" label="Reason" />
-                          <SubmitButton tone="plain">Remove entry</SubmitButton>
-                        </ActionForm>
-                      </Disclosure>
+                    <span className="shrink-0 tabular-nums line-through">{formatNaira(line.amountKobo)}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null
+        ) : (
+          <Card title="How it was used">
+            {lines.length === 0 ? (
+              <Empty>Nothing recorded yet.</Empty>
+            ) : (
+              <ul className="divide-y divide-line">
+                {lines.map(({ line, voidReason }) => (
+                  <li key={line.id} className="py-2">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className={`font-semibold ${voidReason ? "line-through" : ""}`}>{line.description}</div>
+                        <div className="text-sm text-muted">
+                          {line.category ? `${EXPENSE_CATEGORY_LABELS[line.category]} · ` : ""}
+                          {formatDate(line.spentOn)}
+                        </div>
+                        {line.photoId ? (
+                          <a href={`/api/photos/${line.photoId}`} className="text-sm text-gold-deep underline">View receipt</a>
+                        ) : null}
+                        {voidReason ? <div className="text-sm text-danger">Removed: {voidReason}</div> : null}
+                      </div>
+                      <span className={`shrink-0 font-semibold tabular-nums ${voidReason ? "line-through" : ""}`}>{formatNaira(line.amountKobo)}</span>
                     </div>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
+                    {advanceEditable && !voidReason ? (
+                      <div className="mt-2">
+                        <Disclosure label="Remove this entry">
+                          <ActionForm action={voidExpenseLineAction.bind(null, line.id)}>
+                            <TextareaField name="reason" label="Reason" />
+                            <SubmitButton tone="plain">Remove entry</SubmitButton>
+                          </ActionForm>
+                        </Disclosure>
+                      </div>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
           )}
         </Card>
+        )}
 
         {advanceEditable && leftKobo > 0 ? (
           <>

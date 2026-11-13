@@ -112,7 +112,7 @@ export const EXPENSE_CATEGORY_LABELS = {
 } as const;
 
 export const ADVANCE_STATUS_LABELS = {
-  open: "To account for",
+  open: "Sent back",
   submitted: "Waiting for approval",
   countersigned: "Approved",
   cancelled: "Cancelled",
@@ -125,8 +125,8 @@ export const BOOK_LABELS: Record<string, string> = {
   payment_reversal: "Payment reversed",
   deposit: "Operator deposit received",
   deposit_reversal: "Operator deposit reversed",
-  expense_advance: "Expense funds collected",
-  expense_advance_cancel: "Expense funds put back",
+  expense_advance: "Expense paid",
+  expense_advance_cancel: "Expense removed or corrected",
   expense_change: "Change returned",
   expense_change_void: "Change entry corrected",
   loan: "Loan given",
