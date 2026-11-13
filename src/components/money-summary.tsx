@@ -92,7 +92,6 @@ export function MoneySummary({
     money.cashNotClosed.length > 0 ||
     money.handoversWaiting > 0 ||
     money.closesToCheck > 0 ||
-    money.advances.open > 0 ||
     money.advances.submitted > 0;
 
   return (
@@ -170,16 +169,6 @@ export function MoneySummary({
               icon={Award}
               title={`${money.awardsWaiting} award${money.awardsWaiting === 1 ? "" : "s"} waiting for decision`}
               count={money.awardsWaiting}
-              tone="warning"
-            />
-          ) : null}
-
-          {money.advances.open > 0 ? (
-            <AlertRow
-              href="/expenses"
-              icon={Receipt}
-              title={`${money.advances.open} expense advance${money.advances.open === 1 ? "" : "s"} to account for`}
-              count={money.advances.open}
               tone="warning"
             />
           ) : null}

@@ -7,7 +7,8 @@ import { formatDate, queryValue } from "@/lib/format";
 import { readHistoryFilter } from "@/lib/history-filter";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
-import { GROUPING_LABELS, GROUPINGS, isReportKey, parseGrouping, runReport, type Column } from "@/services/reports";
+import Link from "next/link";
+import { defaultFrom, GROUPING_LABELS, GROUPING_TABS, GROUPINGS, isReportKey, parseGrouping, runReport, type Column } from "@/services/reports";
 
 export const metadata: Metadata = { title: "Report" };
 
@@ -40,8 +41,9 @@ export default async function ReportPage({
   const query = await searchParams;
   const filter = readHistoryFilter(query);
   const today = businessDate(ctx.clock());
-  const [from, to] = [filter.from ?? `${today.slice(0, 8)}01`, filter.to ?? today].sort() as [string, string];
-  const report = await runReport(ctx, key, { from, to }, parseGrouping(queryValue(query.group)));
+  const requested = parseGrouping(queryValue(query.group));
+  const [from, to] = [filter.from ?? defaultFrom(today, requested), filter.to ?? today].sort() as [string, string];
+  const report = await runReport(ctx, key, { from, to }, requested);
   const csvHref = `/api/reports/${key}?from=${from}&to=${to}${report.groupable ? `&group=${report.group}` : ""}`;
 
   return (
@@ -52,6 +54,22 @@ export default async function ReportPage({
         back={{ href: "/reports", label: "Reports" }}
       />
       <div className="mb-4 space-y-3 print:hidden">
+        {report.groupable ? (
+          <nav aria-label="Group by" className="flex flex-wrap gap-2">
+            {GROUPINGS.map((group) => (
+              <Link
+                key={group}
+                href={`/reports/${key}?group=${group}`}
+                aria-current={report.group === group ? "page" : undefined}
+                className={`inline-flex min-h-11 items-center rounded-full border px-4 text-sm font-semibold ${
+                  report.group === group ? "border-ink bg-ink text-gold-light" : "border-line bg-card text-ink hover:border-line-strong"
+                }`}
+              >
+                {GROUPING_TABS[group]}
+              </Link>
+            ))}
+          </nav>
+        ) : null}
         {report.ranged ? (
           <form className={`grid grid-cols-2 items-end gap-3 ${report.groupable ? "sm:grid-cols-4" : "sm:grid-cols-3"}`}>
             <label className="min-w-0 font-medium">

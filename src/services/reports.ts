@@ -14,9 +14,24 @@ export type Column = {
 type Range = { from: string; to: string };
 
 /** How a groupable report adds up its rows. Weeks run Monday to Sunday. */
-export const GROUPINGS = ["day", "week", "month"] as const;
+export const GROUPINGS = ["day", "week", "month", "year"] as const;
 export type Grouping = (typeof GROUPINGS)[number];
-export const GROUPING_LABELS: Record<Grouping, string> = { day: "Day", week: "Week", month: "Month" };
+export const GROUPING_LABELS: Record<Grouping, string> = { day: "Day", week: "Week", month: "Month", year: "Year" };
+/** For the quick choices above a groupable report. */
+export const GROUPING_TABS: Record<Grouping, string> = { day: "Daily", week: "Weekly", month: "Monthly", year: "Yearly" };
+
+/** Where a report starts when no date is chosen: enough periods to be useful. */
+export function defaultFrom(today: string, group: Grouping): string {
+  const year = Number(today.slice(0, 4));
+  const month = Number(today.slice(5, 7));
+  if (group === "year") return `${year - 4}-01-01`;
+  if (group === "month") return `${year}-01-01`;
+  if (group === "week") {
+    const back = month > 2 ? `${year}-${String(month - 2).padStart(2, "0")}` : `${year - 1}-${String(month + 10).padStart(2, "0")}`;
+    return `${back}-01`;
+  }
+  return `${today.slice(0, 8)}01`;
+}
 export const parseGrouping = (value: unknown): Grouping =>
   GROUPINGS.includes(value as Grouping) ? (value as Grouping) : "day";
 
@@ -48,12 +63,36 @@ const STEP: Record<Grouping, SQL> = {
   day: sql`interval '1 day'`,
   week: sql`interval '7 days'`,
   month: sql`interval '1 month'`,
+  year: sql`interval '1 year'`,
 };
+
+/** Each day, week, month or year from `from` to `to`, newest last; partial periods cut to the range. */
+const periodsCte = ({ from, to }: Range, group: Grouping) => sql`
+  periods AS (
+    SELECT GREATEST(g::date, ${from}::date) AS lo,
+           LEAST((g + ${STEP[group]} - interval '1 day')::date, ${to}::date) AS hi
+    FROM generate_series(
+      date_trunc(${group}, ${from}::date::timestamp),
+      ${to}::date::timestamp,
+      ${STEP[group]}
+    ) g
+  )`;
+
+const periodColumns = (group: Grouping): Column[] =>
+  group === "day"
+    ? [{ key: "day", label: "Date", kind: "date" }]
+    : [
+        { key: "day", label: "From", kind: "date" },
+        { key: "to", label: "To", kind: "date" },
+      ];
+
+const EXPENSE_CATEGORIES = Object.keys(EXPENSE_CATEGORY_LABELS) as (keyof typeof EXPENSE_CATEGORY_LABELS)[];
 
 export const REPORTS = {
   collections: {
     title: "Collections by day, week or month",
-    heading: (group) => ({ day: "Daily collections", week: "Weekly collections", month: "Monthly collections" })[group],
+    heading: (group) =>
+      ({ day: "Daily collections", week: "Weekly collections", month: "Monthly collections", year: "Yearly collections" })[group],
     ranged: true,
     groupable: true,
     columns: (group) =>
@@ -67,7 +106,7 @@ export const REPORTS = {
         SELECT GREATEST(g::date, ${from}::date) AS lo,
                LEAST((g + ${STEP[group]} - interval '1 day')::date, ${to}::date) AS hi
         FROM generate_series(
-          date_trunc(${group === "day" ? "day" : group}, ${from}::date::timestamp),
+          date_trunc(${group}, ${from}::date::timestamp),
           ${to}::date::timestamp,
           ${STEP[group]}
         ) g
@@ -218,6 +257,56 @@ export const REPORTS = {
       WHERE l.kind = 'spent' AND ${between(sql`l.spent_on`, range)}
         AND NOT EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = l.id)
       GROUP BY l.category ORDER BY total DESC`,
+  },
+  expenses: {
+    title: "Expenses by day, week, month or year",
+    heading: (group) =>
+      ({ day: "Daily expenses", week: "Weekly expenses", month: "Monthly expenses", year: "Yearly expenses" })[group],
+    ranged: true,
+    groupable: true,
+    columns: (group) => [
+      ...periodColumns(group),
+      { key: "collected", label: "Funds collected", kind: "naira", total: true },
+      { key: "spent", label: "Spent", kind: "naira", total: true },
+      ...EXPENSE_CATEGORIES.map((category) => ({
+        key: category,
+        label: EXPENSE_CATEGORY_LABELS[category],
+        kind: "naira" as const,
+        total: true,
+      })),
+      { key: "change", label: "Change returned", kind: "naira", total: true },
+    ],
+    // Same rule as the annual balance: spent lines by the day spent, voided lines and cancelled funds left out.
+    // A day with nothing collected, spent or returned is left out; weeks, months and years always show.
+    query: (range, group) => sql`
+      WITH ${periodsCte(range, group)}
+      SELECT * FROM (
+        SELECT periods.lo::text AS day, periods.hi::text AS "to",
+          (SELECT COALESCE(SUM(a.amount_kobo), 0) FROM expense_advances a
+            WHERE a.status <> 'cancelled' AND a.collected_on BETWEEN periods.lo AND periods.hi)::float8 AS collected,
+          l.spent, ${sql.join(
+            EXPENSE_CATEGORIES.map((category) => sql`${sql.identifier(`c_${category}`)} AS ${sql.identifier(category)}`),
+            sql`, `,
+          )}, l.change
+        FROM periods
+        CROSS JOIN LATERAL (
+          SELECT COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'spent'), 0)::float8 AS spent,
+                 ${sql.join(
+                   EXPENSE_CATEGORIES.map(
+                     (category) =>
+                       sql`COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'spent' AND x.category = ${category}), 0)::float8 AS ${sql.identifier(`c_${category}`)}`,
+                   ),
+                   sql`, `,
+                 )},
+                 COALESCE(SUM(x.amount_kobo) FILTER (WHERE x.kind = 'change'), 0)::float8 AS change
+          FROM expense_lines x
+          JOIN expense_advances a ON a.id = x.advance_id AND a.status <> 'cancelled'
+          WHERE x.spent_on BETWEEN periods.lo AND periods.hi
+            AND NOT EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = x.id)
+        ) l
+      ) r
+      WHERE ${group !== "day"}::boolean OR r.collected > 0 OR r.spent > 0 OR r.change > 0
+      ORDER BY r.day DESC`,
   },
   loan_book: {
     title: "Loan book",

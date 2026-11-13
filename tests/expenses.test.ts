@@ -23,6 +23,7 @@ import {
 import { financeOverview, getStatement } from "@/services/finance";
 import { cancelLoan, getLoan, grantLoan, listLoans } from "@/services/loans";
 import { recordPayment, reversePayment } from "@/services/payments";
+import { defaultFrom, runReport } from "@/services/reports";
 import { makeOperator, makeTricycle, makeUser, nextReference } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
@@ -365,3 +366,57 @@ describe("money given out on the Money card", () => {
   });
 });
 
+
+describe("the expense report by day, week, month and year", () => {
+  // A year no other test uses, so the totals are this test's alone.
+  const D1 = "2039-02-07";
+  const D2 = "2039-02-09";
+  const feb = { from: "2039-02-01", to: "2039-02-28" };
+
+  async function spendFebruary() {
+    const advance = (await createAdvance(on(manager, D1), { purpose: "Parts and fuel", amount: "30,000", source: "bank" }))!;
+    await addExpenseLine(on(manager, D1), advance.id, { kind: "spent", category: "store_purchase", description: "Oil", amount: "10,000", spentOn: D1 });
+    await addExpenseLine(on(manager, D2), advance.id, { kind: "spent", category: "transport", description: "Fuel", amount: "5,000", spentOn: D2 });
+    const wrong = (await addExpenseLine(on(manager, D2), advance.id, { kind: "spent", category: "office", description: "Typo", amount: "1,000", spentOn: D2 }))!;
+    await voidExpenseLine(on(manager, D2), wrong.id, { reason: "Entered twice" });
+    await addExpenseLine(on(manager, D2), advance.id, { kind: "change", amount: "2,000" });
+  }
+  beforeAll(spendFebruary);
+
+  it("shows each day with money, split by category, leaving out voided lines", async () => {
+    const report = await runReport(manager, "expenses", feb, "day");
+    expect(report.title).toBe("Daily expenses");
+    expect(report.rows.map((row) => row.day)).toEqual([D2, D1]);
+    expect(report.rows[1]).toMatchObject({ collected: 3_000_000, spent: 1_000_000, store_purchase: 1_000_000, transport: 0, change: 0 });
+    expect(report.rows[0]).toMatchObject({ collected: 0, spent: 500_000, transport: 500_000, office: 0, change: 200_000 });
+    expect(report.totals).toMatchObject({ collected: 3_000_000, spent: 1_500_000, change: 200_000 });
+  });
+
+  it("adds up by week, month and year", async () => {
+    const weeks = await runReport(manager, "expenses", feb, "week");
+    expect(weeks.rows.length).toBeGreaterThanOrEqual(4);
+    expect(weeks.rows.find((row) => row.day === "2039-02-07")).toMatchObject({ to: "2039-02-13", spent: 1_500_000 });
+    const months = await runReport(manager, "expenses", { from: "2039-01-01", to: "2039-03-31" }, "month");
+    expect(months.title).toBe("Monthly expenses");
+    expect(months.rows.map((row) => [row.day, row.spent])).toEqual([
+      ["2039-03-01", 0],
+      ["2039-02-01", 1_500_000],
+      ["2039-01-01", 0],
+    ]);
+    const years = await runReport(manager, "expenses", { from: "2039-01-01", to: "2039-12-31" }, "year");
+    expect(years.rows).toEqual([expect.objectContaining({ day: "2039-01-01", to: "2039-12-31", spent: 1_500_000, collected: 3_000_000 })]);
+  });
+
+  it("starts each grouping from a useful date", () => {
+    expect(defaultFrom("2026-11-13", "day")).toBe("2026-11-01");
+    expect(defaultFrom("2026-11-13", "week")).toBe("2026-09-01");
+    expect(defaultFrom("2026-02-13", "week")).toBe("2025-12-01");
+    expect(defaultFrom("2026-11-13", "month")).toBe("2026-01-01");
+    expect(defaultFrom("2026-11-13", "year")).toBe("2022-01-01");
+  });
+
+  it("is not for the Supervisor", async () => {
+    const supervisor = (await makeUser("supervisor")).ctx;
+    await expect(runReport(supervisor, "expenses", feb, "day")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});

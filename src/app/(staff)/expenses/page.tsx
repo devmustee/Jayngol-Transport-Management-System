@@ -3,7 +3,7 @@ import Link from "next/link";
 import { createAdvanceAction } from "@/app/actions";
 import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
 import { MoneySourceField } from "@/components/money-source";
-import { Badge, Card, Disclosure, Empty, PageHeader } from "@/components/ui";
+import { Badge, Card, Disclosure, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { ADVANCE_STATUS_LABELS, formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
@@ -46,7 +46,16 @@ export default async function ExpensesPage({ searchParams }: { searchParams: Pro
   const [data, sources] = await Promise.all([listAdvances(ctx), moneySources(ctx)]);
   return (
     <>
-      <PageHeader title="Expenses" subtitle={`Still to account for: ${formatNaira(data.outstandingKobo)}`} back={{ href: "/money", label: "Money" }} />
+      <PageHeader
+        title="Expenses"
+        subtitle={`Still to account for: ${formatNaira(data.outstandingKobo)}`}
+        back={{ href: "/money", label: "Money" }}
+        action={
+          <LinkButton href="/reports/expenses" variant="secondary">
+            Expense report
+          </LinkButton>
+        }
+      />
       <div className="space-y-4">
         {data.canRecord ? (
           <Disclosure label="Collect funds for expenses" open={collect}>
