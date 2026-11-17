@@ -8,6 +8,7 @@ import {
   issueTricycleAction,
   retireTricycleAction,
   returnTricycleAction,
+  unretireTricycleAction,
 } from "@/app/actions";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, Disclosure, Empty, LinkButton, PageHeader, tricycleTone } from "@/components/ui";
@@ -301,6 +302,19 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
             <ActionForm action={retireTricycleAction.bind(null, tricycle.id)}>
               <TextareaField name="reason" label="Reason" hint="A retired tricycle cannot be issued again." />
               <SubmitButton>Retire tricycle</SubmitButton>
+            </ActionForm>
+          </Disclosure>
+        ) : null}
+
+        {tricycle.status === "retired" && can(ctx.actor.role, "tricycle.unretire") ? (
+          <Disclosure label="Bring back into use">
+            <ActionForm action={unretireTricycleAction.bind(null, tricycle.id)}>
+              <TextareaField
+                name="reason"
+                label="Reason"
+                hint="It goes back in stock and can be issued again. The Owner is told, and the retirement stays in the audit log."
+              />
+              <SubmitButton tone="plain">Bring back into use</SubmitButton>
             </ActionForm>
           </Disclosure>
         ) : null}

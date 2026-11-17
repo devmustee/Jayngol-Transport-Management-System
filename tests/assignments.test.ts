@@ -14,7 +14,14 @@ import {
 } from "@/services/assignments";
 import type { Ctx } from "@/services/context";
 import { createOperator, markOperatorLeft } from "@/services/operators";
-import { createTricycle, getTricycle, listInStockTricycles, listTricycles, retireTricycle } from "@/services/tricycles";
+import {
+  createTricycle,
+  getTricycle,
+  listInStockTricycles,
+  listTricycles,
+  retireTricycle,
+  unretireTricycle,
+} from "@/services/tricycles";
 import { makeOperator, makeTricycle, makeUser, noticesFor, TODAY, tricycleInput, uniquePhone } from "./helpers";
 
 let manager: Ctx;
@@ -127,6 +134,36 @@ describe("issuing a tricycle", () => {
     await expect(
       issueTricycle(manager, { tricycleId: t.id, operatorId: o.id, issuedOn: TODAY }),
     ).rejects.toThrow(/retired/);
+  });
+});
+
+describe("bringing a retired tricycle back into use", () => {
+  it("puts it back in stock, keeps the retirement in the audit log and tells the Owner", async () => {
+    const owner = (await makeUser("owner")).user;
+    const t = await makeTricycle(manager);
+    await expect(unretireTricycle(manager, t.id, { reason: "Mistake" })).rejects.toThrow(/not retired/);
+    await retireTricycle(manager, t.id, { reason: "Engine gone" });
+
+    await expect(unretireTricycle(assistant, t.id, { reason: "Repaired" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(unretireTricycle(manager, t.id, { reason: " " })).rejects.toBeInstanceOf(DomainError);
+    await unretireTricycle(manager, t.id, { reason: "Engine replaced" });
+
+    expect(await statusOf(t.id)).toBe("in_stock");
+    expect((await getTricycle(manager, t.id))?.tricycle.retiredReason ?? null).toBeNull();
+    expect((await listInStockTricycles(manager)).some((row) => row.id === t.id)).toBe(true);
+
+    const [audit] = (await db.execute(sql`
+      SELECT before, reason FROM audit_log WHERE action = 'tricycle.unretire' AND entity_id = ${t.id}`)) as unknown as {
+      before: { retiredReason: string };
+      reason: string;
+    }[];
+    expect(audit).toMatchObject({ before: { retiredReason: "Engine gone" }, reason: "Engine replaced" });
+
+    const told = (await db.execute(sql`
+      SELECT r.user_id FROM notifications n JOIN notification_recipients r ON r.notification_id = n.id
+      WHERE n.kind = 'tricycle_unretired' AND n.entity_id = ${t.id}`)) as unknown as { user_id: string }[];
+    expect(told.map((row) => row.user_id)).toContain(owner.id);
+    expect(told.map((row) => row.user_id)).not.toContain(manager.actor.userId);
   });
 });
 

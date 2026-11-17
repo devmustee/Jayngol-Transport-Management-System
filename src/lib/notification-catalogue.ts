@@ -75,6 +75,7 @@ export const CATALOGUE = {
   expense_countersigned: staffNotice("info", "Expenses countersigned", "/expenses", "expense.record"),
   awards_proposed: staffNotice("action", "Awards to decide", "/awards", "award.approve"),
   stock_low: staffNotice("action", "Stock below reorder level", "/store", "stock.move"),
+  tricycle_unretired: staffNotice("info", "Tricycle back in use", "/tricycles", "tricycle.oversee"),
   account_locked: staffNotice("critical", "Staff account locked", "/users", "user.manage"),
 } as const satisfies Record<string, CatalogueEntry>;
 

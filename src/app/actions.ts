@@ -62,7 +62,7 @@ import {
 } from "@/services/meetings";
 import { confirmViolation, raiseLateWork, rejectViolation, waiveViolation } from "@/services/violations";
 import { createOperator, markOperatorLeft, updateOperator } from "@/services/operators";
-import { createTricycle, retireTricycle, updateTricycle } from "@/services/tricycles";
+import { createTricycle, retireTricycle, unretireTricycle, updateTricycle } from "@/services/tricycles";
 import {
   changeOwnPassword,
   createStaff,
@@ -141,6 +141,10 @@ export async function updateTricycleAction(id: string, _: FormState, data: FormD
 
 export async function retireTricycleAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => retireTricycle(ctx, id, values(data)), "Tricycle retired.");
+}
+
+export async function unretireTricycleAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => unretireTricycle(ctx, id, values(data)), "Tricycle is back in stock.");
 }
 
 export async function createOperatorAction(_: FormState, data: FormData): Promise<FormState> {

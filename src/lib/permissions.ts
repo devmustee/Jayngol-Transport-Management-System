@@ -17,6 +17,10 @@ const MATRIX = {
   "dashboard.view": STAFF,
   "tricycle.view": STAFF,
   "tricycle.manage": OFFICE,
+  /** Bring a retired tricycle back into use. */
+  "tricycle.unretire": ["manager"],
+  /** Told when a retired tricycle is brought back into use. */
+  "tricycle.oversee": ["owner"],
   "operator.view": STAFF,
   "operator.manage": OFFICE,
   "operator.viewSensitive": ["owner", "manager", "assistant_manager"],

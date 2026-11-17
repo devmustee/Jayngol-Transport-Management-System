@@ -15,6 +15,7 @@ import {
   requiredText,
 } from "@/lib/fields";
 import { auditFrom } from "./audit";
+import { notify } from "./notifications";
 import { likePattern, requirePermission, type Ctx } from "./context";
 import { balanceOn, currentRate, ratesFor, tricycleBalanceHistory } from "./assignments";
 
@@ -154,6 +155,41 @@ export async function retireTricycle(ctx: Ctx, rawId: unknown, raw: unknown) {
       before: { status: before.status },
       after: { status: "retired" },
       reason,
+    });
+  });
+}
+
+/**
+ * Undoes a retirement, for a mistake or a tricycle repaired after all. It goes
+ * back in stock, so it is issued, charged and serviced like any other. The
+ * retirement and its reason stay in the audit log; the Owner is told.
+ */
+export async function unretireTricycle(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "tricycle.unretire");
+  const id = parseInput(idField("tricycle"), rawId);
+  const { reason } = parseInput(z.object({ reason: requiredText("Reason", 500) }), raw);
+  await db.transaction(async (tx) => {
+    const [before] = await tx.select().from(tricycles).where(eq(tricycles.id, id)).for("update");
+    if (!before) throw new DomainError("Tricycle not found.");
+    if (before.status !== "retired") throw new DomainError("This tricycle is not retired.");
+    await tx.update(tricycles).set({ status: "in_stock", retiredReason: null }).where(eq(tricycles.id, id));
+    await auditFrom(ctx, tx, {
+      action: "tricycle.unretire",
+      entityType: "tricycle",
+      entityId: id,
+      before: { status: "retired", retiredReason: before.retiredReason },
+      after: { status: "in_stock" },
+      reason,
+    });
+    await notify(tx, {
+      kind: "tricycle_unretired",
+      at: ctx.clock(),
+      exceptUserId: ctx.actor.userId,
+      createdBy: ctx.actor.userId,
+      body: `${before.codeNumber} (${before.registrationNumber}) was brought back into use by ${ctx.actor.name}. Reason: ${reason}`,
+      link: `/tricycles/${id}`,
+      entity: { type: "tricycle", id },
+      dedupeKey: `tricycle:${id}:unretired:${ctx.clock().getTime()}`,
     });
   });
 }
