@@ -2,9 +2,11 @@ import { createHash } from "node:crypto";
 import { systemClock } from "@/lib/clock";
 import { DomainError } from "@/lib/errors";
 import { getActorQuietly } from "@/lib/session";
+import { isStaff } from "@/lib/permissions";
+import { staffBell } from "@/services/needs-action";
 import { inboxSummary } from "@/services/notifications";
 
-const NOTHING = { unread: 0, critical: 0, latest: null };
+const NOTHING = { unread: 0, critical: 0, actions: 0, latest: null };
 
 /**
  * What the bell needs, checked every minute while the app is open. When
@@ -16,7 +18,8 @@ export async function GET(request: Request) {
   if (!actor) return new Response(null, { status: 401 });
   let summary;
   try {
-    summary = await inboxSummary({ actor, clock: systemClock });
+    const ctx = { actor, clock: systemClock };
+    summary = isStaff(actor.role) ? await staffBell(ctx) : { ...(await inboxSummary(ctx)), actions: 0 };
   } catch (error) {
     // A login with no inbox (an operator login not linked to an operator) just has nothing new.
     if (!(error instanceof DomainError)) throw error;

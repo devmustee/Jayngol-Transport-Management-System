@@ -131,6 +131,8 @@ export async function unusedCredit(ctx: Ctx): Promise<UnusedCredit[]> {
       JOIN users u ON u.id = p.received_by
       JOIN operators o ON o.id = p.operator_id
       WHERE NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
+        -- Contributions paid ahead wait for their Sundays on purpose.
+        AND p.purpose <> 'contribution'
     ) x
     WHERE x.unused > 0
     ORDER BY x.unused DESC, x.received_at DESC

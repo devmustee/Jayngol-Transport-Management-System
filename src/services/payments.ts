@@ -31,10 +31,12 @@ import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { cashDate } from "./cash-book";
+import { applyContributionCredit, checkContributionPayment, contributionPosition } from "./contributions";
 import { allocate, allocateBalances, applyCredit, openCharges, syncLoanStatus } from "./ledger";
 import { describeLastPayment, dayStatus } from "./day-balance";
 import { proposeViolation } from "./violations";
 import { notifyOperators } from "./notices";
+import { tellPaymentBackdated, tellPaymentReversed } from "./staff-events";
 
 /** Spaces are ignored and letters uppercased, so the same reference always matches itself. */
 export const bankReferenceField = z.preprocess(
@@ -56,9 +58,11 @@ const paymentSchema = z.object({
   /**
    * "day" pays one day's balance (the payment date). "old" pays unpaid days
    * before it, oldest first. "fine" pays fines and "loan" the loan, each on
-   * its own. Missing keeps the older mixed rule, recorded as "general".
+   * its own. "contribution" pays weekly contributions only, oldest week
+   * first, and may run up to four weeks ahead. Missing keeps the older mixed
+   * rule, recorded as "general".
    */
-  purpose: z.enum(["day", "old", "fine", "loan"]).optional(),
+  purpose: z.enum(["day", "old", "fine", "loan", "contribution"]).optional(),
 });
 
 const PURPOSES = {
@@ -66,6 +70,7 @@ const PURPOSES = {
   old: "old_balance",
   fine: "fine",
   loan: "loan",
+  contribution: "contribution",
   general: "general",
 } as const;
 
@@ -143,6 +148,8 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
       }
 
       if (purpose === "day") await checkDayPayment(tx, operator.id, paymentDate, today, input.amount);
+      const contributionWeeks =
+        purpose === "contribution" ? await checkContributionPayment(tx, operator.id, today, input.amount) : null;
 
       const penalties = await openCharges(tx, operator.id, "penalty");
       const penaltiesOwed = penalties.reduce((sum, c) => sum + c.outstandingKobo, 0);
@@ -202,7 +209,11 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
 
       await allocate(tx, payment!.id, penalties, penaltyAmount);
       await allocate(tx, payment!.id, loanCharges, loanAmount);
-      await allocateBalances(tx, operator.id, payment!, balances, input.amount - penaltyAmount - loanAmount);
+      if (purpose === "contribution") {
+        await allocate(tx, payment!.id, await openCharges(tx, operator.id, "contribution"), input.amount);
+      } else {
+        await allocateBalances(tx, operator.id, payment!, balances, input.amount - penaltyAmount - loanAmount);
+      }
       if (loanAmount > 0) await syncLoanStatus(tx, operator.id);
 
       if (input.method === "cash") {
@@ -240,13 +251,25 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
         old: " for older days",
         fine: " for fines",
         loan: " for your loan",
+        contribution: " for your weekly contribution",
         general: "",
       }[purpose];
+      const stillOwed = contributionWeeks
+        ? (() => {
+            const left = Math.max(0, contributionWeeks.owedKobo - input.amount);
+            const ahead = Math.max(0, input.amount - contributionWeeks.owedKobo) + contributionWeeks.creditKobo;
+            return left > 0
+              ? `Contributions still owed: ${formatNaira(left)}.`
+              : ahead > 0
+                ? `Paid ahead: ${formatNaira(ahead)}.`
+                : "Contributions are up to date.";
+          })()
+        : `Balance still owed: ${formatNaira(owed)}.`;
       await notifyOperators(tx, now, [
         {
           operatorId: operator.id,
           kind: "receipt",
-          body: `${formatNaira(input.amount)} received on ${formatDate(paymentDate)}${paidFor}. Receipt ${payment!.receiptNumber}. Balance still owed: ${formatNaira(owed)}.`,
+          body: `${formatNaira(input.amount)} received on ${formatDate(paymentDate)}${paidFor}. Receipt ${payment!.receiptNumber}. ${stillOwed}`,
         },
       ]);
 
@@ -262,6 +285,15 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
         },
         reason: input.backdateReason,
       });
+      if (input.backdateTo && input.backdateReason) {
+        await tellPaymentBackdated(tx, ctx, {
+          id: payment!.id,
+          operatorId: operator.id,
+          amountKobo: input.amount,
+          date: input.backdateTo,
+          reason: input.backdateReason,
+        });
+      }
       return { id: payment!.id };
     });
   } catch (error) {
@@ -383,6 +415,7 @@ export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
     }
 
     await applyCredit(tx, found.operatorId);
+    await applyContributionCredit(tx, found.operatorId);
     await auditFrom(ctx, tx, {
       action: "payment.reverse",
       entityType: "payment",
@@ -390,6 +423,7 @@ export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
       before: { amountKobo: found.amountKobo, receiptNumber: found.receiptNumber },
       reason,
     });
+    await tellPaymentReversed(tx, ctx, { ...found, reason });
   });
 }
 
@@ -458,10 +492,11 @@ export async function paymentContext(ctx: Ctx, operatorId: string) {
     .innerJoin(tricycles, eq(tricycles.id, assignments.tricycleId))
     .where(and(eq(assignments.operatorId, operatorId), isNull(assignments.returnedOn)))
     .limit(1);
-  const [balances, penalties, loanCharges] = await Promise.all([
+  const [balances, penalties, loanCharges, contribution] = await Promise.all([
     openCharges(db, operatorId, "daily_balance"),
     openCharges(db, operatorId, "penalty"),
     openCharges(db, operatorId, "loan"),
+    contributionPosition(db, operatorId, businessDate(ctx.clock())),
   ]);
   return {
     operator,
@@ -470,6 +505,7 @@ export async function paymentContext(ctx: Ctx, operatorId: string) {
     balanceOwedKobo: balances.reduce((s, c) => s + c.outstandingKobo, 0),
     penaltiesOwedKobo: penalties.reduce((s, c) => s + c.outstandingKobo, 0),
     loanOwedKobo: loanCharges.reduce((s, c) => s + c.outstandingKobo, 0),
+    contribution,
   };
 }
 
@@ -499,22 +535,66 @@ export async function finesOwed(ctx: Ctx, operatorId: string): Promise<OwedFine[
 }
 
 /** Every operator who owes fines, most owed first, for the Offences page. */
+/** Operators with unpaid fines, each fine listed with its offence and tricycle. */
 export async function operatorsOwingFines(ctx: Ctx) {
   requirePermission(ctx, "violation.view");
   const rows = (await db.execute(sql`
-    SELECT o.id, o.name, COUNT(*)::int AS fines, SUM(x.outstanding)::float8 AS owed
+    SELECT o.id AS operator_id, o.name, o.phone, o.status,
+           held.id AS held_id, held.code_number AS held_code, held.registration_number AS held_reg,
+           x.charge_id, x.business_date::text AS business_date, x.outstanding::float8 AS outstanding,
+           x.amount_kobo::float8 AS amount_kobo, v.id AS violation_id, v.rule_code,
+           t.id AS tricycle_id, t.code_number, t.registration_number
     FROM (
-      SELECT c.operator_id,
+      SELECT c.id AS charge_id, c.operator_id, c.tricycle_id, c.business_date, c.amount_kobo,
              c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
                                        WHERE e.charge_id = c.id), 0) AS outstanding
       FROM valid_charges c WHERE c.type = 'penalty'
     ) x
     JOIN operators o ON o.id = x.operator_id
+    LEFT JOIN violations v ON v.charge_id = x.charge_id
+    LEFT JOIN tricycles t ON t.id = COALESCE(v.tricycle_id, x.tricycle_id)
+    LEFT JOIN LATERAL (
+      SELECT tr.id, tr.code_number, tr.registration_number
+      FROM assignments a JOIN tricycles tr ON tr.id = a.tricycle_id
+      WHERE a.operator_id = o.id AND a.returned_on IS NULL
+      ORDER BY a.issued_on DESC LIMIT 1
+    ) held ON true
     WHERE x.outstanding > 0
-    GROUP BY o.id, o.name
-    ORDER BY owed DESC, o.name
-  `)) as unknown as { id: string; name: string; fines: number; owed: number }[];
-  return rows.map((row) => ({ operatorId: row.id, name: row.name, fines: row.fines, owedKobo: row.owed }));
+    ORDER BY o.name, x.business_date
+  `)) as unknown as {
+    operator_id: string; name: string; phone: string; status: string;
+    held_id: string | null; held_code: string | null; held_reg: string | null;
+    charge_id: string; business_date: string; outstanding: number; amount_kobo: number;
+    violation_id: string | null; rule_code: string | null;
+    tricycle_id: string | null; code_number: string | null; registration_number: string | null;
+  }[];
+
+  const byOperator = new Map<string, {
+    operatorId: string; name: string; phone: string; status: string;
+    tricycle: { id: string; code: string; registration: string } | null;
+    fines: number; owedKobo: number; oldest: string;
+    items: { chargeId: string; violationId: string | null; ruleCode: string | null; date: string;
+      amountKobo: number; outstandingKobo: number; tricycleId: string | null; code: string | null; registration: string | null }[];
+  }>();
+  for (const row of rows) {
+    let entry = byOperator.get(row.operator_id);
+    if (!entry) {
+      entry = {
+        operatorId: row.operator_id, name: row.name, phone: row.phone, status: row.status,
+        tricycle: row.held_id ? { id: row.held_id, code: row.held_code!, registration: row.held_reg! } : null,
+        fines: 0, owedKobo: 0, oldest: row.business_date, items: [],
+      };
+      byOperator.set(row.operator_id, entry);
+    }
+    entry.fines++;
+    entry.owedKobo += row.outstanding;
+    entry.items.push({
+      chargeId: row.charge_id, violationId: row.violation_id, ruleCode: row.rule_code, date: row.business_date,
+      amountKobo: row.amount_kobo, outstandingKobo: row.outstanding,
+      tricycleId: row.tricycle_id, code: row.code_number, registration: row.registration_number,
+    });
+  }
+  return [...byOperator.values()].sort((a, b) => b.owedKobo - a.owedKobo || a.name.localeCompare(b.name));
 }
 
 export async function paymentReferenceOf(paymentId: string) {

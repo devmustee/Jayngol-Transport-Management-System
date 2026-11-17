@@ -8,7 +8,7 @@ import { balanceTotals, moneyReceived } from "@/services/balance-periods";
 import { annualBalance, annualRows, buildAnnualBalance, weekParts, type YearFigures } from "@/services/annual-balance";
 import { cashAlerts } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
-import { cashDay, checkCashClose, closeCash, uncheckedCloses } from "@/services/finance";
+import { cashDay, closeCash } from "@/services/finance";
 import { voidCharge } from "@/services/ledger";
 import { grantLoan } from "@/services/loans";
 import { recordPayment, reversePayment } from "@/services/payments";
@@ -228,7 +228,7 @@ describe("cash close rhythm", () => {
     });
   });
 
-  it("covers the whole week in a Sunday close, which the Owner can check", async () => {
+  it("covers the whole week in a Sunday close, done in one step", async () => {
     const boss = (await makeUser("manager")).ctx;
     const id = boss.actor.userId;
     await collect(on(boss, "2036-03-04"), "10,000"); // Tuesday
@@ -239,12 +239,9 @@ describe("cash close rhythm", () => {
 
     await closeCash(on(boss, "2036-03-09", "20:00"), { custodianId: id, businessDate: "2036-03-09", counted: "15,000" });
     expect(await alertFor(boss.actor.name, "2036-03-11")).toBeUndefined();
-    const waiting = (await uncheckedCloses(owner)).find((row) => row.name === boss.actor.name);
-    expect(waiting?.label).toBe("Week close, 4 Mar 2036 to 9 Mar 2036");
-
-    const closeId = (await cashDay(boss, "2036-03-09")).find((row) => row.id === id)!.close!.id;
-    await expect(checkCashClose(boss, closeId, { recounted: "15,000" })).rejects.toThrow(/different person/);
-    await checkCashClose(owner, closeId, { recounted: "15,000" });
+    const done = (await cashDay(boss, "2036-03-09")).find((row) => row.id === id)!;
+    expect(done.close).toMatchObject({ countedKobo: 1_500_000 });
+    expect(done.check).toBeNull();
   });
 
   it("alerts an Assistant Manager the morning after a day not closed", async () => {

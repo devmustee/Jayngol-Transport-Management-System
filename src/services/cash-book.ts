@@ -153,7 +153,7 @@ export async function cashSinceLastClose(exec: Executor, custodianId: string, da
 export async function cashAlerts(exec: Executor, today: string) {
   const [unclosed, counts] = await Promise.all([
     exec.execute(sql`
-      SELECT u.name, u.role::text AS role, MIN(m.business_date)::text AS since
+      SELECT u.id, u.name, u.role::text AS role, MIN(m.business_date)::text AS since
       FROM cash_movements m JOIN users u ON u.id = m.custodian_id
       WHERE m.business_date < ${today}::date
         AND m.business_date > COALESCE(
@@ -162,23 +162,20 @@ export async function cashAlerts(exec: Executor, today: string) {
     `),
     exec.execute(sql`
       SELECT
-        (SELECT COUNT(*)::int FROM cash_closes c
-          WHERE NOT EXISTS (SELECT 1 FROM cash_close_checks k WHERE k.close_id = c.id)) AS closes,
         (SELECT COUNT(*)::int FROM money_transfers WHERE status = 'pending') AS handovers,
         (SELECT COUNT(*)::int FROM payment_references
           WHERE released_at IS NULL AND confirmed_at IS NULL) AS bank
     `),
   ]);
-  const row = (counts as unknown as { closes: number; handovers: number; bank: number }[])[0];
+  const row = (counts as unknown as { handovers: number; bank: number }[])[0];
   // The Assistant Manager is late the morning after a day not closed. The Manager
   // closes weekly and is late from Tuesday if last week is not closed.
-  const cashNotClosed = (unclosed as unknown as { name: string; role: string; since: string }[])
+  const cashNotClosed = (unclosed as unknown as { id: string; name: string; role: string; since: string }[])
     .map((person) => ({ ...person, rhythm: closeRhythm(person.role) }))
     .filter((person) => person.since <= closeDueBy(person.rhythm, today))
-    .map(({ name, since, rhythm }) => ({ name, since, rhythm, week: rhythm === "week" ? weekOf(since) : null }));
+    .map(({ id, name, since, rhythm }) => ({ id, name, since, rhythm, week: rhythm === "week" ? weekOf(since) : null }));
   return {
     cashNotClosed,
-    closesToCheck: row?.closes ?? 0,
     handoversWaiting: row?.handovers ?? 0,
     bankToCheck: row?.bank ?? 0,
   };

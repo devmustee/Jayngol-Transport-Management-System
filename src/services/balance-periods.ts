@@ -15,7 +15,10 @@ import { requirePermission, type Ctx } from "./context";
  */
 
 export type BalanceTotals = {
+  /** After waivers. */
   dueKobo: number;
+  /** Forgiven by the Manager on these days. */
+  waivedKobo: number;
   /** Paid towards these days' balances, whenever the money came in. */
   paidKobo: number;
   owedKobo: number;
@@ -33,6 +36,8 @@ export type MoneyReceived = {
   forBalancesKobo: number;
   forFinesKobo: number;
   forLoansKobo: number;
+  /** Weekly contributions: company income of their own. */
+  forContributionsKobo: number;
   creditKobo: number;
 };
 
@@ -56,16 +61,21 @@ export async function balanceTotals(
         ${forOperator}
     )
     SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS due,
+           (SELECT COALESCE(SUM(e.amount_kobo), 0) FROM effective_waivers e JOIN charges c ON c.id = e.charge_id
+            WHERE c.business_date BETWEEN ${range.from}::date AND ${range.to}::date
+              AND NOT EXISTS (SELECT 1 FROM charge_voids v WHERE v.charge_id = c.id)
+              ${forOperator})::float8 AS waived,
            COALESCE(SUM(paid), 0)::float8 AS paid,
            COUNT(*)::int AS days,
            (COUNT(*) FILTER (WHERE paid >= amount_kobo))::int AS full_days,
            (MIN(business_date) FILTER (WHERE paid < amount_kobo))::text AS oldest
     FROM days
-  `)) as unknown as { due: number; paid: number; days: number; full_days: number; oldest: string | null }[];
+  `)) as unknown as { due: number; waived: number; paid: number; days: number; full_days: number; oldest: string | null }[];
   const due = num(row?.due);
   const paid = num(row?.paid);
   return {
     dueKobo: due,
+    waivedKobo: num(row?.waived),
     paidKobo: paid,
     owedKobo: due - paid,
     daysCharged: num(row?.days),
@@ -102,19 +112,22 @@ export async function moneyReceived(
       (SELECT COALESCE(SUM(amount_kobo), 0) FROM paid_in WHERE method = 'transfer')::float8 AS transfer,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'daily_balance')::float8 AS balances,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'penalty')::float8 AS fines,
-      (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'loan')::float8 AS loans
-  `)) as unknown as Record<"total" | "cash" | "pos" | "transfer" | "balances" | "fines" | "loans", number>[];
+      (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'loan')::float8 AS loans,
+      (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'contribution')::float8 AS contributions
+  `)) as unknown as Record<"total" | "cash" | "pos" | "transfer" | "balances" | "fines" | "loans" | "contributions", number>[];
   const total = num(row?.total);
   const balances = num(row?.balances);
   const fines = num(row?.fines);
   const loans = num(row?.loans);
+  const contributions = num(row?.contributions);
   return {
     totalKobo: total,
     byMethod: { cash: num(row?.cash), pos: num(row?.pos), transfer: num(row?.transfer) },
     forBalancesKobo: balances,
     forFinesKobo: fines,
     forLoansKobo: loans,
-    creditKobo: total - balances - fines - loans,
+    forContributionsKobo: contributions,
+    creditKobo: total - balances - fines - loans - contributions,
   };
 }
 

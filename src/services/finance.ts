@@ -22,24 +22,30 @@ import { requirePermission, type Ctx } from "./context";
 import { awardsToDecide } from "./awards";
 import { cashAlerts, cashPosition, cashSinceLastClose, givenOutOn } from "./cash-book";
 import { advanceCounts } from "./expenses";
+import { contributionCredit } from "./contributions";
 import { openCharges, unallocatedPayments } from "./ledger";
 import { lastJobDate } from "./daily-job";
 import { loansToCollect } from "./loans";
+import { tellCashDifference } from "./staff-events";
 
 /* ---------- Statements ---------- */
 
 async function buildStatement(exec: Executor, operatorId: string) {
-  const [balances, penalties, loanCharges, credits, chargeRows, paymentRows, awardRows] = await Promise.all([
+  const [balances, penalties, loanCharges, credits, contributionWeeks, contributionAhead, chargeRows, paymentRows, awardRows] = await Promise.all([
     openCharges(exec, operatorId, "daily_balance"),
     openCharges(exec, operatorId, "penalty"),
     openCharges(exec, operatorId, "loan"),
     unallocatedPayments(exec, operatorId),
+    openCharges(exec, operatorId, "contribution"),
+    contributionCredit(exec, operatorId),
     exec.execute(sql`
       SELECT c.id, c.type::text AS type, c.amount_kobo::float8 AS amount,
              c.business_date::text AS business_date,
              EXISTS (SELECT 1 FROM charge_voids v WHERE v.charge_id = c.id) AS voided,
              COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
-                       WHERE e.charge_id = c.id), 0)::float8 AS paid
+                       WHERE e.charge_id = c.id), 0)::float8 AS paid,
+             COALESCE((SELECT SUM(w.amount_kobo) FROM effective_waivers w
+                       WHERE w.charge_id = c.id), 0)::float8 AS waived
       FROM charges c WHERE c.operator_id = ${operatorId}
       ORDER BY c.business_date DESC, c.created_at DESC LIMIT 120
     `),
@@ -63,6 +69,9 @@ async function buildStatement(exec: Executor, operatorId: string) {
     penaltiesOwedKobo: penalties.reduce((s, c) => s + c.outstandingKobo, 0),
     loanOwedKobo: loanCharges.reduce((s, c) => s + c.outstandingKobo, 0),
     creditKobo: credits.reduce((s, c) => s + c.free, 0),
+    contributionOwedKobo: contributionWeeks.reduce((s, c) => s + c.outstandingKobo, 0),
+    contributionWeeksOwed: contributionWeeks.length,
+    contributionAheadKobo: contributionAhead.reduce((s, c) => s + c.free, 0),
     awards: awardRows as unknown as {
       id: string;
       type: "consistency" | "clean_vehicle" | "law_abiding";
@@ -71,11 +80,13 @@ async function buildStatement(exec: Executor, operatorId: string) {
     }[],
     charges: chargeRows as unknown as {
       id: string;
-      type: "daily_balance" | "penalty" | "loan";
+      type: "daily_balance" | "penalty" | "loan" | "contribution";
       amount: number;
       business_date: string;
       voided: boolean;
       paid: number;
+      /** Forgiven by the Manager. What is owed is amount − waived − paid. */
+      waived: number;
     }[],
     payments: paymentRows as unknown as {
       id: string;
@@ -178,6 +189,9 @@ export async function listArrears(ctx: Ctx, range?: DateRange) {
 
 /* ---------- Cash close ---------- */
 
+// Closing is one step: the person who holds the cash counts it and closes.
+// cash_close_checks holds the second checks made before that, kept as history.
+
 export async function cashDay(ctx: Ctx, date: string) {
   requirePermission(ctx, "finance.view");
   const [custodians, closes, checks] = await Promise.all([
@@ -213,62 +227,6 @@ export async function cashDay(ctx: Ctx, date: string) {
       };
     }),
   );
-}
-
-/** Counts still waiting for a second person, oldest first. */
-export async function uncheckedCloses(ctx: Ctx) {
-  requirePermission(ctx, "finance.view");
-  const rows = (await db.execute(sql`
-    SELECT c.id, c.business_date::text AS date, u.name, u.role::text AS role,
-           (SELECT MAX(p.business_date) FROM cash_closes p
-            WHERE p.custodian_id = c.custodian_id AND p.business_date < c.business_date)::text AS previous,
-           (SELECT MIN(m.business_date) FROM cash_movements m
-            WHERE m.custodian_id = c.custodian_id AND m.business_date <= c.business_date)::text AS first_moved
-    FROM cash_closes c JOIN users u ON u.id = c.custodian_id
-    WHERE NOT EXISTS (SELECT 1 FROM cash_close_checks k WHERE k.close_id = c.id)
-    ORDER BY c.business_date LIMIT 60
-  `)) as unknown as { id: string; date: string; name: string; role: string; previous: string | null; first_moved: string | null }[];
-  return rows.map((row) => {
-    const from = row.previous ? addDays(row.previous, 1) : (row.first_moved ?? row.date);
-    return { id: row.id, date: row.date, name: row.name, label: coverageLabel(from, row.date, closeRhythm(row.role)) };
-  });
-}
-
-const checkSchema = z.object({ recounted: nairaField("Cash recounted"), note: optionalText() });
-
-/** The person who counted cannot also check. A different recount becomes the amount carried forward. */
-export async function checkCashClose(ctx: Ctx, rawId: unknown, raw: unknown) {
-  requirePermission(ctx, "cash.check");
-  const id = parseInput(idField("cash count"), rawId);
-  const input = parseInput(checkSchema, raw);
-  await db.transaction(async (tx) => {
-    const [close] = await tx.select().from(cashCloses).where(eq(cashCloses.id, id));
-    if (!close) throw new DomainError("Cash count not found.");
-    if (close.closedBy === ctx.actor.userId) throw new DomainError("A different person must check this count.");
-    if (input.recounted !== close.countedKobo && !input.note) {
-      throw fieldError("note", "Explain why the recount is different");
-    }
-    const [row] = await tx
-      .insert(cashCloseChecks)
-      .values({
-        closeId: id,
-        checkedBy: ctx.actor.userId,
-        recountedKobo: input.recounted,
-        note: input.note ?? null,
-        checkedAt: ctx.clock(),
-      })
-      .onConflictDoNothing()
-      .returning({ id: cashCloseChecks.closeId });
-    if (!row) throw new DomainError("This count has already been checked.");
-    await auditFrom(ctx, tx, {
-      action: "cash.check",
-      entityType: "cash_close",
-      entityId: id,
-      before: { countedKobo: close.countedKobo },
-      after: { recountedKobo: input.recounted },
-      reason: input.note,
-    });
-  });
 }
 
 const closeSchema = z.object({
@@ -312,6 +270,14 @@ export async function closeCash(ctx: Ctx, raw: unknown) {
           closedAt: ctx.clock(),
         })
         .returning({ id: cashCloses.id });
+      await tellCashDifference(tx, ctx, {
+        id: row!.id,
+        custodianId: input.custodianId,
+        businessDate: input.businessDate,
+        expectedKobo,
+        countedKobo: input.counted,
+        explanation: input.explanation ?? null,
+      });
       await auditFrom(ctx, tx, {
         action: "cash.close",
         entityType: "cash_close",

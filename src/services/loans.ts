@@ -121,11 +121,23 @@ const lastRepaidOn = sql<string | null>`(
   WHERE a.charge_id = loans.charge_id
     AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id))`;
 
+// The tricycle the operator holds now, if any.
+const heldTricycle = (column: "code_number" | "registration_number") => sql<string | null>`(
+  SELECT t.${sql.raw(column)} FROM assignments a JOIN tricycles t ON t.id = a.tricycle_id
+  WHERE a.operator_id = loans.operator_id AND a.returned_on IS NULL
+  ORDER BY a.issued_on DESC LIMIT 1)`;
+
 export async function listLoans(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
   const rows = await db
-    .select({ ...fields, lastRepaidOn })
+    .select({
+      ...fields,
+      lastRepaidOn,
+      operatorPhone: operators.phone,
+      tricycleCode: heldTricycle("code_number"),
+      registration: heldTricycle("registration_number"),
+    })
     .from(loans)
     .innerJoin(operators, eq(operators.id, loans.operatorId))
     .orderBy(desc(loans.disbursedOn), desc(loans.createdAt))

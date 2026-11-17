@@ -1,5 +1,8 @@
 "use server";
 
+import { setContributionRate, waiveContribution } from "@/services/contributions";
+import { reverseWaiver, waiveBalances, waiveFleetDay } from "@/services/waivers";
+import { formatNaira } from "@/lib/money";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { systemClock } from "@/lib/clock";
@@ -12,7 +15,7 @@ import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
 import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
 import { recordDeposit, reverseDeposit } from "@/services/deposits";
-import { addNonCollectionDay, checkCashClose, closeCash, removeNonCollectionDay } from "@/services/finance";
+import { addNonCollectionDay, closeCash, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
 import { markAllRead, openNotification } from "@/services/notifications";
 import { isStaff } from "@/lib/permissions";
@@ -255,6 +258,55 @@ export async function waiveViolationAction(id: string, _: FormState, data: FormD
   return perform((ctx) => waiveViolation(ctx, id, values(data)), "Fine waived.");
 }
 
+/** The ticked days and any part amounts, as one waiver. */
+export async function waiveBalancesAction(operatorId: string, _: FormState, data: FormData): Promise<FormState> {
+  const ctx = await requireCtx();
+  let id: string;
+  try {
+    const days = data.getAll("day").map(String);
+    id = (
+      await waiveBalances(ctx, {
+        operatorId,
+        reason: data.get("reason") ?? undefined,
+        note: data.get("note") ?? undefined,
+        waiveFine: data.get("waiveFine") === "on",
+        lines: days.map((chargeId) => ({
+          chargeId,
+          amount: data.get(`mode_${chargeId}`) === "part" ? String(data.get(`amount_${chargeId}`) ?? "") : undefined,
+        })),
+      })
+    ).id;
+  } catch (error) {
+    return toState(error);
+  }
+  revalidatePath("/", "layout");
+  redirect(`/waivers?show=${id}`);
+}
+
+export async function reverseWaiverAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => reverseWaiver(ctx, id, values(data)), "Waiver reversed. The days are owed again.");
+}
+
+export async function waiveFleetDayAction(_: FormState, data: FormData) {
+  let message = "";
+  const state = await perform(async (ctx) => {
+    const result = await waiveFleetDay(ctx, values(data));
+    message =
+      result.operators === 0
+        ? "Marked as a no-balance day. No unpaid balances were left to waive."
+        : `Waived ${formatNaira(result.totalKobo)} for ${result.operators} operator${result.operators === 1 ? "" : "s"}.`;
+  }, "");
+  return state.ok ? { ...state, message } : state;
+}
+
+export async function setContributionRateAction(_: FormState, data: FormData) {
+  return perform((ctx) => setContributionRate(ctx, values(data)), "Weekly contribution amount saved.");
+}
+
+export async function waiveContributionAction(_: FormState, data: FormData) {
+  return perform((ctx) => waiveContribution(ctx, data.get("chargeId"), values(data)), "Week waived.");
+}
+
 export async function confirmSackingAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => confirmSacking(ctx, id, values(data)), "Sacking confirmed. The tricycle has been taken back and can be issued again once any repair is finished.");
 }
@@ -425,10 +477,6 @@ export async function approveAwardAction(id: string, _: FormState, data: FormDat
 
 export async function rejectAwardAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => rejectAward(ctx, id, values(data)), "Award rejected.");
-}
-
-export async function checkCashCloseAction(id: string, _: FormState, data: FormData) {
-  return perform((ctx) => checkCashClose(ctx, id, values(data)), "Count checked.");
 }
 
 export async function createTransferAction(_: FormState, data: FormData) {

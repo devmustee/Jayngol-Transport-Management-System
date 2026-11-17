@@ -113,4 +113,74 @@ export async function queueDayNotices(tx: Tx, date: string, now: Date, runs: Map
       body: `${row.code} is due for service on ${formatDate(tomorrow)}, between 8:00 and 10:00 am.`,
     })),
   );
+
+  await queueContributionNotices(tx, date, now);
+}
+
+/**
+ * Saturday: the weekly contribution is due tomorrow, for everyone who will be
+ * charged and has not paid it ahead. Monday: a reminder for unpaid weeks.
+ */
+async function queueContributionNotices(tx: Tx, date: string, now: Date) {
+  const weekday = new Date(`${date}T00:00:00Z`).getUTCDay();
+  if (weekday === 6) {
+    const sunday = addDays(date, 1);
+    const due = (await tx.execute(sql`
+      WITH rate AS (
+        SELECT amount_kobo FROM contribution_rates WHERE effective_from <= ${sunday}::date
+        ORDER BY effective_from DESC LIMIT 1
+      )
+      SELECT DISTINCT o.id AS operator_id, (SELECT amount_kobo FROM rate)::float8 AS amount
+      FROM operators o
+      JOIN assignments a ON a.operator_id = o.id
+      WHERE EXISTS (SELECT 1 FROM rate)
+        AND o.status = 'active'
+        AND a.issued_on < ${sunday}::date AND a.returned_on IS NULL
+        AND (SELECT amount_kobo FROM rate) > COALESCE((
+          SELECT SUM(p.amount_kobo - COALESCE((
+                   SELECT SUM(x.amount_kobo) FROM payment_allocations x
+                   JOIN valid_charges c ON c.id = x.charge_id
+                   WHERE x.payment_id = p.id), 0))
+          FROM payments p
+          WHERE p.operator_id = o.id AND p.purpose = 'contribution'
+            AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)), 0)
+    `)) as unknown as { operator_id: string; amount: number }[];
+    await notifyOperators(
+      tx,
+      now,
+      due.map((row) => ({
+        operatorId: row.operator_id,
+        kind: "contribution_due",
+        body: `Jayngol: Your weekly contribution of ${formatNaira(row.amount)} is due tomorrow, Sunday.`,
+        dedupeKey: `contribution_due:${sunday}`,
+      })),
+    );
+  }
+  if (weekday === 1) {
+    const owing = (await tx.execute(sql`
+      SELECT c.operator_id, COUNT(*)::int AS weeks,
+             SUM(c.amount_kobo - COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
+                                           WHERE e.charge_id = c.id), 0))::float8 AS owed
+      FROM valid_charges c
+      JOIN operators o ON o.id = c.operator_id
+      WHERE c.type = 'contribution' AND c.business_date < ${date}::date
+        AND o.status = 'active'
+        AND c.amount_kobo > COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
+                                      WHERE e.charge_id = c.id), 0)
+      GROUP BY c.operator_id
+    `)) as unknown as { operator_id: string; weeks: number; owed: number }[];
+    await notifyOperators(
+      tx,
+      now,
+      owing.map((row) => ({
+        operatorId: row.operator_id,
+        kind: "contribution_unpaid",
+        body:
+          row.weeks === 1
+            ? `Jayngol: Your weekly contribution of ${formatNaira(row.owed)} for Sunday was not paid. Please pay it at the office.`
+            : `Jayngol: You owe ${formatNaira(row.owed)} in weekly contributions for ${row.weeks} weeks. Please pay at the office.`,
+        dedupeKey: `contribution_unpaid:${date}`,
+      })),
+    );
+  }
 }

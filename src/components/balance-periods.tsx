@@ -44,6 +44,7 @@ function Column({ data }: { data: FleetPeriod }) {
 
       <dl className="mt-3 divide-y divide-line/60">
         <Row label="Due" value={formatNaira(balances.dueKobo)} />
+        {balances.waivedKobo > 0 ? <Row label="Waived" value={formatNaira(balances.waivedKobo)} /> : null}
         <Row label="Paid" value={formatNaira(balances.paidKobo)} />
         {balances.owedKobo > 0 ? (
           <Link
@@ -73,6 +74,7 @@ function Column({ data }: { data: FleetPeriod }) {
         <Row label="Balances" value={formatNaira(received.forBalancesKobo)} />
         <Row label="Fines" value={formatNaira(received.forFinesKobo)} />
         <Row label="Loans" value={formatNaira(received.forLoansKobo)} />
+        {received.forContributionsKobo > 0 ? <Row label="Contributions" value={formatNaira(received.forContributionsKobo)} /> : null}
         {received.creditKobo > 0 ? <Row label="Not used yet (credit)" value={formatNaira(received.creditKobo)} /> : null}
       </dl>
     </div>

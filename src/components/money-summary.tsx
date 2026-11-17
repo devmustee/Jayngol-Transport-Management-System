@@ -91,7 +91,6 @@ export function MoneySummary({
     money.awardsWaiting > 0 ||
     money.cashNotClosed.length > 0 ||
     money.handoversWaiting > 0 ||
-    money.closesToCheck > 0 ||
     money.advances.toApprove > 0 ||
     money.advances.sentBack > 0;
 
@@ -150,16 +149,6 @@ export function MoneySummary({
               icon={Wallet}
               title={`${money.handoversWaiting} cash handover${money.handoversWaiting === 1 ? "" : "s"} waiting to be accepted`}
               count={money.handoversWaiting}
-              tone="warning"
-            />
-          ) : null}
-
-          {money.closesToCheck > 0 ? (
-            <AlertRow
-              href="/cash"
-              icon={Wallet}
-              title={`${money.closesToCheck} cash count${money.closesToCheck === 1 ? "" : "s"} waiting for a second check`}
-              count={money.closesToCheck}
               tone="warning"
             />
           ) : null}

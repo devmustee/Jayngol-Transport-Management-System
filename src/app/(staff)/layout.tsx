@@ -3,12 +3,14 @@ import { BottomNav, SideNav, type NavItem } from "@/components/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
 import { NotificationBell } from "@/components/notification-bell";
-import { inboxSummary } from "@/services/notifications";
+import { UrgentBanner } from "@/components/urgent-banner";
+import { staffBell } from "@/services/needs-action";
+import { latestUrgent } from "@/services/notifications";
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireStaffCtx();
   const { actor } = ctx;
-  const bell = await inboxSummary(ctx);
+  const [bell, urgent] = await Promise.all([staffBell(ctx), latestUrgent(ctx)]);
   const items: NavItem[] = [
     { href: "/dashboard", label: "Home", icon: "home", primary: true },
     { href: "/tricycles", label: "Tricycles", icon: "tricycles", primary: true },
@@ -122,6 +124,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             </Link>
           </div>
         </header>
+
+        {urgent ? <UrgentBanner notice={urgent} more={Math.max(0, bell.critical - 1)} /> : null}
 
         <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6 md:p-8 pb-28 md:pb-12">
           {children}

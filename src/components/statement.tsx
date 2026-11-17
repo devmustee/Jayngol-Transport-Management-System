@@ -17,6 +17,15 @@ export function StatementView({ data, afterOwed }: { data: Statement; afterOwed?
             ["Penalties", formatNaira(data.penaltiesOwedKobo)],
             ...(data.loanOwedKobo > 0 ? ([["Loan", formatNaira(data.loanOwedKobo)]] as [string, string][]) : []),
             ...(data.creditKobo > 0 ? ([["Paid in advance", formatNaira(data.creditKobo)]] as [string, string][]) : []),
+            ...(data.contributionOwedKobo > 0
+              ? ([[
+                  "Weekly contributions",
+                  `${formatNaira(data.contributionOwedKobo)} (${data.contributionWeeksOwed} week${data.contributionWeeksOwed === 1 ? "" : "s"})`,
+                ]] as [string, string][])
+              : []),
+            ...(data.contributionAheadKobo > 0
+              ? ([["Contributions paid ahead", formatNaira(data.contributionAheadKobo)]] as [string, string][])
+              : []),
           ]}
         />
       </Card>
@@ -48,10 +57,14 @@ export function StatementView({ data, afterOwed }: { data: Statement; afterOwed?
                   <div className={`font-medium tabular-nums ${c.voided ? "line-through" : ""}`}>{formatNaira(c.amount)}</div>
                   {c.voided ? (
                     <Badge tone="plain">Cancelled</Badge>
-                  ) : c.paid >= c.amount ? (
-                    <Badge tone="good">Paid</Badge>
-                  ) : c.paid > 0 ? (
-                    <Badge tone="gold">{formatNaira(c.amount - c.paid)} left</Badge>
+                  ) : c.waived >= c.amount ? (
+                    <Badge tone="plain">Waived</Badge>
+                  ) : c.paid + c.waived >= c.amount ? (
+                    <Badge tone="good">{c.waived > 0 ? `Paid · ${formatNaira(c.waived)} waived` : "Paid"}</Badge>
+                  ) : c.paid + c.waived > 0 ? (
+                    <Badge tone="gold">
+                      {formatNaira(c.amount - c.paid - c.waived)} left{c.waived > 0 ? ` · ${formatNaira(c.waived)} waived` : ""}
+                    </Badge>
                   ) : (
                     <Badge tone="bad">Unpaid</Badge>
                   )}

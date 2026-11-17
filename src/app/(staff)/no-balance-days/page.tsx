@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { addNoBalanceDayAction, removeNoBalanceDayAction } from "@/app/actions";
+import { addNoBalanceDayAction, removeNoBalanceDayAction, waiveFleetDayAction } from "@/app/actions";
 import { ActionForm, Field, SubmitButton } from "@/components/form";
-import { Card, Empty, PageHeader } from "@/components/ui";
+import { Card, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { formatDate } from "@/lib/format";
 import { can } from "@/lib/permissions";
@@ -14,6 +14,7 @@ export default async function NoBalanceDaysPage() {
   const ctx = await requirePage("finance.view");
   const days = await listNonCollectionDays(ctx);
   const canManage = can(ctx.actor.role, "calendar.manage");
+  const canWaive = can(ctx.actor.role, "balance.waive");
   const today = businessDate(ctx.clock());
 
   return (
@@ -30,6 +31,21 @@ export default async function NoBalanceDaysPage() {
               <SubmitButton>Add date</SubmitButton>
             </ActionForm>
           </Card>
+        ) : null}
+        {canWaive ? (
+          <Disclosure label="Waive a past day for the whole fleet">
+            <p className="mb-3 text-sm text-muted">
+              For a day already begun or past, such as a flood or a strike. The date becomes a no-balance day, and every
+              unpaid balance raised for it is waived with its late fine. The Owner is told once.
+            </p>
+            <ActionForm action={waiveFleetDayAction}>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field name="businessDate" label="Date" type="date" max={today} defaultValue={today} />
+                <Field name="note" label="Reason" autoComplete="off" />
+              </div>
+              <SubmitButton>Waive this day for everyone</SubmitButton>
+            </ActionForm>
+          </Disclosure>
         ) : null}
         {days.length === 0 ? (
           <Empty>No dates marked.</Empty>

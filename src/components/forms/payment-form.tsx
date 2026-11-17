@@ -7,13 +7,14 @@ import { formatNaira, parseNairaToKobo } from "@/lib/money";
 import { koboToInput } from "@/lib/payment-preview";
 import { CHOICE, METHODS } from "./money-choices";
 
-export type PaymentPurpose = "day" | "old" | "fine" | "loan";
+export type PaymentPurpose = "day" | "old" | "fine" | "loan" | "contribution";
 
 const TOO_MUCH: Record<PaymentPurpose, string> = {
   day: "is left to pay for this day",
   old: "is owed for days before today",
   fine: "is owed in fines",
   loan: "is owed on the loan",
+  contribution: "can be taken: what is owed and up to 4 weeks ahead",
 };
 
 const UP_TO: Record<PaymentPurpose, string> = {
@@ -21,6 +22,7 @@ const UP_TO: Record<PaymentPurpose, string> = {
   old: "everything owed for earlier days, oldest day paid first",
   fine: "all fines owed, oldest first",
   loan: "what is left on the loan",
+  contribution: "what is owed plus up to 4 weeks ahead, oldest week paid first",
 };
 
 /**
@@ -35,6 +37,7 @@ export function PaymentForm({
   date,
   today,
   leftKobo,
+  startKobo,
   hasTricycle,
 }: {
   purpose: PaymentPurpose;
@@ -45,10 +48,12 @@ export function PaymentForm({
   today: string;
   /** The most this payment can take. */
   leftKobo: number;
+  /** The amount filled in at the start, when it is less than the most. */
+  startKobo?: number;
   hasTricycle: boolean;
 }) {
   const [method, setMethod] = useState("");
-  const [amount, setAmount] = useState(koboToInput(leftKobo));
+  const [amount, setAmount] = useState(koboToInput(Math.min(startKobo ?? leftKobo, leftKobo)));
   const amountKobo = amount.trim() === "" ? null : parseNairaToKobo(amount);
   const tooMuch = amountKobo !== null && amountKobo > leftKobo;
   const backdated = purpose === "day" && date !== today;

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, count, desc, eq, gt, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, gt, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import { db, type Tx } from "@/db";
 import { notificationRecipients, notifications, users } from "@/db/schema";
 import { DomainError } from "@/lib/errors";
@@ -10,7 +10,7 @@ import {
   type CatalogueEntry,
   type NotificationKind,
 } from "@/lib/notification-catalogue";
-import { isStaff, rolesWith } from "@/lib/permissions";
+import { isStaff, rolesWith, type Permission } from "@/lib/permissions";
 import type { Ctx } from "./context";
 
 /**
@@ -26,6 +26,8 @@ export type NotifyEvent = {
   operatorIds?: string[];
   /** For staff notices: people to tell instead of everyone holding the catalogue's permission. */
   userIds?: string[];
+  /** The person who caused the event, who is never told of it. */
+  exceptUserId?: string | null;
   link?: string;
   entity?: { type: string; id: string };
   /** A notification with a key is posted once, however often the event is retried. */
@@ -36,8 +38,10 @@ export type NotifyEvent = {
 const internalLink = (link: string | undefined, fallback: string) => (link && isAppLink(link) ? link : fallback);
 
 /** Active staff who hold a permission, or only those of `userIds` who are active. */
-async function staffFor(tx: Tx, permission: Parameters<typeof rolesWith>[0], userIds?: string[]) {
-  const filters: SQL[] = [eq(users.status, "active"), inArray(users.role, rolesWith(permission))];
+async function staffFor(tx: Tx, permission: Permission | readonly Permission[], userIds?: string[], except?: string | null) {
+  const roles = [...new Set((typeof permission === "string" ? [permission] : permission).flatMap(rolesWith))];
+  const filters: SQL[] = [eq(users.status, "active"), inArray(users.role, roles)];
+  if (except) filters.push(ne(users.id, except));
   if (userIds) {
     if (userIds.length === 0) return [];
     filters.push(inArray(users.id, userIds));
@@ -47,10 +51,14 @@ async function staffFor(tx: Tx, permission: Parameters<typeof rolesWith>[0], use
 }
 
 /** Exactly who an event reaches. Features never choose recipients themselves. */
-export async function audienceFor(tx: Tx, entry: CatalogueEntry, event: Pick<NotifyEvent, "operatorIds" | "userIds">) {
+export async function audienceFor(
+  tx: Tx,
+  entry: CatalogueEntry,
+  event: Pick<NotifyEvent, "operatorIds" | "userIds" | "exceptUserId">,
+) {
   return entry.audience === "operator"
     ? { operatorIds: [...new Set(event.operatorIds ?? [])], userIds: [] as string[] }
-    : { operatorIds: [] as string[], userIds: await staffFor(tx, entry.audience.permission, event.userIds) };
+    : { operatorIds: [] as string[], userIds: await staffFor(tx, entry.audience.permission, event.userIds, event.exceptUserId) };
 }
 
 /** Posts several notifications at once. Returns how many were new. */
@@ -152,6 +160,20 @@ export async function inboxSummary(ctx: Ctx) {
     .innerJoin(notifications, eq(notifications.id, notificationRecipients.notificationId))
     .where(and(me(ctx), isNull(notificationRecipients.readAt), notExpired(ctx.clock())));
   return { unread: row?.unread ?? 0, critical: row?.critical ?? 0, latest: row?.latest ?? null };
+}
+
+/** The newest unread urgent notice, shown across the top of every page until opened. */
+export async function latestUrgent(ctx: Ctx) {
+  const [row] = await db
+    .select({ id: notificationRecipients.id, title: notifications.title, body: notifications.body })
+    .from(notificationRecipients)
+    .innerJoin(notifications, eq(notifications.id, notificationRecipients.notificationId))
+    .where(
+      and(me(ctx), isNull(notificationRecipients.readAt), eq(notifications.severity, "critical"), notExpired(ctx.clock())),
+    )
+    .orderBy(desc(notificationRecipients.createdAt))
+    .limit(1);
+  return row ?? null;
 }
 
 /** Marks one of the person's own notifications read and says where it leads. */

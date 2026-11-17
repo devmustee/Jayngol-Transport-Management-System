@@ -11,12 +11,15 @@ import { can } from "@/lib/permissions";
 import { auditFrom, recordAudit } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { notifyOperators } from "./notices";
+import { tellAwardsProposed } from "./staff-events";
 
 export { AWARD_TYPES, type AwardType };
 
 /**
  * A balance (alias `c`) not fully paid by the end of its due date, using only
- * money that was not later reversed. The tracker uses this same test.
+ * money that was not later reversed. The tracker uses this same test. Award checks
+ * read `award_balance_days`, where a waiver after the deadline does not
+ * lower what was due, so it never turns a late day into an on-time one.
  */
 export const LATE_BALANCE = sql`c.amount_kobo > COALESCE((
   SELECT SUM(e.amount_kobo) FROM effective_allocations e WHERE e.charge_id = c.id
@@ -61,13 +64,13 @@ export async function awardFacts(
   const rows = (await exec.execute(sql`
     SELECT o.status::text AS status,
       (SELECT MIN(a.issued_on)::text FROM assignments a WHERE a.operator_id = o.id) AS first_issued,
-      (SELECT COUNT(DISTINCT c.business_date)::int FROM valid_charges c
+      (SELECT COUNT(DISTINCT c.business_date)::int FROM award_balance_days c
         WHERE c.operator_id = o.id AND c.type = 'daily_balance' AND c.business_date ${inPeriod}) AS working_days,
       (SELECT COUNT(DISTINCT i.business_date)::int FROM inspections i
         WHERE i.operator_id = o.id AND i.business_date ${inPeriod}
-          AND EXISTS (SELECT 1 FROM valid_charges c WHERE c.operator_id = o.id
+          AND EXISTS (SELECT 1 FROM award_balance_days c WHERE c.operator_id = o.id
                       AND c.type = 'daily_balance' AND c.business_date = i.business_date)) AS inspected_days,
-      (SELECT COUNT(*)::int FROM valid_charges c
+      (SELECT COUNT(*)::int FROM award_balance_days c
         WHERE c.operator_id = o.id AND c.type = 'daily_balance' AND c.business_date ${inPeriod}
           AND c.due_on < ${lateBefore}::date AND ${LATE_BALANCE}) AS late,
       ${offences(sql`v.status = 'confirmed' AND v.occurred_on >= ${periodFrom}::date`)} AS in_period,
@@ -145,6 +148,7 @@ const undecided = (type: AwardType, facts: AwardFacts) =>
 /** Runs on the 1st of each month, inside the nightly job. */
 export async function proposeAwards(tx: Tx, run: string, now: Date) {
   const active = await tx.select({ id: operators.id }).from(operators).where(eq(operators.status, "active"));
+  let proposed = 0;
   for (const { id: operatorId } of active) {
     const facts = await awardFacts(tx, operatorId, run);
     for (const type of AWARD_TYPES) {
@@ -171,6 +175,7 @@ export async function proposeAwards(tx: Tx, run: string, now: Date) {
         .onConflictDoNothing()
         .returning({ id: awardCandidates.id });
       if (candidate) {
+        proposed += 1;
         await recordAudit(tx, null, now, {
           action: "award.propose",
           entityType: "operator",
@@ -180,6 +185,7 @@ export async function proposeAwards(tx: Tx, run: string, now: Date) {
       }
     }
   }
+  await tellAwardsProposed(tx, now, run, proposed);
 }
 
 async function lockCandidate(tx: Tx, id: string) {

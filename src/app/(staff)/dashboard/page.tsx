@@ -1,9 +1,13 @@
+import { ContributionTile } from "@/components/contribution-tile";
+import { businessDate } from "@/lib/clock";
+import { contributionSummary } from "@/services/contributions";
 import type { Metadata } from "next";
 import {
   AlertTriangle,
   Bike,
   Boxes,
   ClipboardCheck,
+  HandCoins,
   Clock,
   PackageCheck,
   Plus,
@@ -32,7 +36,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("dashboard.view");
   const pulse = parsePulse((await searchParams).pulse);
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [counts, workshop, low, inspections, race, money, period, today] = await Promise.all([
+  const [counts, workshop, low, inspections, race, money, period, today, contributions] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
@@ -41,6 +45,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     seesMoney ? financeOverview(ctx) : null,
     seesMoney && pulse !== "today" ? fleetPeriod(ctx, pulse) : null,
     seesMoney && pulse === "today" ? fleetToday(ctx) : null,
+    seesMoney ? contributionSummary(ctx) : null,
   ]);
 
   const inspectionsLeft = inspections
@@ -53,12 +58,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         title={`Welcome, ${ctx.actor.name}`}
         subtitle="Today at a glance"
         action={
-          can(ctx.actor.role, "tricycle.manage") || can(ctx.actor.role, "expense.record") ? (
+          can(ctx.actor.role, "tricycle.manage") ||
+          can(ctx.actor.role, "expense.record") ||
+          can(ctx.actor.role, "loan.approve") ? (
             <div className="flex flex-wrap items-center gap-2">
               {can(ctx.actor.role, "expense.record") ? (
                 <LinkButton href="/expenses?record=1">
                   <Receipt size={16} />
                   <span>Record an expense</span>
+                </LinkButton>
+              ) : null}
+              {can(ctx.actor.role, "loan.approve") ? (
+                <LinkButton href="/loans?give=1" variant="secondary">
+                  <HandCoins size={16} />
+                  <span>Give a loan</span>
                 </LinkButton>
               ) : null}
               {can(ctx.actor.role, "tricycle.manage") ? (
@@ -98,6 +111,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
             subtext={inspectionsLeft > 0 ? "Requires field check" : "All complete"}
           />
         ) : null}
+
+        {contributions ? <ContributionTile summary={contributions} today={businessDate(ctx.clock())} /> : null}
 
         <StatTile
           label="With operators"

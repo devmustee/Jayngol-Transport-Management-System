@@ -13,14 +13,19 @@ import {
   CircleDollarSign,
   Clock,
   CreditCard,
+  Eraser,
   FileSpreadsheet,
   HandCoins,
   Landmark,
+  PiggyBank,
   Receipt,
   Scale,
   ShieldAlert,
   Wallet,
 } from "lucide-react";
+import { ContributionTile } from "@/components/contribution-tile";
+import { businessDate } from "@/lib/clock";
+import { contributionSummary } from "@/services/contributions";
 import { BalancesByPeriod } from "@/components/balance-periods";
 import { MoneySummary } from "@/components/money-summary";
 import { LinkButton, PageHeader } from "@/components/ui";
@@ -83,6 +88,12 @@ const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
         icon: FileSpreadsheet,
       },
       {
+        href: "/contributions",
+        label: "Contributions",
+        desc: "Weekly contributions paid every Sunday",
+        icon: PiggyBank,
+      },
+      {
         href: "/loans",
         label: "Loans",
         desc: "Money lent to operators and what is left to collect",
@@ -110,6 +121,12 @@ const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
         label: "Offences and fines",
         desc: "Broken rules and their fines",
         icon: Scale,
+      },
+      {
+        href: "/waivers",
+        label: "Waivers",
+        desc: "Balances forgiven by the Manager, and why",
+        icon: Eraser,
       },
       {
         href: "/payments/review",
@@ -154,11 +171,12 @@ const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
 export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
   const ctx = await requirePage("finance.view");
   const pulse = parsePulse((await searchParams).pulse);
-  const [money, week, month, today] = await Promise.all([
+  const [money, week, month, today, contributions] = await Promise.all([
     financeOverview(ctx),
     fleetPeriod(ctx, "week"),
     fleetPeriod(ctx, "month"),
     pulse === "today" ? fleetToday(ctx) : null,
+    contributionSummary(ctx),
   ]);
 
   return (
@@ -208,6 +226,12 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           </Link>
         ) : null}
       </div>
+
+      {contributions ? (
+        <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <ContributionTile summary={contributions} today={businessDate(ctx.clock())} />
+        </div>
+      ) : null}
 
       <BalancesByPeriod week={week} month={month} />
 

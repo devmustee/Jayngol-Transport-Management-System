@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { checkCashCloseAction, closeCashAction } from "@/app/actions";
+import { closeCashAction } from "@/app/actions";
 import { CashierTakingsCard, MyCollectionsCard } from "@/components/balance-periods";
 import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, PageHeader } from "@/components/ui";
@@ -11,7 +12,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { collectionsByCashier, myCollections } from "@/services/balance-periods";
-import { cashDay, uncheckedCloses } from "@/services/finance";
+import { cashDay } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Cash close" };
 
@@ -60,9 +61,8 @@ export default async function CashPage({
   const requested = queryValue((await searchParams).date);
   const today = businessDate(ctx.clock());
   const date = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today ? requested : today;
-  const [people, unchecked, mine, byCashier] = await Promise.all([
+  const [people, mine, byCashier] = await Promise.all([
     cashDay(ctx, date),
-    uncheckedCloses(ctx),
     can(ctx.actor.role, "payment.record") ? myCollections(ctx) : null,
     collectionsByCashier(ctx),
   ]);
@@ -85,20 +85,6 @@ export default async function CashPage({
       <div className="space-y-4">
         {mine ? <MyCollectionsCard data={mine} /> : null}
         <CashierTakingsCard rows={byCashier} />
-        {unchecked.length > 0 ? (
-          <Card title="Counts waiting for a second check">
-            <ul className="divide-y divide-line">
-              {unchecked.map((item) => (
-                <li key={item.id}>
-                  <Link href={`/cash?date=${item.date}`} className="flex min-h-11 flex-wrap items-center justify-between gap-x-3 py-1.5 font-medium">
-                    <span>{item.name}</span>
-                    <span className="text-sm text-muted">{item.label}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </Card>
-        ) : null}
         {people.map((person) => {
           const weekly = person.rhythm === "week";
           const canClose =
@@ -106,8 +92,6 @@ export default async function CashPage({
             can(ctx.actor.role, "cash.close") &&
             (person.id === ctx.actor.userId || ctx.actor.role === "manager");
           const difference = person.close ? person.close.countedKobo - person.close.expectedKobo : 0;
-          const canCheck =
-            !!person.close && !person.check && can(ctx.actor.role, "cash.check") && person.close.closedBy !== ctx.actor.userId;
           const week = weekOf(date);
           const title = weekly ? `${person.name}: this week's cash` : `${person.name}: ${date === today ? "today's" : "the day's"} cash`;
           const closeLabel = weekly
@@ -148,31 +132,25 @@ export default async function CashPage({
                       ),
                     ],
                     ...(person.close.explanation ? ([["Explanation", person.close.explanation]] as [string, string][]) : []),
-                    [
-                      "Second check",
-                      person.check ? (
-                        person.check.recountedKobo === null || person.check.recountedKobo === person.close.countedKobo ? (
-                          <Badge key="c" tone="good">{person.check.checkedBy ? "Agreed" : "Not needed"}</Badge>
-                        ) : (
-                          <Badge key="c" tone="bad">Recounted {formatNaira(person.check.recountedKobo)}</Badge>
-                        )
-                      ) : (
-                        <Badge key="c" tone="gold">Waiting</Badge>
-                      ),
-                    ],
-                    ...(person.check?.note ? ([["Check note", person.check.note]] as [string, string][]) : []),
+                    // Second checks were dropped; counts checked before then still show it.
+                    ...(person.check?.checkedBy
+                      ? ([
+                          [
+                            "Second check",
+                            person.check.recountedKobo === null || person.check.recountedKobo === person.close.countedKobo ? (
+                              <Badge key="c" tone="good">Agreed</Badge>
+                            ) : (
+                              <Badge key="c" tone="bad">Recounted {formatNaira(person.check.recountedKobo)}</Badge>
+                            ),
+                          ],
+                        ] as [string, ReactNode][])
+                      : []),
+                    ...(person.check?.checkedBy && person.check.note ? ([["Check note", person.check.note]] as [string, string][]) : []),
                   ]}
                 />
               ) : (
                 <CoveredDays person={person} />
               )}
-              {canCheck ? (
-                <ActionForm action={checkCashCloseAction.bind(null, person.close!.id)} className="mt-3 space-y-4">
-                  <Field name="recounted" label="Your recount (₦)" inputMode="decimal" autoComplete="off" />
-                  <TextareaField name="note" label="Note" hint="Required if your recount is different." />
-                  <SubmitButton>Confirm count</SubmitButton>
-                </ActionForm>
-              ) : null}
               {closeLastWeek ? (
                 <Link
                   href={`/cash?date=${addDays(today, -1)}`}

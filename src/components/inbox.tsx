@@ -3,6 +3,7 @@ import { AlertTriangle, Bell, BellRing, ChevronRight, Info } from "lucide-react"
 import { markAllNotificationsReadAction, openNotificationAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/form";
 import { formatDateTime } from "@/lib/format";
+import type { ActionItem } from "@/services/needs-action";
 import type { InboxItem } from "@/services/notifications";
 
 const SEVERITY = {
@@ -41,7 +42,41 @@ function Item({ item }: { item: InboxItem }) {
   );
 }
 
-/** One person's notifications: newest first, with a filter, paging and "mark all as read". */
+/** Work waiting now. It is not stored, so it has nothing to mark read: it goes when the work is done. */
+function ActionList({ actions }: { actions: ActionItem[] }) {
+  if (actions.length === 0) {
+    return <p className="px-3 py-8 text-center text-sm text-muted">Nothing waiting for you. You are up to date.</p>;
+  }
+  return (
+    <ul className="space-y-1">
+      {actions.map((item) => {
+        const severity = SEVERITY[item.severity];
+        return (
+          <li key={item.key}>
+            <Link
+              href={item.link}
+              className={`flex min-h-12 items-center gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-gold-wash/50 ${
+                item.severity === "critical" ? "bg-danger-wash/60" : ""
+              }`}
+            >
+              <severity.icon size={18} aria-hidden className={`shrink-0 ${severity.style}`} />
+              <span className="min-w-0 flex-1 text-sm font-semibold leading-snug text-ink">{item.title}</span>
+              {item.count > 1 ? (
+                <span className="shrink-0 rounded-full bg-card-subtle px-2 py-0.5 text-xs font-bold tabular-nums">{item.count}</span>
+              ) : null}
+              <ChevronRight size={16} aria-hidden className="shrink-0 text-muted/70" />
+            </Link>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/**
+ * One person's notifications: newest first, with a filter, paging and "mark
+ * all as read". Staff also get a Needs action tab with the work waiting for them.
+ */
 export function Inbox({
   items,
   page,
@@ -49,6 +84,8 @@ export function Inbox({
   unread,
   unreadOnly,
   basePath,
+  actions,
+  showActions = false,
 }: {
   items: InboxItem[];
   page: number;
@@ -56,8 +93,12 @@ export function Inbox({
   unread: number;
   unreadOnly: boolean;
   basePath: string;
+  /** Staff only: open work, shown on its own tab. */
+  actions?: ActionItem[];
+  showActions?: boolean;
 }) {
-  const href = (next: { show?: "unread"; page?: number }) => {
+  const staff = actions !== undefined;
+  const href = (next: { show?: "unread" | "all" | "actions"; page?: number }) => {
     const query = new URLSearchParams();
     if (next.show) query.set("show", next.show);
     if (next.page && next.page > 1) query.set("page", String(next.page));
@@ -68,20 +109,35 @@ export function Inbox({
     `inline-flex min-h-11 items-center rounded-xl px-4 text-sm font-bold transition-colors ${
       active ? "bg-ink text-gold-light" : "border border-line bg-card text-ink hover:bg-gold-wash"
     }`;
-  const show = unreadOnly ? ("unread" as const) : undefined;
+  // For staff the page opens on Needs action when it has items, so "All" must say so in the link.
+  const show = unreadOnly ? ("unread" as const) : staff ? ("all" as const) : undefined;
+  const toDo = actions?.length ?? 0;
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <nav aria-label="Show" className="flex gap-2">
-          <Link href={href({})} className={tab(!unreadOnly)} aria-current={!unreadOnly ? "page" : undefined}>
-            All
+        <nav aria-label="Show" className="flex flex-wrap gap-2">
+          {staff ? (
+            <Link href={href({ show: "actions" })} className={tab(showActions)} aria-current={showActions ? "page" : undefined}>
+              Needs action{toDo > 0 ? ` (${toDo})` : ""}
+            </Link>
+          ) : null}
+          <Link
+            href={href({ show: staff ? "all" : undefined })}
+            className={tab(!unreadOnly && !showActions)}
+            aria-current={!unreadOnly && !showActions ? "page" : undefined}
+          >
+            {staff ? "Updates" : "All"}
           </Link>
-          <Link href={href({ show: "unread" })} className={tab(unreadOnly)} aria-current={unreadOnly ? "page" : undefined}>
+          <Link
+            href={href({ show: "unread" })}
+            className={tab(unreadOnly && !showActions)}
+            aria-current={unreadOnly && !showActions ? "page" : undefined}
+          >
             New{unread > 0 ? ` (${unread})` : ""}
           </Link>
         </nav>
-        {unread > 0 ? (
+        {unread > 0 && !showActions ? (
           <ActionForm action={markAllNotificationsReadAction}>
             <SubmitButton tone="plain">Mark all as read</SubmitButton>
           </ActionForm>
@@ -89,7 +145,9 @@ export function Inbox({
       </div>
 
       <section className="rounded-2xl border border-line bg-card p-2 shadow-premium sm:p-3">
-        {items.length === 0 ? (
+        {showActions ? (
+          <ActionList actions={actions ?? []} />
+        ) : items.length === 0 ? (
           <p className="px-3 py-8 text-center text-sm text-muted">
             {unreadOnly ? "Nothing new. You are up to date." : page > 1 ? "No older notifications." : "Nothing here yet. Messages from Jayngol will appear here."}
           </p>
@@ -102,7 +160,7 @@ export function Inbox({
         )}
       </section>
 
-      {page > 1 || hasMore ? (
+      {!showActions && (page > 1 || hasMore) ? (
         <nav aria-label="Pages" className="flex justify-between gap-3">
           {page > 1 ? (
             <Link href={href({ show, page: page - 1 })} className={tab(false)}>
@@ -124,5 +182,7 @@ export function Inbox({
 
 export const parseInboxQuery = (query: { show?: string; page?: string }) => ({
   unreadOnly: query.show === "unread",
+  /** "actions", "all", or nothing chosen yet (staff then see Needs action when it has items). */
+  show: query.show === "actions" || query.show === "all" ? query.show : undefined,
   page: Math.max(1, Number.parseInt(query.page ?? "1", 10) || 1),
 });

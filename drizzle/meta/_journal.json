@@ -204,6 +204,20 @@
       "when": 1794600001000,
       "tag": "0028_expense_one_step",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794890654354,
+      "tag": "0029_weekly_contributions",
+      "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794892441261,
+      "tag": "0030_balance_waivers",
+      "breakpoints": true
     }
   ]
 }

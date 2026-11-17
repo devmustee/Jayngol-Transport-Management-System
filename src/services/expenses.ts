@@ -13,6 +13,7 @@ import { notifyMany } from "./notifications";
 import { moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { savePhoto } from "./violations";
+import { tellExpenseDecided, tellExpenseSubmitted } from "./staff-events";
 
 // Written out in full: Drizzle drops the table name on single-table selects, and
 // a bare column here would bind to the inner query instead.
@@ -154,6 +155,7 @@ export async function recordExpense(ctx: Ctx, raw: unknown) {
       after: { amountKobo: input.amount, category: input.category, spentOn: input.spentOn },
     });
     if (finalOnSaving(ctx)) await tellOwner(tx, id, input.description, input.amount, now, ctx);
+    else await tellExpenseSubmitted(tx, ctx, { id, purpose: input.description, amountKobo: input.amount, collectedBy: ctx.actor.userId });
     return advance!;
   });
 }
@@ -413,7 +415,12 @@ export async function voidExpenseLine(ctx: Ctx, rawId: unknown, raw: unknown) {
  * Sends a fully accounted record on. The Manager's own needs no approval, so it
  * is final at once; anyone else's waits for the Manager.
  */
-async function sendOn(tx: Tx, advance: { id: string; collectedBy: string }, now: Date) {
+async function sendOn(
+  tx: Tx,
+  advance: { id: string; collectedBy: string; purpose: string; amountKobo: number },
+  now: Date,
+  ctx: Ctx,
+) {
   const [recorder] = await tx.select({ role: users.role }).from(users).where(eq(users.id, advance.collectedBy));
   await tx
     .update(expenseAdvances)
@@ -423,6 +430,7 @@ async function sendOn(tx: Tx, advance: { id: string; collectedBy: string }, now:
         : { status: "submitted", submittedAt: now, returnNote: null },
     )
     .where(eq(expenseAdvances.id, advance.id));
+  if (recorder?.role !== "manager") await tellExpenseSubmitted(tx, ctx, advance);
 }
 
 export async function submitAdvance(ctx: Ctx, rawId: unknown) {
@@ -433,7 +441,7 @@ export async function submitAdvance(ctx: Ctx, rawId: unknown) {
     requireOpen(advance);
     const left = advance.amountKobo - (await accountedFor(tx, id));
     if (left !== 0) throw new DomainError(`${formatNaira(left)} is still to be accounted for.`);
-    await sendOn(tx, advance, ctx.clock());
+    await sendOn(tx, advance, ctx.clock(), ctx);
     await auditFrom(ctx, tx, { action: "expense.submit", entityType: "expense_advance", entityId: id });
   });
 }
@@ -466,7 +474,7 @@ export async function finishAdvance(ctx: Ctx, rawId: unknown) {
         createdAt: now,
       });
     }
-    await sendOn(tx, advance, now);
+    await sendOn(tx, advance, now, ctx);
     await auditFrom(ctx, tx, {
       action: "expense.finish",
       entityType: "expense_advance",
@@ -495,6 +503,7 @@ export async function countersignAdvance(ctx: Ctx, rawId: unknown) {
       .set({ status: "countersigned", countersignedBy: ctx.actor.userId, countersignedAt: ctx.clock() })
       .where(eq(expenseAdvances.id, id));
     await auditFrom(ctx, tx, { action: "expense.countersign", entityType: "expense_advance", entityId: id });
+    await tellExpenseDecided(tx, ctx, advance, "countersigned");
   });
 }
 
@@ -503,12 +512,13 @@ export async function sendBackAdvance(ctx: Ctx, rawId: unknown, raw: unknown) {
   const id = parseInput(idField("expense record"), rawId);
   const { reason } = parseInput(reasonSchema, raw);
   await db.transaction(async (tx) => {
-    await requireSubmitted(tx, id);
+    const advance = await requireSubmitted(tx, id);
     await tx
       .update(expenseAdvances)
       .set({ status: "open", submittedAt: null, returnNote: reason })
       .where(eq(expenseAdvances.id, id));
     await auditFrom(ctx, tx, { action: "expense.send_back", entityType: "expense_advance", entityId: id, reason });
+    await tellExpenseDecided(tx, ctx, advance, "sent_back", reason);
   });
 }
 

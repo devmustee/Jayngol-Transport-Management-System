@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { confirmViolationAction, rejectViolationAction, waiveViolationAction } from "@/app/actions";
 import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
-import { Badge, Card, Disclosure, Empty, LinkButton, PageHeader } from "@/components/ui";
-import { formatDate, queryValue, VIOLATION_STATUS_LABELS } from "@/lib/format";
+import { FinesOwed } from "@/components/fines-owed";
+import { Badge, Card, Disclosure, Empty, LinkButton, PageHeader, SearchBar } from "@/components/ui";
+import { formatDate, formatDateTime, OPERATOR_STATUS_LABELS, queryValue, VIOLATION_STATUS_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
+import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { operatorsOwingFines } from "@/services/payments";
 import { listViolations, RULE_NAMES } from "@/services/violations";
@@ -13,6 +15,16 @@ import { listViolations, RULE_NAMES } from "@/services/violations";
 export const metadata: Metadata = { title: "Offences" };
 
 const TONE = { proposed: "gold", confirmed: "bad", rejected: "plain", waived: "plain" } as const;
+const DECISION = { proposed: null, confirmed: "Confirmed", rejected: "Rejected", waived: "Waived" } as const;
+
+function Fact({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs font-medium uppercase tracking-wide text-muted">{label}</dt>
+      <dd className="mt-0.5 [overflow-wrap:anywhere]">{children}</dd>
+    </div>
+  );
+}
 
 export default async function OffencesPage({
   searchParams,
@@ -22,19 +34,22 @@ export default async function OffencesPage({
   const ctx = await requirePage("violation.view");
   const query = await searchParams;
   const status = queryValue(query.status);
+  const q = queryValue(query.q)?.trim().slice(0, 60) ?? "";
   const canCollect = can(ctx.actor.role, "payment.record");
-  const [{ rows, page, hasMore }, owing] = await Promise.all([
-    listViolations(ctx, status, Number(queryValue(query.page) ?? 1)),
+  const [{ rows, page, hasMore, total }, owing] = await Promise.all([
+    listViolations(ctx, status, Number(queryValue(query.page) ?? 1), q),
     // Fines are paid here, per operator, apart from the daily balance.
-    !status || status === "confirmed" ? operatorsOwingFines(ctx) : Promise.resolve([]),
+    !q && (!status || status === "confirmed") ? operatorsOwingFines(ctx) : Promise.resolve([]),
   ]);
-  const pageHref = (to: number) => {
+  const href = (next: { status?: string; page?: number; q?: string }) => {
     const params = new URLSearchParams();
-    if (status) params.set("status", status);
-    if (to > 1) params.set("page", String(to));
+    if (next.q) params.set("q", next.q);
+    if (next.status) params.set("status", next.status);
+    if (next.page && next.page > 1) params.set("page", String(next.page));
     const text = params.toString();
     return text ? `/offences?${text}` : "/offences";
   };
+  const pageHref = (to: number) => href({ status, q, page: to });
   const canDecide = can(ctx.actor.role, "violation.confirm");
   const canWaive = can(ctx.actor.role, "violation.waive");
 
@@ -46,32 +61,39 @@ export default async function OffencesPage({
       />
       {owing.length > 0 ? (
         <Card title="Fines owed" subtitle="Paid here, separately from the daily balance." className="mb-4">
-          <ul className="divide-y divide-line">
-            {owing.map((o) => (
-              <li key={o.operatorId} className="flex min-h-12 items-center justify-between gap-3 py-2">
-                <div className="min-w-0">
-                  <Link href={`/operators/${o.operatorId}`} className="font-medium text-ink hover:underline">
-                    {o.name}
-                  </Link>
-                  <div className="text-sm text-muted">
-                    {o.fines} fine{o.fines === 1 ? "" : "s"} · {formatNaira(o.owedKobo)}
-                  </div>
-                </div>
-                {canCollect ? (
-                  <LinkButton href={`/payments/new?operator=${o.operatorId}&for=fines`} variant="secondary">
-                    Pay fines
-                  </LinkButton>
-                ) : null}
-              </li>
-            ))}
-          </ul>
+          <FinesOwed
+            canCollect={canCollect}
+            owing={owing.map((o) => ({
+              operatorId: o.operatorId,
+              name: o.name,
+              phone: o.phone,
+              statusLabel:
+                o.status === "active"
+                  ? null
+                  : (OPERATOR_STATUS_LABELS[o.status as keyof typeof OPERATOR_STATUS_LABELS] ?? o.status),
+              tricycle: o.tricycle,
+              fines: o.fines,
+              owedKobo: o.owedKobo,
+              oldest: o.oldest,
+              items: o.items.map((f) => ({
+                chargeId: f.chargeId,
+                offence: f.ruleCode ? (RULE_NAMES[f.ruleCode] ?? f.ruleCode) : "Fine",
+                date: f.date,
+                amountKobo: f.amountKobo,
+                outstandingKobo: f.outstandingKobo,
+                code: f.code,
+                registration: f.registration,
+              })),
+            }))}
+          />
         </Card>
       ) : null}
+      <SearchBar q={q} placeholder="Search operator, phone, tricycle, plate or offence" keep={{ status }} />
       <nav className="mb-4 flex flex-wrap gap-2" aria-label="Filter">
         {[["", "All"], ...Object.entries(VIOLATION_STATUS_LABELS)].map(([value, label]) => (
           <Link
             key={value}
-            href={value ? `/offences?status=${value}` : "/offences"}
+            href={href({ status: value, q })}
             aria-current={(status ?? "") === value ? "page" : undefined}
             className="inline-flex min-h-11 items-center rounded-full border border-line bg-card px-4 font-medium aria-[current=page]:bg-ink aria-[current=page]:text-gold-light"
           >
@@ -79,32 +101,65 @@ export default async function OffencesPage({
           </Link>
         ))}
       </nav>
+      {q ? (
+        <p className="mb-4 text-sm text-muted" aria-live="polite">
+          {total === 0 ? `No offences match "${q}".` : `${total} offence${total === 1 ? "" : "s"} match "${q}".`}{" "}
+          <Link href={href({ status })} className="inline-flex min-h-11 items-center font-semibold text-gold-deep underline underline-offset-2">
+            Clear search
+          </Link>
+        </p>
+      ) : null}
       {rows.length === 0 ? (
-        <Empty>No offences here.</Empty>
+        q ? null : <Empty>No offences here.</Empty>
       ) : (
         <div className="space-y-3">
           {rows.map((v) => (
             <Card key={v.id}>
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <Link href={`/operators/${v.operatorId}`} className="font-bold text-gold-deep underline">{v.operatorName}</Link>
-                  <div>{RULE_NAMES[v.ruleCode] ?? v.ruleCode}</div>
+                  <h2 className="font-bold leading-snug">{RULE_NAMES[v.ruleCode] ?? v.ruleCode}</h2>
                   <div className="text-sm text-muted">
-                    {formatDate(v.occurredOn)}
-                    {v.tricycleCode ? ` · ${v.tricycleCode}` : ""} · {formatNaira(v.amountKobo)}
+                    {formatDate(v.occurredOn)} · <span className="font-semibold tabular-nums text-ink">{formatNaira(v.amountKobo)}</span>
                   </div>
-                  {v.raisedByName ? <div className="text-sm text-muted">Raised by {v.raisedByName}</div> : null}
-                  {v.note ? <div className="mt-1 text-sm">{v.note}</div> : null}
-                  {v.decisionReason ? <div className="mt-1 text-sm">{v.decisionReason}</div> : null}
-                  {v.photoId ? (
-                    <a href={`/api/photos/${v.photoId}`} target="_blank" rel="noreferrer" className="mt-2 block w-fit">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`/api/photos/${v.photoId}`} alt="Evidence" loading="lazy" className="h-20 rounded-lg border border-line" />
-                    </a>
-                  ) : null}
                 </div>
                 <Badge tone={TONE[v.status]}>{VIOLATION_STATUS_LABELS[v.status]}</Badge>
               </div>
+              <dl className="mt-3 grid gap-3 border-t border-line pt-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+                <Fact label="Operator">
+                  <Link href={`/operators/${v.operatorId}`} className="font-semibold text-gold-deep underline underline-offset-2">
+                    {v.operatorName}
+                  </Link>
+                  <div>
+                    <a href={`tel:${v.operatorPhone}`} className="text-muted hover:text-ink hover:underline">
+                      {formatPhone(v.operatorPhone)}
+                    </a>
+                  </div>
+                </Fact>
+                <Fact label="Tricycle">
+                  {v.tricycleId ? (
+                    <>
+                      <Link href={`/tricycles/${v.tricycleId}`} className="font-semibold text-gold-deep underline underline-offset-2">
+                        {v.tricycleCode}
+                      </Link>
+                      <div className="text-muted">Registration {v.registrationNumber}</div>
+                    </>
+                  ) : (
+                    <span className="text-muted">Not recorded</span>
+                  )}
+                </Fact>
+                <Fact label="Recorded">
+                  {v.raisedByName ? `By ${v.raisedByName}` : "By the system"}
+                  <div className="text-muted">{formatDateTime(v.recordedAt)}</div>
+                </Fact>
+                {DECISION[v.status] ? (
+                  <Fact label={DECISION[v.status]!}>
+                    {v.decidedByName ? `By ${v.decidedByName}` : "By the system"}
+                    {v.decidedAt ? <div className="text-muted">{formatDateTime(v.decidedAt)}</div> : null}
+                  </Fact>
+                ) : null}
+                {v.note ? <Fact label="Note">{v.note}</Fact> : null}
+                {v.decisionReason ? <Fact label="Reason">{v.decisionReason}</Fact> : null}
+              </dl>
               {v.status === "proposed" && canDecide ? (
                 <div className="mt-3 space-y-3">
                   {v.raisedBy === ctx.actor.userId ? (

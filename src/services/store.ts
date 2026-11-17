@@ -9,6 +9,7 @@ import { idField, isUuid, nairaField, optionalNairaField, optionalText, required
 import { formatStock, MILLI, mulDiv, parseQuantity, quantityField } from "@/lib/quantity";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
+import { tellIfStockFell } from "./staff-events";
 
 async function lockStock(tx: Tx, itemId: string) {
   const [row] = await tx
@@ -27,13 +28,17 @@ async function move(
   ctx: Ctx,
   input: Omit<typeof stockMovements.$inferInsert, "performedBy" | "businessDate" | "createdAt">,
 ) {
-  await tx
+  const [after] = await tx
     .update(stockBalances)
     .set({
       quantityMilli: sql`${stockBalances.quantityMilli} + ${input.quantityMilli}`,
       valueKobo: sql`${stockBalances.valueKobo} + ${input.costKobo}`,
     })
-    .where(eq(stockBalances.itemId, input.itemId));
+    .where(eq(stockBalances.itemId, input.itemId))
+    .returning({ quantityMilli: stockBalances.quantityMilli });
+  if (after && input.quantityMilli < 0) {
+    await tellIfStockFell(tx, ctx, input.itemId, after.quantityMilli - input.quantityMilli, after.quantityMilli);
+  }
   const [row] = await tx
     .insert(stockMovements)
     .values({

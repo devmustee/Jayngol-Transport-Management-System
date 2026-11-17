@@ -10,6 +10,7 @@ import { auditFrom } from "./audit";
 import { assertCashHeld, lockCashHolder, recordMovement, takeMoneyOut, type BankSide } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { savePhoto } from "./violations";
+import { tellHandoverRejected, tellHandoverSent } from "./staff-events";
 
 const placeField = (message: string) =>
   z
@@ -95,6 +96,7 @@ export async function createTransfer(ctx: Ctx, raw: unknown) {
       })
       .returning();
     if (!handover) await moveNow(tx, transfer!, now, "from");
+    else await tellHandoverSent(tx, ctx, transfer!);
     await auditFrom(ctx, tx, {
       action: "money.transfer",
       entityType: "money_transfer",
@@ -151,6 +153,7 @@ export async function rejectTransfer(ctx: Ctx, rawId: unknown, raw: unknown) {
       .set({ status: "rejected", decidedBy: ctx.actor.userId, decidedAt: now, reason })
       .where(eq(moneyTransfers.id, id));
     await auditFrom(ctx, tx, { action: "money.reject", entityType: "money_transfer", entityId: id, reason });
+    await tellHandoverRejected(tx, ctx, transfer, reason);
   });
 }
 

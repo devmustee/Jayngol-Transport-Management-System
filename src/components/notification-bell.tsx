@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Bell } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-export type BellSummary = { unread: number; critical: number };
+/** `actions` is open work waiting for a staff member; operators always have 0. */
+export type BellSummary = { unread: number; critical: number; actions?: number };
 
 const EVERY_MINUTE = 60_000;
 
@@ -28,7 +29,7 @@ export function NotificationBell({
   const [summary, setSummary] = useState(initial);
 
   // A new page from the server brings a fresh count.
-  useEffect(() => setSummary(initial), [initial.unread, initial.critical]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setSummary(initial), [initial.unread, initial.critical, initial.actions]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let stopped = false;
@@ -38,7 +39,7 @@ export function NotificationBell({
         const response = await fetch("/api/notifications", { cache: "no-cache" });
         if (!response.ok || stopped) return;
         const next = (await response.json()) as BellSummary;
-        if (!stopped) setSummary({ unread: next.unread, critical: next.critical });
+        if (!stopped) setSummary({ unread: next.unread, critical: next.critical, actions: next.actions ?? 0 });
       } catch {
         // Offline or a weak signal: keep the last count and try again next minute.
       }
@@ -58,6 +59,8 @@ export function NotificationBell({
   }, []);
 
   const { unread, critical } = summary;
+  const actions = summary.actions ?? 0;
+  const total = unread + actions;
 
   // When a new notification arrives while the page is open, the bell rocks once.
   const lastUnread = useRef(initial.unread);
@@ -66,8 +69,13 @@ export function NotificationBell({
     if (unread > lastUnread.current) setRing((n) => n + 1);
     lastUnread.current = unread;
   }, [unread]);
-  const count = unread > 99 ? "99+" : String(unread);
-  const name = unread === 0 ? "Notifications, none new" : `Notifications, ${unread} new${critical > 0 ? `, ${critical} urgent` : ""}`;
+  const count = total > 99 ? "99+" : String(total);
+  const parts = [
+    unread > 0 ? `${unread} new` : "",
+    actions > 0 ? `${actions} to do` : "",
+    critical > 0 ? `${critical} urgent` : "",
+  ].filter(Boolean);
+  const name = parts.length === 0 ? "Notifications, none new" : `Notifications, ${parts.join(", ")}`;
   const base =
     variant === "dark"
       ? label
@@ -85,7 +93,7 @@ export function NotificationBell({
     >
       <Bell key={`bell-${ring}`} size={label ? 18 : 20} aria-hidden className={ring > 0 ? "origin-top animate-bell" : ""} />
       {label ? <span className="flex-1">Notifications</span> : null}
-      {unread > 0 ? (
+      {total > 0 ? (
         <span
           key={`count-${ring}`}
           aria-hidden

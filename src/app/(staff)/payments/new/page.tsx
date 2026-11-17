@@ -31,12 +31,83 @@ export default async function TakePaymentPage({
   const operatorId = queryValue(params.operator);
   const forParam = queryValue(params.for);
   const mode = forParam === "balance" ? "old" : forParam === "fines" ? "fine" : forParam === "loan" ? "loan" : null;
+  const forContribution = forParam === "contribution";
 
   if (operatorId) {
     const data = isUuid(operatorId) ? await paymentContext(ctx, operatorId) : null;
     if (!data) notFound();
     const { operator, current, balances } = data;
     const today = businessDate(ctx.clock());
+
+    // Weekly contributions are their own money: paid on Sunday, up to 4 weeks ahead.
+    if (forContribution) {
+      const c = data.contribution;
+      const rate = c.rateKobo ?? 0;
+      return (
+        <>
+          <PageHeader
+            title={operator.name}
+            subtitle={current ? `Tricycle ${current.codeNumber} · Weekly contribution` : "Weekly contribution"}
+            back={{ href: `/contributions`, label: "Contributions" }}
+            action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
+          />
+          <div className="space-y-4">
+            <Card title="Weekly contribution" subtitle={c.started ? `${formatNaira(rate)} every Sunday` : undefined}>
+              {!c.started ? (
+                <p className="text-sm text-muted">Weekly contributions have not started yet. The Manager sets the start Sunday on the Contributions page.</p>
+              ) : (
+                <>
+                  {c.unpaidWeeks.length > 0 ? (
+                    <ul className="divide-y divide-line text-sm">
+                      {c.unpaidWeeks.map((w) => (
+                        <li key={w.chargeId} className="flex items-center justify-between gap-3 py-2">
+                          <span className="min-w-0">Sunday {formatDate(w.weekEnding)}</span>
+                          <span className="shrink-0 tabular-nums">{formatNaira(w.outstandingKobo)}</span>
+                        </li>
+                      ))}
+                      <li className="flex items-center justify-between gap-3 py-2 font-semibold">
+                        <span>Owed</span>
+                        <span className="tabular-nums">{formatNaira(c.owedKobo)}</span>
+                      </li>
+                    </ul>
+                  ) : (
+                    <p className="text-sm text-muted">
+                      Nothing owed.{" "}
+                      {c.startsOn && c.startsOn > today
+                        ? `The first contribution is due on Sunday ${formatDate(c.startsOn)}.`
+                        : "The next contribution is due on Sunday."}
+                    </p>
+                  )}
+                  {c.creditKobo > 0 ? (
+                    <p className="mt-3 border-t border-line pt-3 text-sm">
+                      Paid ahead: <span className="font-semibold tabular-nums">{formatNaira(c.creditKobo)}</span>
+                    </p>
+                  ) : null}
+                </>
+              )}
+            </Card>
+            {c.started && c.maxKobo > 0 ? (
+              <Card title="Take contribution">
+                <PaymentForm
+                  purpose="contribution"
+                  operatorId={operator.id}
+                  clientId={randomUUID()}
+                  date={today}
+                  today={today}
+                  leftKobo={c.maxKobo}
+                  startKobo={c.owedKobo > 0 ? c.owedKobo : rate}
+                  hasTricycle={false}
+                />
+              </Card>
+            ) : c.started ? (
+              <p className="rounded-xl border border-line bg-card p-4 text-sm text-ink">
+                This operator has already paid 4 weeks ahead.
+              </p>
+            ) : null}
+          </div>
+        </>
+      );
+    }
 
     // Older days (from the Unpaid page), fines (from Offences) or the loan: each on its own.
     if (mode) {
@@ -185,6 +256,25 @@ export default async function TakePaymentPage({
             </p>
           ) : null}
 
+          {data.contribution.owedKobo > 0 ? (
+            <Link
+              href={`/payments/new?operator=${operator.id}&for=contribution`}
+              className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash p-4 text-sm"
+            >
+              <span>
+                <span className="font-semibold">Weekly contribution unpaid</span>
+                <span className="block text-muted">
+                  {data.contribution.weeksOwed === 1
+                    ? `Sunday ${formatDate(data.contribution.oldestWeek!)}`
+                    : `${data.contribution.weeksOwed} weeks since Sunday ${formatDate(data.contribution.oldestWeek!)}`}
+                </span>
+              </span>
+              <span className="shrink-0 font-semibold tabular-nums text-gold-deep">
+                Collect {formatNaira(data.contribution.owedKobo)}
+              </span>
+            </Link>
+          ) : null}
+
           <Card title="Other payments">
             <ul className="divide-y divide-line">
               <li>
@@ -206,6 +296,23 @@ export default async function TakePaymentPage({
                   >
                     <span>Fines</span>
                     <span className="tabular-nums text-muted">{formatNaira(data.penaltiesOwedKobo)}</span>
+                  </Link>
+                </li>
+              ) : null}
+              {data.contribution.started ? (
+                <li>
+                  <Link
+                    href={`/payments/new?operator=${operator.id}&for=contribution`}
+                    className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm hover:text-gold-deep"
+                  >
+                    <span>Weekly contribution</span>
+                    <span className="tabular-nums text-muted">
+                      {data.contribution.owedKobo > 0
+                        ? `${formatNaira(data.contribution.owedKobo)} from ${data.contribution.weeksOwed} week${data.contribution.weeksOwed === 1 ? "" : "s"}`
+                        : data.contribution.creditKobo > 0
+                          ? `${formatNaira(data.contribution.creditKobo)} paid ahead`
+                          : "Nothing owed"}
+                    </span>
                   </Link>
                 </li>
               ) : null}

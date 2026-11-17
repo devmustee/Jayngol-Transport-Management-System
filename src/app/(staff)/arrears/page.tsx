@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { Wallet } from "lucide-react";
-import { Badge, Empty, PageHeader } from "@/components/ui";
+import { Eraser, Wallet } from "lucide-react";
+import { Badge, Empty, PageHeader, SearchBar } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
-import { formatDate, formatShortDate, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { formatDate, formatShortDate, OPERATOR_STATUS_LABELS, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { parseRange } from "@/lib/periods";
@@ -17,15 +17,38 @@ type Row = Awaited<ReturnType<typeof listArrears>>[number];
 
 const sumOwed = (rows: Row[]) => rows.reduce((sum, r) => sum + r.owed, 0);
 
+const letters = (text: string | null | undefined) => (text ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const digits = (text: string | null | undefined) => (text ?? "").replace(/\D/g, "");
+/** Phones are stored as +234…, but people type them as 080…. */
+const localPhone = (phone: string | null | undefined) => {
+  const all = digits(phone);
+  return all.startsWith("234") ? `0${all.slice(3)}` : all;
+};
+
+/** Name, phone, tricycle code or plate, ignoring spaces, commas and case. */
+function matches(row: Row, query: string) {
+  const text = letters(query);
+  if (!text) return true;
+  const fields = [row.name, row.code_number, row.registration_number, row.guarantor_name];
+  if (fields.some((field) => letters(field).includes(text))) return true;
+  const number = digits(query);
+  return (
+    number.length >= 3 &&
+    [row.phone, row.guarantor_phone].some((phone) => localPhone(phone).includes(number) || digits(phone).includes(number))
+  );
+}
+
 function Group({
   title,
   rows,
   canCollect,
+  canWaive,
   today,
 }: {
   title: string;
   rows: Row[];
   canCollect: boolean;
+  canWaive: boolean;
   today: string;
 }) {
   if (rows.length === 0) return null;
@@ -127,6 +150,7 @@ function Group({
                       : `${formatShortDate(r.oldest)} to ${formatDate(r.newest)}`}
                   </div>
                 </Link>
+                <div className="flex shrink-0 flex-wrap justify-end gap-2">
                 {canCollect ? (
                   <Link
                     href={onlyToday ? `/payments/new?operator=${r.id}` : `/payments/new?operator=${r.id}&for=balance`}
@@ -137,6 +161,17 @@ function Group({
                     Take payment
                   </Link>
                 ) : null}
+                {canWaive ? (
+                  <Link
+                    href={`/waivers/new?operator=${r.id}`}
+                    aria-label={`Waive balance for ${r.name}`}
+                    className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-line bg-card px-4 text-sm font-semibold text-ink transition-colors hover:border-line-strong hover:bg-card-subtle active:scale-[0.98]"
+                  >
+                    <Eraser size={16} aria-hidden />
+                    Waive
+                  </Link>
+                ) : null}
+                </div>
               </div>
             </li>
           );
@@ -149,16 +184,20 @@ function Group({
 export default async function ArrearsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; q?: string }>;
 }) {
   const ctx = await requirePage("finance.view");
-  const range = parseRange(await searchParams);
-  const rows = await listArrears(ctx, range ?? undefined);
+  const params = await searchParams;
+  const range = parseRange(params);
+  const q = queryValue(params.q)?.trim().slice(0, 60) ?? "";
+  const all = await listArrears(ctx, range ?? undefined);
+  const rows = all.filter((row) => matches(row, q));
   const canCollect = can(ctx.actor.role, "payment.record");
+  const canWaive = can(ctx.actor.role, "balance.waive");
   const today = businessDate(ctx.clock());
   const working = rows.filter((r) => r.status === "active");
   const gone = rows.filter((r) => r.status !== "active");
-  const total = formatNaira(sumOwed(rows));
+  const total = formatNaira(sumOwed(all));
   return (
     <>
       <PageHeader
@@ -174,9 +213,29 @@ export default async function ArrearsPage({
           </Link>
         </p>
       ) : null}
-      {rows.length === 0 ? (
+      {all.length > 0 ? (
+        <SearchBar
+          q={q}
+          placeholder="Search name, phone, tricycle or plate"
+          keep={{ from: range?.from, to: range?.to }}
+        />
+      ) : null}
+      {q && all.length > 0 ? (
+        <p className="mb-4 text-sm text-muted" aria-live="polite">
+          {rows.length === 0
+            ? `No unpaid balance matches "${q}".`
+            : `${rows.length} of ${all.length} operators match, owing ${formatNaira(sumOwed(rows))}.`}{" "}
+          <Link
+            href={range ? `/arrears?from=${range.from}&to=${range.to}` : "/arrears"}
+            className="inline-flex min-h-11 items-center font-semibold text-gold-deep underline underline-offset-2"
+          >
+            Clear search
+          </Link>
+        </p>
+      ) : null}
+      {all.length === 0 ? (
         <Empty>{range ? "Every balance for these days is paid." : "Every balance is paid."}</Empty>
-      ) : (
+      ) : rows.length === 0 ? null : (
         <div className="space-y-6">
           {canCollect ? (
             <p className="text-sm text-muted">
@@ -184,8 +243,8 @@ export default async function ArrearsPage({
               Take payment.
             </p>
           ) : null}
-          <Group title="Working operators" rows={working} canCollect={canCollect} today={today} />
-          <Group title="No longer working" rows={gone} canCollect={canCollect} today={today} />
+          <Group title="Working operators" rows={working} canCollect={canCollect} canWaive={canWaive} today={today} />
+          <Group title="No longer working" rows={gone} canCollect={canCollect} canWaive={canWaive} today={today} />
         </div>
       )}
     </>

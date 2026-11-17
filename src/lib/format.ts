@@ -58,6 +58,7 @@ export const CHARGE_LABELS = {
   daily_balance: "Daily balance",
   penalty: "Penalty",
   loan: "Loan",
+  contribution: "Weekly contribution",
 } as const;
 
 export const VIOLATION_STATUS_LABELS = {

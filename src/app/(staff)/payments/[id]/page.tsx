@@ -50,13 +50,16 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
           <ul className="divide-y divide-line">
             {lines.map((line, index) => (
               <li key={index} className="flex justify-between gap-3 py-2">
-                <span>{CHARGE_LABELS[line.type]} · {formatDate(line.businessDate)}</span>
+                <span>
+                  {CHARGE_LABELS[line.type]} · {line.type === "contribution" ? "Sunday " : ""}
+                  {formatDate(line.businessDate)}
+                </span>
                 <span className="font-medium tabular-nums">{formatNaira(line.amountKobo)}</span>
               </li>
             ))}
             {creditKobo > 0 ? (
               <li className="flex justify-between gap-3 py-2">
-                <span>Kept as advance for later days</span>
+                <span>{payment.purpose === "contribution" ? "Paid ahead for later Sundays" : "Kept as advance for later days"}</span>
                 <span className="font-medium tabular-nums">{formatNaira(creditKobo)}</span>
               </li>
             ) : null}

@@ -11,8 +11,7 @@ const FIELD: readonly Role[] = ["manager", "assistant_manager", "supervisor"];
 
 /**
  * Who may do what (DEVELOPMENT_PLAN.md section 5). The owner appears only on
- * view permissions and on checking cash counts, which keeps that login read-only
- * apart from being a second pair of eyes on the cash.
+ * view and oversight permissions, which keeps that login read-only.
  */
 const MATRIX = {
   "dashboard.view": STAFF,
@@ -29,10 +28,12 @@ const MATRIX = {
   "payment.record": OFFICE,
   "payment.reverse": ["manager"],
   "payment.backdate": ["manager"],
+  /** Told of every payment reversal and backdate. */
+  "payment.oversee": ["owner"],
   "finance.view": ["owner", "manager", "assistant_manager"],
   "cash.close": OFFICE,
-  // A second person recounts each close. The Owner may too, mostly for the Manager's weekly count.
-  "cash.check": ["owner", "manager", "assistant_manager"],
+  /** Told when a cash count does not match. The Owner only for ₦2,000 or more, or the Manager's own count. */
+  "cash.oversee": ["owner", "manager"],
   "money.transfer": OFFICE,
   "bank.reconcile": OFFICE,
   "bank.opening": ["manager"],
@@ -54,6 +55,12 @@ const MATRIX = {
   "meeting.attendance": FIELD,
   "meeting.excuse": ["manager"],
   "rule.manage": ["manager"],
+  /** Start contributions, change the amount and waive a week. */
+  "contribution.manage": ["manager"],
+  /** Waive or reverse a waiver of daily balances. */
+  "balance.waive": ["manager"],
+  /** Told of every balance waiver. */
+  "balance.waive.oversee": ["owner"],
   "violation.waive": ["manager"],
   "workorder.view": STAFF,
   "workorder.checkin": FIELD,
@@ -63,6 +70,8 @@ const MATRIX = {
   "stock.move": OFFICE,
   "stock.adjust": ["manager"],
   "dismissal.decide": ["manager"],
+  /** Told when an operator reaches the sacking limit. */
+  "dismissal.oversee": ["owner"],
   "calendar.manage": ["manager"],
 } as const satisfies Record<string, readonly Role[]>;
 

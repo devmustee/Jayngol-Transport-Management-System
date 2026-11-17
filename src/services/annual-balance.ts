@@ -18,6 +18,8 @@ import type { Column } from "./reports";
 
 export type YearFigures = {
   dueKobo: number;
+  /** Balances forgiven by the Manager on these days. Due is after waivers. */
+  waivedKobo: number;
   /** Paid towards these days' balances, whenever the money came in. */
   paidKobo: number;
   owedKobo: number;
@@ -30,6 +32,8 @@ export type YearFigures = {
   forFinesKobo: number;
   /** Loan repayments: the part of money received that went to loans. */
   forLoansKobo: number;
+  /** Weekly contributions received: company income of their own. */
+  forContributionsKobo: number;
   creditKobo: number;
   expensesKobo: number;
   loansGivenKobo: number;
@@ -43,6 +47,7 @@ type DayFigures = Omit<YearFigures, "owedKobo" | "creditKobo" | "netKobo">;
 
 const DAY_KEYS = [
   "dueKobo",
+  "waivedKobo",
   "paidKobo",
   "receivedKobo",
   "cashKobo",
@@ -51,6 +56,7 @@ const DAY_KEYS = [
   "forBalancesKobo",
   "forFinesKobo",
   "forLoansKobo",
+  "forContributionsKobo",
   "expensesKobo",
   "loansGivenKobo",
   "depositsKobo",
@@ -76,6 +82,7 @@ export type AnnualBalance = {
 
 const zero = (): DayFigures => ({
   dueKobo: 0,
+  waivedKobo: 0,
   paidKobo: 0,
   receivedKobo: 0,
   cashKobo: 0,
@@ -84,6 +91,7 @@ const zero = (): DayFigures => ({
   forBalancesKobo: 0,
   forFinesKobo: 0,
   forLoansKobo: 0,
+  forContributionsKobo: 0,
   expensesKobo: 0,
   loansGivenKobo: 0,
   depositsKobo: 0,
@@ -93,7 +101,7 @@ function finish(day: DayFigures): YearFigures {
   return {
     ...day,
     owedKobo: day.dueKobo - day.paidKobo,
-    creditKobo: day.receivedKobo - day.forBalancesKobo - day.forFinesKobo - day.forLoansKobo,
+    creditKobo: day.receivedKobo - day.forBalancesKobo - day.forFinesKobo - day.forLoansKobo - day.forContributionsKobo,
     netKobo: day.receivedKobo - day.expensesKobo - day.loansGivenKobo,
   };
 }
@@ -105,7 +113,7 @@ function addInto(into: DayFigures, from: DayFigures) {
 /** Each figure for each day of the range that has anything, keyed by date. */
 async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<string, DayFigures>> {
   const { from, to } = range;
-  const [balances, received, purposes, expenses, loansGiven, deposits] = await Promise.all([
+  const [balances, received, purposes, expenses, loansGiven, deposits, waived] = await Promise.all([
     exec.execute(sql`
       SELECT c.business_date::text AS day, SUM(c.amount_kobo)::float8 AS due,
              SUM(LEAST(c.amount_kobo, COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
@@ -128,7 +136,8 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
       SELECT p.business_date::text AS day,
              COALESCE(SUM(a.amount_kobo) FILTER (WHERE c.type = 'daily_balance'), 0)::float8 AS balances,
              COALESCE(SUM(a.amount_kobo) FILTER (WHERE c.type = 'penalty'), 0)::float8 AS fines,
-             COALESCE(SUM(a.amount_kobo) FILTER (WHERE c.type = 'loan'), 0)::float8 AS loans
+             COALESCE(SUM(a.amount_kobo) FILTER (WHERE c.type = 'loan'), 0)::float8 AS loans,
+             COALESCE(SUM(a.amount_kobo) FILTER (WHERE c.type = 'contribution'), 0)::float8 AS contributions
       FROM payments p
       JOIN payment_allocations a ON a.payment_id = p.id
       JOIN valid_charges c ON c.id = a.charge_id
@@ -157,6 +166,13 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
         AND NOT EXISTS (SELECT 1 FROM operator_deposit_reversals r WHERE r.deposit_id = d.id)
       GROUP BY d.business_date
     `),
+    exec.execute(sql`
+      SELECT c.business_date::text AS day, SUM(e.amount_kobo)::float8 AS total
+      FROM effective_waivers e JOIN charges c ON c.id = e.charge_id
+      WHERE c.business_date BETWEEN ${from}::date AND ${to}::date
+        AND NOT EXISTS (SELECT 1 FROM charge_voids v WHERE v.charge_id = c.id)
+      GROUP BY c.business_date
+    `),
   ]);
 
   const days = new Map<string, DayFigures>();
@@ -184,10 +200,12 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
     day.forBalancesKobo = n(row.balances);
     day.forFinesKobo = n(row.fines);
     day.forLoansKobo = n(row.loans);
+    day.forContributionsKobo = n(row.contributions);
   }
   for (const row of expenses as unknown as Row[]) at(String(row.day)).expensesKobo = n(row.total);
   for (const row of loansGiven as unknown as Row[]) at(String(row.day)).loansGivenKobo = n(row.total);
   for (const row of deposits as unknown as Row[]) at(String(row.day)).depositsKobo = n(row.total);
+  for (const row of waived as unknown as Row[]) at(String(row.day)).waivedKobo = n(row.total);
   return days;
 }
 
@@ -276,6 +294,7 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "from", label: "From", kind: "date" },
   { key: "to", label: "To", kind: "date" },
   { key: "due", label: "Balances due", kind: "naira" },
+  { key: "waived", label: "Waived", kind: "naira" },
   { key: "paid", label: "Paid", kind: "naira" },
   { key: "owed", label: "Still owed", kind: "naira" },
   { key: "received", label: "Money received", kind: "naira" },
@@ -285,6 +304,7 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "forBalances", label: "For balances", kind: "naira" },
   { key: "forFines", label: "For fines", kind: "naira" },
   { key: "loansRepaid", label: "Loans repaid", kind: "naira" },
+  { key: "contributions", label: "Contributions", kind: "naira" },
   { key: "credit", label: "Credit", kind: "naira" },
   { key: "expenses", label: "Expenses", kind: "naira" },
   { key: "loansGiven", label: "Loans given", kind: "naira" },
@@ -298,6 +318,7 @@ function csvRow(line: string, range: DateRange, f: YearFigures) {
     from: range.from,
     to: range.to,
     due: f.dueKobo,
+    waived: f.waivedKobo,
     paid: f.paidKobo,
     owed: f.owedKobo,
     received: f.receivedKobo,
@@ -307,6 +328,7 @@ function csvRow(line: string, range: DateRange, f: YearFigures) {
     forBalances: f.forBalancesKobo,
     forFines: f.forFinesKobo,
     loansRepaid: f.forLoansKobo,
+    contributions: f.forContributionsKobo,
     credit: f.creditKobo,
     expenses: f.expensesKobo,
     loansGiven: f.loansGivenKobo,

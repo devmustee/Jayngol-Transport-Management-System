@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, gte, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, count, desc, eq, gte, inArray, isNull, lte, or, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
 import {
@@ -23,6 +24,7 @@ import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { notifyOperators } from "./notices";
 import { applyCredit, voidCharge } from "./ledger";
+import { tellOffenceDecided, tellOffenceRaised } from "./staff-events";
 
 /** The fine for a rule on a date, read when the offence happens. */
 export async function ruleAmount(exec: Executor, code: string, date: string): Promise<number> {
@@ -76,9 +78,23 @@ export async function proposeViolation(
       entityId: input.operatorId,
       after: { rule: input.ruleCode, occurredOn: input.occurredOn, amountKobo },
     });
+    await tellOffenceRaised(tx, ctx, {
+      id: row.id,
+      operatorId: input.operatorId,
+      rule: RULE_NAMES[input.ruleCode] ?? input.ruleCode,
+      occurredOn: input.occurredOn,
+    });
   }
   return row ?? null;
 }
+
+const decided = (v: typeof violations.$inferSelect) => ({
+  id: v.id,
+  operatorId: v.operatorId,
+  rule: RULE_NAMES[v.ruleCode] ?? v.ruleCode,
+  occurredOn: v.occurredOn,
+  raisedBy: v.raisedBy,
+});
 
 async function lockViolation(tx: Tx, id: string) {
   const [row] = await tx.select().from(violations).where(eq(violations.id, id)).for("update");
@@ -127,6 +143,7 @@ export async function confirmViolation(ctx: Ctx, rawId: unknown) {
       entityId: v.operatorId,
       after: { rule: v.ruleCode, amountKobo: v.amountKobo },
     });
+    await tellOffenceDecided(tx, ctx, decided(v), "confirmed");
   });
 }
 
@@ -161,6 +178,7 @@ export async function rejectViolation(ctx: Ctx, rawId: unknown, raw: unknown) {
       after: { rule: v.ruleCode },
       reason,
     });
+    await tellOffenceDecided(tx, ctx, decided(v), "rejected", reason);
   });
 }
 
@@ -192,6 +210,7 @@ export async function waiveViolation(ctx: Ctx, rawId: unknown, raw: unknown) {
       after: { rule: v.ruleCode, amountKobo: v.amountKobo },
       reason,
     });
+    await tellOffenceDecided(tx, ctx, decided(v), "waived", reason);
   });
 }
 
@@ -298,35 +317,85 @@ const STATUSES = ["proposed", "confirmed", "rejected", "waived"] as const;
 export const OFFENCES_PAGE_SIZE = 30;
 
 /** One page of offences, newest first. Pages start at 1. */
-export async function listViolations(ctx: Ctx, status?: string, page = 1) {
+const decider = alias(users, "decider");
+
+/** Letters and digits only, so "GRE,4004", "gre 4004" and "GRE4004" all match. */
+const squash = (column: unknown) => sql`regexp_replace(lower(${column}), '[^a-z0-9]', '', 'g')`;
+
+/** Operator name or phone, tricycle code or plate, or the offence itself. */
+function searchCondition(q: string): SQL | undefined {
+  const text = q.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (!text) return undefined;
+  const like = `%${text}%`;
+  const conditions: SQL[] = [
+    sql`${squash(operators.name)} LIKE ${like}`,
+    sql`${squash(tricycles.codeNumber)} LIKE ${like}`,
+    sql`${squash(tricycles.registrationNumber)} LIKE ${like}`,
+    sql`${squash(violations.note)} LIKE ${like}`,
+  ];
+  const digits = q.replace(/\D/g, "");
+  if (digits.length >= 3) {
+    // Phones are stored as +234..., but people type 080...
+    const national = digits.startsWith("0") ? `234${digits.slice(1)}` : digits;
+    conditions.push(sql`regexp_replace(${operators.phone}, '\D', '', 'g') LIKE ${`%${national}%`}`);
+  }
+  const rules = Object.entries(RULE_NAMES)
+    .filter(([code, name]) => code.toLowerCase() === text || name.toLowerCase().replace(/[^a-z0-9]/g, "").includes(text))
+    .map(([code]) => code);
+  if (rules.length > 0) conditions.push(inArray(violations.ruleCode, rules));
+  return or(...conditions);
+}
+
+export async function listViolations(ctx: Ctx, status?: string, page = 1, q = "") {
   requirePermission(ctx, "violation.view");
   const wanted = STATUSES.find((s) => s === status);
   const current = Number.isInteger(page) && page > 0 ? page : 1;
-  const rows = await db
-    .select({
-      id: violations.id,
-      ruleCode: violations.ruleCode,
-      status: violations.status,
-      occurredOn: violations.occurredOn,
-      amountKobo: violations.amountKobo,
-      raisedBy: violations.raisedBy,
-      raisedByName: users.name,
-      decisionReason: violations.decisionReason,
-      note: violations.note,
-      photoId: violations.photoId,
-      operatorId: violations.operatorId,
-      operatorName: operators.name,
-      tricycleCode: tricycles.codeNumber,
-    })
-    .from(violations)
-    .innerJoin(operators, eq(operators.id, violations.operatorId))
-    .leftJoin(tricycles, eq(tricycles.id, violations.tricycleId))
-    .leftJoin(users, eq(users.id, violations.raisedBy))
-    .where(wanted ? eq(violations.status, wanted) : undefined)
-    .orderBy(desc(violations.occurredOn), desc(violations.createdAt), desc(violations.id))
-    .limit(OFFENCES_PAGE_SIZE + 1)
-    .offset((current - 1) * OFFENCES_PAGE_SIZE);
-  return { rows: rows.slice(0, OFFENCES_PAGE_SIZE), page: current, hasMore: rows.length > OFFENCES_PAGE_SIZE };
+  const where = and(wanted ? eq(violations.status, wanted) : undefined, searchCondition(q.slice(0, 60)));
+  const [rows, [total]] = await Promise.all([
+    db
+      .select({
+        id: violations.id,
+        ruleCode: violations.ruleCode,
+        status: violations.status,
+        occurredOn: violations.occurredOn,
+        amountKobo: violations.amountKobo,
+        raisedBy: violations.raisedBy,
+        raisedByName: users.name,
+        recordedAt: violations.createdAt,
+        decidedByName: decider.name,
+        decidedAt: violations.decidedAt,
+        decisionReason: violations.decisionReason,
+        note: violations.note,
+        photoId: violations.photoId,
+        operatorId: violations.operatorId,
+        operatorName: operators.name,
+        operatorPhone: operators.phone,
+        tricycleId: tricycles.id,
+        tricycleCode: tricycles.codeNumber,
+        registrationNumber: tricycles.registrationNumber,
+      })
+      .from(violations)
+      .innerJoin(operators, eq(operators.id, violations.operatorId))
+      .leftJoin(tricycles, eq(tricycles.id, violations.tricycleId))
+      .leftJoin(users, eq(users.id, violations.raisedBy))
+      .leftJoin(decider, eq(decider.id, violations.decidedBy))
+      .where(where)
+      .orderBy(desc(violations.occurredOn), desc(violations.createdAt), desc(violations.id))
+      .limit(OFFENCES_PAGE_SIZE + 1)
+      .offset((current - 1) * OFFENCES_PAGE_SIZE),
+    db
+      .select({ count: count() })
+      .from(violations)
+      .innerJoin(operators, eq(operators.id, violations.operatorId))
+      .leftJoin(tricycles, eq(tricycles.id, violations.tricycleId))
+      .where(where),
+  ]);
+  return {
+    rows: rows.slice(0, OFFENCES_PAGE_SIZE),
+    page: current,
+    hasMore: rows.length > OFFENCES_PAGE_SIZE,
+    total: total?.count ?? 0,
+  };
 }
 
 export const RULE_NAMES: Record<string, string> = {

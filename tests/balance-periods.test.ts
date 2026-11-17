@@ -150,6 +150,7 @@ describe("weekly and monthly balances", () => {
   it("adds up a hand-checked week to the kobo", async () => {
     expect(await balanceTotals(db, WEEK1, a)).toEqual({
       dueKobo: 6_000_000,
+      waivedKobo: 0,
       paidKobo: 4_500_000,
       owedKobo: 1_500_000,
       daysCharged: 6, // the non-collection day adds nothing

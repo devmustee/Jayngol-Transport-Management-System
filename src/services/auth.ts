@@ -8,6 +8,7 @@ import { DomainError } from "@/lib/errors";
 import { normalizePhone } from "@/lib/phone";
 import { recordAudit } from "./audit";
 import type { Actor } from "./context";
+import { tellAccountLocked } from "./staff-events";
 
 const BCRYPT_COST = 10;
 const MAX_ACCOUNT_FAILURES = 5;
@@ -72,10 +73,13 @@ export async function login(input: LoginInput, clock: Clock) {
       })
       .where(eq(users.id, user.id));
     if (lock) {
-      await recordAudit(db, null, now, {
-        action: "auth.locked",
-        entityType: "user",
-        entityId: user.id,
+      await db.transaction(async (tx) => {
+        await recordAudit(tx, null, now, {
+          action: "auth.locked",
+          entityType: "user",
+          entityId: user.id,
+        });
+        await tellAccountLocked(tx, now, user, WINDOW_MS / 60_000);
       });
       await db.insert(loginFailures).values({ ip: input.ip, at: now });
       throw new DomainError(LOCKED);

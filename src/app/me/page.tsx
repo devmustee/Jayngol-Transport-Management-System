@@ -8,6 +8,7 @@ import { ActionForm, SubmitButton } from "@/components/form";
 import { OperatorBalanceCard } from "@/components/balance-periods";
 import { StatementView } from "@/components/statement";
 import { MyAwardJourney } from "@/components/my-awards";
+import { MyContributions } from "@/components/my-contributions";
 import { Badge, Card, Details, Empty, operatorTone } from "@/components/ui";
 import {
   formatDate,
@@ -54,7 +55,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
   if (isStaff(ctx.actor.role)) redirect("/dashboard");
   const balanceKind = (await searchParams).balance === "month" ? "month" : "week";
   const [
-    { operator, current, dailyBalanceKobo, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits },
+    { operator, current, dailyBalanceKobo, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits, contributions },
     balancePeriods,
   ] = await Promise.all([getMyRecords(ctx), myBalancePeriods(ctx)]);
 
@@ -287,6 +288,11 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
                 kind={balanceKind}
                 hrefFor={(kind) => (kind === "week" ? "/me#my-balance" : `/me?balance=${kind}#my-balance`)}
               />
+              {contributions.started ? (
+                <div className="mt-4">
+                  <MyContributions data={contributions} today={businessDate(ctx.clock())} />
+                </div>
+              ) : null}
             </div>
           }
         />

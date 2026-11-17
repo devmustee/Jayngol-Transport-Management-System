@@ -42,7 +42,7 @@ export const returnReason = pgEnum("return_reason", [
   "sacked",
   "other",
 ]);
-export const chargeType = pgEnum("charge_type", ["daily_balance", "penalty", "loan"]);
+export const chargeType = pgEnum("charge_type", ["daily_balance", "penalty", "loan", "contribution"]);
 export const paymentMethod = pgEnum("payment_method", ["cash", "transfer", "pos"]);
 /**
  * What a payment is for. A day's balance pays that one day; older payments
@@ -54,6 +54,7 @@ export const paymentPurpose = pgEnum("payment_purpose", [
   "fine",
   "loan",
   "general",
+  "contribution",
 ]);
 export const violationStatus = pgEnum("violation_status", [
   "proposed",
@@ -307,6 +308,47 @@ export const charges = pgTable(
   ],
 );
 
+/**
+ * The weekly contribution amount from a Sunday onwards. The earliest row is
+ * the day contributions start; nothing before it is ever charged.
+ */
+export const contributionRates = pgTable(
+  "contribution_rates",
+  {
+    effectiveFrom: date("effective_from", { mode: "string" }).primaryKey(),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    setBy: uuid("set_by").references(() => users.id),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    check("contribution_rate_positive", sql`${t.amountKobo} > 0`),
+    check("contribution_rate_on_sunday", sql`extract(isodow from ${t.effectiveFrom}) = 7`),
+  ],
+);
+
+/**
+ * The week each contribution charge is for, so an operator can never be
+ * charged twice for the same Sunday, even if it is later waived.
+ */
+export const contributionWeeks = pgTable(
+  "contribution_weeks",
+  {
+    chargeId: uuid("charge_id")
+      .primaryKey()
+      .references(() => charges.id),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    /** The Sunday it is paid on, which ends the Monday-to-Sunday week. */
+    weekEnding: date("week_ending", { mode: "string" }).notNull(),
+  },
+  (t) => [
+    unique("one_contribution_per_week").on(t.operatorId, t.weekEnding),
+    index("contribution_weeks_week_idx").on(t.weekEnding),
+    check("contribution_week_on_sunday", sql`extract(isodow from ${t.weekEnding}) = 7`),
+  ],
+);
+
 export const chargeVoids = pgTable("charge_voids", {
   chargeId: uuid("charge_id")
     .primaryKey()
@@ -314,6 +356,80 @@ export const chargeVoids = pgTable("charge_voids", {
   voidedBy: uuid("voided_by").references(() => users.id),
   reason: text("reason").notNull(),
   voidedAt: timestamp("voided_at", tz).notNull(),
+});
+
+/** Why a daily balance was waived. */
+export const WAIVER_REASONS = [
+  "breakdown",
+  "illness",
+  "bereavement",
+  "accident",
+  "police",
+  "staff_mistake",
+  "no_balance_day",
+  "other",
+] as const;
+
+/**
+ * A Manager forgiving all or part of one operator's daily balances. It counts
+ * from the moment it is saved; the Owner is told of every one. Append-only:
+ * an undo is a row in balance_waiver_reversals.
+ */
+export const balanceWaivers = pgTable(
+  "balance_waivers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    reason: text("reason").notNull(),
+    note: text("note").notNull(),
+    fineWaived: boolean("fine_waived").notNull(),
+    /** Set when a whole no-balance day was waived for every operator at once. */
+    fleetDay: date("fleet_day", { mode: "string" }),
+    waivedBy: uuid("waived_by")
+      .notNull()
+      .references(() => users.id),
+    waivedAt: timestamp("waived_at", tz).notNull(),
+  },
+  (t) => [
+    index("balance_waivers_operator_idx").on(t.operatorId, t.waivedAt),
+    index("balance_waivers_at_idx").on(t.waivedAt),
+    check(
+      "balance_waiver_reason",
+      sql`${t.reason} IN ('breakdown', 'illness', 'bereavement', 'accident', 'police', 'staff_mistake', 'no_balance_day', 'other')`,
+    ),
+  ],
+);
+
+/** One day in a waiver, and how much of it was forgiven. */
+export const balanceWaiverLines = pgTable(
+  "balance_waiver_lines",
+  {
+    waiverId: uuid("waiver_id")
+      .notNull()
+      .references(() => balanceWaivers.id),
+    chargeId: uuid("charge_id")
+      .notNull()
+      .references(() => charges.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.waiverId, t.chargeId] }),
+    index("balance_waiver_lines_charge_idx").on(t.chargeId),
+    check("balance_waiver_line_positive", sql`${t.amountKobo} > 0`),
+  ],
+);
+
+export const balanceWaiverReversals = pgTable("balance_waiver_reversals", {
+  waiverId: uuid("waiver_id")
+    .primaryKey()
+    .references(() => balanceWaivers.id),
+  reversedBy: uuid("reversed_by")
+    .notNull()
+    .references(() => users.id),
+  reason: text("reason").notNull(),
+  reversedAt: timestamp("reversed_at", tz).notNull(),
 });
 
 export const payments = pgTable(

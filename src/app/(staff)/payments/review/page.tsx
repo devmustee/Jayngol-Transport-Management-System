@@ -15,6 +15,7 @@ const PURPOSE_LABELS: Record<string, string> = {
   old_balance: "Older days",
   fine: "Fines",
   loan: "Loan",
+  contribution: "Weekly contribution",
   general: "Before the once-a-day rule",
 };
 

@@ -15,9 +15,16 @@ export type CatalogueEntry = {
   title: string;
   /** Where the notification opens. Operators always land in their portal. */
   link: string;
-  /** Who it is for: operators, or staff holding this permission. */
-  audience: "operator" | { permission: Permission };
+  /** Who it is for: operators, or staff holding this permission (or any of these). */
+  audience: "operator" | { permission: Permission | readonly Permission[] };
 };
+
+const staffNotice = (
+  severity: Severity,
+  title: string,
+  link: string,
+  permission: Permission | readonly Permission[],
+): CatalogueEntry => ({ severity, title, link, audience: { permission } });
 
 const operatorNotice = (severity: Severity, title: string): CatalogueEntry => ({
   severity,
@@ -38,12 +45,37 @@ export const CATALOGUE = {
   late_fine: operatorNotice("action", "Late balance fine"),
   service_reminder: operatorNotice("action", "Service tomorrow"),
   balance_changed: operatorNotice("action", "Daily balance changed"),
+  contribution_due: operatorNotice("action", "Contribution due Sunday"),
+  contribution_unpaid: operatorNotice("action", "Contribution unpaid"),
+  balance_waived: operatorNotice("info", "Balance waived"),
+  balance_waiver: {
+    severity: "info",
+    title: "Balance waived by the Manager",
+    link: "/waivers",
+    audience: { permission: "balance.waive.oversee" },
+  },
   large_expense: {
     severity: "info",
     title: "Large expense by the Manager",
     link: "/expenses",
     audience: { permission: "expense.oversee" },
   },
+  // Staff events (STAFF_NOTIFICATIONS_PLAN.md section 4.1). The person who
+  // caused an event is never told of it.
+  payment_reversed: staffNotice("action", "Payment reversed", "/payments", "payment.oversee"),
+  payment_backdated: staffNotice("action", "Payment backdated", "/payments", "payment.oversee"),
+  sacking_flagged: staffNotice("critical", "Operator reached 5 unpaid days", "/sacking", ["dismissal.decide", "dismissal.oversee"]),
+  offence_raised: staffNotice("action", "Offence to confirm", "/offences?status=proposed", "violation.confirm"),
+  offence_decided: staffNotice("info", "Offence decided", "/offences", "violation.raise"),
+  handover_sent: staffNotice("action", "Cash handover to accept", "/transfers", "money.transfer"),
+  handover_rejected: staffNotice("action", "Cash handover refused", "/transfers", "money.transfer"),
+  cash_difference: staffNotice("critical", "Cash count does not match", "/cash", "cash.oversee"),
+  expense_submitted: staffNotice("action", "Expenses to countersign", "/expenses", "expense.countersign"),
+  expense_sent_back: staffNotice("action", "Expenses sent back", "/expenses", "expense.record"),
+  expense_countersigned: staffNotice("info", "Expenses countersigned", "/expenses", "expense.record"),
+  awards_proposed: staffNotice("action", "Awards to decide", "/awards", "award.approve"),
+  stock_low: staffNotice("action", "Stock below reorder level", "/store", "stock.move"),
+  account_locked: staffNotice("critical", "Staff account locked", "/users", "user.manage"),
 } as const satisfies Record<string, CatalogueEntry>;
 
 export type NotificationKind = keyof typeof CATALOGUE;

@@ -24,7 +24,7 @@ import {
   createAdvance,
   submitAdvance,
 } from "../services/expenses";
-import { cashDay, checkCashClose, closeCash } from "../services/finance";
+import { cashDay, closeCash } from "../services/finance";
 import { setOpeningBalance } from "../services/bank";
 import { createTransfer } from "../services/transfers";
 import { recordInspection } from "../services/inspections";
@@ -34,7 +34,10 @@ import {
   recordAttendance,
   scheduleMeeting,
 } from "../services/meetings";
+import { setContributionRate } from "../services/contributions";
 import { grantLoan } from "../services/loans";
+import { openCharges } from "../services/ledger";
+import { waiveBalances } from "../services/waivers";
 import { createOperator } from "../services/operators";
 import { paymentContext, recordPayment } from "../services/payments";
 import { issuePart, receiveStock, setReorderLevel } from "../services/store";
@@ -259,6 +262,10 @@ async function main() {
   });
   await setOperatorPin(manager, bikes[0]!.operatorId, { pin: OPERATOR_PIN });
 
+  // Weekly contributions of ₦500 start on the first Sunday after the sample begins.
+  const firstSunday = addDays(start, ((7 - new Date(`${start}T00:00:00Z`).getUTCDay()) % 7) || 7);
+  await setContributionRate(manager, { effectiveFrom: firstSunday, amount: "500" });
+
   const issue = (ctx: Ctx, orderId: string, part: Part, quantity: string) =>
     issuePart(ctx, orderId, { itemId: stock[part], quantity });
 
@@ -411,6 +418,44 @@ async function main() {
       await receiveStock(manager, stock.engine, { quantity: "20", unitCost: "4,800", note: "Restock from supplier" });
     }
 
+    // Sunday contributions: most pay on the day, some pay ahead, some fall behind.
+    if (new Date(`${date}T00:00:00Z`).getUTCDay() === 0 && date >= firstSunday) {
+      for (const [n, bike] of bikes.entries()) {
+        if (bike.habit === "stops") continue;
+        if ((bike.habit === "late" || bike.habit === "sometimes") && chance(0.4)) continue;
+        const position = (await paymentContext(assistant, bike.operatorId))!.contribution;
+        // Every fourth operator pays two weeks at a time when they are up to date.
+        const amount = position.owedKobo > 0 ? position.owedKobo : n % 4 === 0 ? 100_000 : 50_000;
+        if (position.creditKobo >= 50_000 && position.owedKobo === 0) continue;
+        if (Math.min(amount, position.maxKobo) <= 0) continue;
+        setTime(date, clockTime(10, 13));
+        await recordPayment(chance(0.7) ? assistant : manager, {
+          operatorId: bike.operatorId,
+          clientId: randomUUID(),
+          amount: naira(Math.min(amount, position.maxKobo)),
+          method: "cash",
+          purpose: "contribution",
+        });
+      }
+    }
+
+    // The Manager forgives some days: Sani Garba was ill, Haruna Isa had a part-day breakdown.
+    if (index === 22 || index === 26) {
+      setTime(date, "16:30");
+      const bike = bikes.find((b) => b.name === (index === 22 ? "Sani Garba" : "Haruna Isa"));
+      const open = bike ? await openCharges(db, bike.operatorId, "daily_balance") : [];
+      const day = open.find((c) => c.businessDate < date);
+      if (bike && day) {
+        await waiveBalances(manager, {
+          operatorId: bike.operatorId,
+          reason: index === 22 ? "illness" : "breakdown",
+          note: index === 22 ? "In hospital, doctor's note seen" : "Engine failed at noon, towed to the depot",
+          waiveFine: true,
+          lines: [{ chargeId: day.id, amount: index === 22 ? undefined : naira(Math.min(500_000, day.outstandingKobo)) }],
+        });
+      }
+    }
+
     // Loans and expense funds, once the day's takings are in.
     setTime(date, "21:05");
     for (const loan of LOANS) {
@@ -458,12 +503,10 @@ async function main() {
         });
       }
 
-      // The other office person recounts, and cash goes to the bank every third day.
+      // Cash goes to the bank every third day.
       for (const person of await cashDay(manager, date)) {
         if (!person.close) continue;
         const held = person.id === assistant.actor.userId ? assistant : manager;
-        const other = person.id === assistant.actor.userId ? manager : assistant;
-        await checkCashClose(other, person.close.id, { recounted: naira(person.close.countedKobo) });
         if (index % 3 === 2 && person.close.countedKobo > 0) {
           await createTransfer(held, {
             from: person.id,

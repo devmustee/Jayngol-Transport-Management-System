@@ -16,10 +16,12 @@ import { rateOn } from "./assignments";
 import { recordAwardProgress } from "./award-tracker";
 import { recordAudit } from "./audit";
 import { proposeAwards } from "./awards";
+import { createWeeklyContributions } from "./contributions";
 import { applyCredit, unpaidDaysAsOf } from "./ledger";
 import { queueDayNotices } from "./notices";
 import { ruleAmount } from "./violations";
 import { closeMissedServices, scheduleServices } from "./workshop";
+import { tellSackingFlagged } from "./staff-events";
 
 const JOB = "daily";
 const ADVISORY_LOCK = 7_401_001;
@@ -66,6 +68,7 @@ export async function processDay(date: string, clock: Clock): Promise<boolean> {
 
     const now = clock();
     await createDailyBalances(tx, date);
+    await createWeeklyContributions(tx, date);
     await evaluateLateBalances(tx, date, now);
     await reviewDismissals(tx, date, now);
     await closeMissedServices(tx, date, now);
@@ -300,5 +303,6 @@ async function reviewDismissals(tx: Tx, date: string, now: Date) {
       entityId: id,
       after: { dismissalId: row!.id, unpaidDays: entry.days },
     });
+    await tellSackingFlagged(tx, now, { id: row!.id, operatorId: id, unpaidDays: entry.days });
   }
 }

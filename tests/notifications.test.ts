@@ -112,7 +112,7 @@ describe("posting", () => {
       makeUser("manager"),
     ]);
     await db.update(users).set({ status: "disabled" }).where(eq(users.id, gone.user.id));
-    const entry = { severity: "action" as const, title: "Check", link: "/cash", audience: { permission: "cash.check" as const } };
+    const entry = { severity: "action" as const, title: "Check", link: "/cash", audience: { permission: "finance.view" as const } };
     const everyone = [owner, assistant, supervisor, gone].map((person) => person.user.id);
     const { userIds } = await db.transaction((tx) => audienceFor(tx, entry, { userIds: everyone }));
     expect(userIds.sort()).toEqual([owner.user.id, assistant.user.id].sort());

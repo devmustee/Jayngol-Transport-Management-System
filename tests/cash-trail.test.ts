@@ -7,7 +7,7 @@ import { ForbiddenError } from "@/lib/errors";
 import { bankPosition, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
 import { cashAlerts, cashBook, cashPosition, expectedCash } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
-import { cashDay, checkCashClose, closeCash } from "@/services/finance";
+import { cashDay, closeCash } from "@/services/finance";
 import { cancelLoan, grantLoan } from "@/services/loans";
 import { getMyNotices, markMyNoticesRead } from "@/services/notices";
 import { recordPayment, reversePayment } from "@/services/payments";
@@ -133,31 +133,22 @@ describe("carrying cash forward", () => {
   });
 });
 
-describe("second check", () => {
-  async function closed() {
+describe("closing cash", () => {
+  it("is one step: the close is final, with no second check", async () => {
     const person = await someone();
     await collect(on(person, "2034-06-01"), "10,000");
-    await closeCash(on(person, "2034-06-01", "20:00"), { custodianId: person.actor.userId, businessDate: "2034-06-01", counted: "10,000" });
-    const day = await cashDay(on(person, "2034-06-01"), "2034-06-01");
-    return { person, closeId: day.find((row) => row.id === person.actor.userId)!.close!.id };
-  }
-
-  it("cannot be done by the person who closed", async () => {
-    const { person, closeId } = await closed();
-    await expect(checkCashClose(person, closeId, { recounted: "10,000" })).rejects.toThrow(/different person/);
-  });
-
-  it("needs a note when the recount differs, and carries the recount forward", async () => {
-    const { person, closeId } = await closed();
-    await expect(checkCashClose(manager, closeId, { recounted: "9,500" })).rejects.toMatchObject({
-      fieldErrors: { note: expect.anything() },
-    });
-    await checkCashClose(manager, closeId, { recounted: "9,500", note: "One note was fake" });
+    await closeCash(on(person, "2034-06-01", "20:00"), { custodianId: person.actor.userId, businessDate: "2034-06-01", counted: "9,500", explanation: "₦500 short" });
+    const [row] = (await cashDay(on(person, "2034-06-01"), "2034-06-01")).filter((p) => p.id === person.actor.userId);
+    expect(row!.close).toMatchObject({ countedKobo: 950_000 });
+    expect(row!.check).toBeNull();
     expect(await expectedCash(db, person.actor.userId, "2034-06-02")).toBe(950_000);
-    await expect(checkCashClose(manager, closeId, { recounted: "9,500", note: "Again" })).rejects.toThrow(/already/);
+    expect((await cashAlerts(db, "2034-06-02")).cashNotClosed.find((r) => r.name === person.actor.name)).toBeUndefined();
   });
 
-  it("cannot be changed in the database", async () => {
+  it("keeps old second checks unchangeable", async () => {
+    await db.execute(sql`
+      INSERT INTO cash_close_checks (close_id, checked_at)
+      SELECT id, now() FROM cash_closes ORDER BY business_date DESC LIMIT 1 ON CONFLICT DO NOTHING`);
     await expect(db.execute(sql`DELETE FROM cash_close_checks`)).rejects.toThrow();
   });
 });

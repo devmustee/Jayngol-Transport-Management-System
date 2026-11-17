@@ -45,7 +45,7 @@ async function loadRecords(
     `),
     list<{ on_date: string }>(sql`
       SELECT c.operator_id, c.business_date::text AS on_date
-      FROM valid_charges c
+      FROM award_balance_days c
       WHERE c.operator_id IN ${scope} AND c.type = 'daily_balance' AND c.due_on < ${today}::date
         AND (
           c.id NOT IN (SELECT charge_id FROM late_evaluations WHERE outcome = 'on_time')
@@ -68,7 +68,7 @@ async function loadRecords(
       ? list<{ on_date: string; inspected: boolean }>(sql`
           SELECT DISTINCT c.operator_id, c.business_date::text AS on_date,
             EXISTS (SELECT 1 FROM inspections i WHERE i.operator_id = c.operator_id AND i.business_date = c.business_date) AS inspected
-          FROM valid_charges c
+          FROM award_balance_days c
           WHERE c.operator_id IN ${scope} AND c.type = 'daily_balance'
             AND c.business_date >= ${addMonths(today, -COVERAGE_LOOKBACK_MONTHS)}::date
         `)

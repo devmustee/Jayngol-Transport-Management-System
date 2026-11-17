@@ -282,6 +282,20 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
       </section>
 
       <div className="grid grid-cols-1 gap-4 2xl:grid-cols-2 [&>*]:min-w-0">
+        {total.waivedKobo > 0 ? (
+          <Card title="Balances and waivers" subtitle="Due is after waivers. Waived is income the Manager forgave.">
+            <MonthTable
+              months={report.months}
+              total={total}
+              columns={[
+                { label: "Due", value: (f) => f.dueKobo },
+                { label: "Waived", value: (f) => f.waivedKobo },
+                { label: "Paid", value: (f) => f.paidKobo },
+                { label: "Owed", value: (f) => f.owedKobo },
+              ]}
+            />
+          </Card>
+        ) : null}
         <Card title="Money received by method">
           <MonthTable
             months={report.months}
@@ -302,6 +316,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
               { label: "Balances", value: (f) => f.forBalancesKobo },
               { label: "Fines", value: (f) => f.forFinesKobo },
               { label: "Loans", value: (f) => f.forLoansKobo },
+              { label: "Contributions", value: (f) => f.forContributionsKobo },
               { label: "Credit", value: (f) => f.creditKobo },
             ]}
           />

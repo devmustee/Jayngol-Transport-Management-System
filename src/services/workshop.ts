@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db, type Tx } from "@/db";
 import {
   assignments,
+  operators,
   offRoadPeriods,
   stockItems,
   stockMovements,
@@ -355,11 +356,15 @@ export async function listWorkshop(ctx: Ctx) {
       checkedInAt: workOrders.checkedInAt,
       tricycleId: tricycles.id,
       code: tricycles.codeNumber,
+      registration: tricycles.registrationNumber,
       holder: assignments.id,
+      operatorName: operators.name,
+      operatorPhone: operators.phone,
     })
     .from(workOrders)
     .innerJoin(tricycles, eq(tricycles.id, workOrders.tricycleId))
     .leftJoin(assignments, and(eq(assignments.tricycleId, tricycles.id), isNull(assignments.returnedOn)))
+    .leftJoin(operators, eq(operators.id, assignments.operatorId))
     .where(
       and(
         inArray(workOrders.status, ["scheduled", "missed", "checked_in"]),

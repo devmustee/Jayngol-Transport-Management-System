@@ -8,7 +8,7 @@ import { chargeVoids, paymentAllocations } from "@/db/schema";
  */
 export type OpenCharge = {
   id: string;
-  type: "daily_balance" | "penalty" | "loan";
+  type: "daily_balance" | "penalty" | "loan" | "contribution";
   amountKobo: number;
   paidKobo: number;
   outstandingKobo: number;
@@ -71,7 +71,10 @@ export async function allocate(
   return remaining;
 }
 
-/** Payment money not yet attached to any charge that still counts. */
+/**
+ * Payment money not yet attached to any charge that still counts. Contribution
+ * money is kept apart: it only ever pays weekly contributions.
+ */
 export async function unallocatedPayments(exec: Executor, operatorId: string) {
   const rows = (await exec.execute(sql`
     SELECT p.id, p.purpose::text AS purpose, p.for_date::text AS for_date,
@@ -80,7 +83,7 @@ export async function unallocatedPayments(exec: Executor, operatorId: string) {
              JOIN valid_charges c ON c.id = a.charge_id
              WHERE a.payment_id = p.id), 0))::float8 AS free
     FROM payments p
-    WHERE p.operator_id = ${operatorId}
+    WHERE p.operator_id = ${operatorId} AND p.purpose <> 'contribution'
       AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
     ORDER BY p.received_at, p.id
   `)) as unknown as { id: string; purpose: string; for_date: string | null; free: number }[];

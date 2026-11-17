@@ -246,16 +246,26 @@ export function SearchBar({
   status,
   placeholder,
   options,
+  allLabel = "All statuses",
+  keep = {},
 }: {
   q?: string;
   status?: string;
   placeholder: string;
-  options: Record<string, string>;
+  /** Leave out for a search with no status choice. */
+  options?: Record<string, string>;
+  /** The first choice in the select, meaning no filter. */
+  allLabel?: string;
+  /** Other filters already in the address, carried through the search. */
+  keep?: Record<string, string | undefined>;
 }) {
   const control =
     "min-h-12 rounded-xl border border-line bg-card px-3.5 py-2.5 text-base text-ink placeholder:text-muted/60 transition-colors focus:border-gold";
   return (
     <form className="mb-5 flex flex-wrap gap-2.5" role="search">
+      {Object.entries(keep).map(([name, value]) =>
+        value ? <input key={name} type="hidden" name={name} value={value} /> : null,
+      )}
       <div className="relative min-w-0 flex-[2_1_14rem]">
         <input
           name="q"
@@ -270,19 +280,21 @@ export function SearchBar({
           aria-hidden
         />
       </div>
+      {options ? (
       <select
         name="status"
         defaultValue={status ?? ""}
-        aria-label="Status"
+        aria-label={allLabel === "All statuses" ? "Status" : allLabel.replace(/^All /, "")}
         className={`${control} flex-[1_1_9rem] cursor-pointer`}
       >
-        <option value="">All statuses</option>
+        <option value="">{allLabel}</option>
         {Object.entries(options).map(([value, label]) => (
           <option key={value} value={value}>
             {label}
           </option>
         ))}
       </select>
+      ) : null}
       <button className="inline-flex min-h-12 items-center justify-center rounded-xl bg-ink px-5 font-semibold text-sm text-paper transition-colors hover:bg-ink-soft active:scale-[0.98]">
         Search
       </button>
