@@ -12,6 +12,7 @@
     "db:migrate": "tsx --env-file=.env.local src/db/migrate.ts",
     "db:seed": "tsx --env-file=.env.local src/db/seed.ts",
     "db:sample": "tsx --env-file=.env.local src/db/sample-data.ts",
+    "db:reset-go-live": "tsx --env-file=.env.local src/db/reset-for-go-live.ts",
     "job:daily": "tsx --env-file=.env.local src/jobs/daily-cli.ts",
     "audit:prepare": "DATABASE_URL=postgres://localhost:5432/jayngol_audit tsx --env-file=.env.local e2e/prepare.ts",
     "audit:build": "cp next-env.d.ts next-env.d.ts.keep; NEXT_DIST_DIR=.next-audit next build; status=$?; mv next-env.d.ts.keep next-env.d.ts; exit $status",

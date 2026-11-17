@@ -48,6 +48,7 @@ const ACTIONS: Record<string, string> = {
   "tricycle.update": "Edited a tricycle",
   "tricycle.retire": "Retired a tricycle",
   "tricycle.unretire": "Brought a tricycle back into use",
+  "system.reset": "Reset the system for go-live",
   "assignment.issue": "Issued a tricycle",
   "assignment.return": "Returned a tricycle",
   "assignment.change_rate": "Changed a daily balance",
