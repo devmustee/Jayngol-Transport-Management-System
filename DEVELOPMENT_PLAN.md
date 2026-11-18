@@ -199,7 +199,7 @@ R1 is confirmed automatically because it is pure arithmetic. All others are rais
 ### Expenses and loans
 
 - **Expenses:** the Manager records funds collected, then accounts for them with items, receipts and any change returned. The Assistant Manager countersigns, so no one person controls the record, and the owner can review it all. An unaccounted-for advance stays visible as outstanding.
-- **Loans:** the Manager approves and sets the amount. There is no interest or fee and only one active loan per operator. The operator repays any amount at any time until it is cleared, using the same receipt flow as the daily balance. With no schedule there are no late-loan fines.
+- **Loans:** the Manager or the Assistant Manager gives the loan and sets the amount. There is no interest or fee and only one active loan per operator. The operator repays any amount at any time until it is cleared, using the same receipt flow as the daily balance. With no schedule there are no late-loan fines.
 
 ### Awards
 
@@ -369,7 +369,7 @@ Confirmed on 9 November 2026.
 | 12 | Can one operator win all three awards? | Yes |
 | 13 | Do past written offences count? | Yes, if on record. Otherwise the operator starts clean. |
 | 14 | Do the award safeguards stay? | Yes: 6 months' service and 80% inspection coverage |
-| 15 | What are the loan terms? | No interest, one active loan, Manager sets the amount |
+| 15 | What are the loan terms? | No interest, one active loan, Manager or Assistant Manager sets the amount |
 | 16 | How are loans repaid? | Any amount at any time until cleared |
 | 17 | Who checks the Manager's expenses? | Assistant Manager countersigns |
 | 18 | Does the owner get a login? | Yes, read-only |

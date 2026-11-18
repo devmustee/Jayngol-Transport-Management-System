@@ -197,11 +197,11 @@ describe("loans", () => {
   };
   const status = async (id: string) => (await db.select().from(loans).where(eq(loans.id, id)))[0]!.status;
 
-  it("lets only the Manager approve one", async () => {
+  it("lets the Manager and the Assistant Manager give one, and nobody else", async () => {
     const operator = await makeOperator(manager);
     const input = { operatorId: operator.id, amount: "1,000", source: "bank" };
-    await expect(grantLoan(assistant, input)).rejects.toBeInstanceOf(ForbiddenError);
     await expect(grantLoan(supervisor, input)).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(grantLoan(on(assistant, DAY), input)).resolves.toBeDefined();
   });
 
   it("charges exactly what was given, with no interest", async () => {

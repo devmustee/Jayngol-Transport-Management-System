@@ -48,7 +48,8 @@ const MATRIX = {
   "expense.countersign": ["manager"],
   // Told about the Manager's large expenses, which nobody approves.
   "expense.oversee": ["owner"],
-  "loan.approve": ["manager"],
+  // Giving a loan, or cancelling one entered by mistake.
+  "loan.approve": ["manager", "assistant_manager"],
   "award.approve": ["manager"],
   "awards.track": STAFF,
   "violation.view": STAFF,
