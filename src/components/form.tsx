@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { unstable_isUnrecognizedActionError, unstable_rethrow } from "next/navigation";
 import type { FormAction, FormState } from "@/lib/form-state";
 import { showToast } from "./toaster";
 
@@ -20,6 +21,33 @@ const FormContext = createContext<{ state: FormState; pending: boolean }>({
   state: {},
   pending: false,
 });
+
+/**
+ * A save that never got an answer, such as a dropped phone connection, or a
+ * page opened before the app was updated. The form keeps what was typed.
+ */
+async function reachServer(action: FormAction, state: FormState, data: FormData): Promise<FormState> {
+  try {
+    return await action(state, data);
+  } catch (error) {
+    // Redirects and not-found are how Next finishes some saves.
+    unstable_rethrow(error);
+    if (unstable_isUnrecognizedActionError(error)) {
+      window.setTimeout(() => window.location.reload(), 1500);
+      return { error: "The app was just updated. Reloading the page, then please try again." };
+    }
+    console.error(error);
+    // The server answered with a failure of its own, such as a busy database.
+    if (error && typeof error === "object" && "digest" in error) {
+      return { error: "This didn't save because the server had a problem. Check the records, then try again." };
+    }
+    return {
+      error: navigator.onLine
+        ? "This didn't save. The server could not be reached. Check your connection and try again."
+        : "This didn't save. You are offline. Try again when you are connected.",
+    };
+  }
+}
 
 const INPUT =
   "mt-1.5 block min-h-12 w-full rounded-xl border border-line bg-card px-3.5 py-2.5 text-base text-ink placeholder:text-muted/50 transition-all duration-150 focus:border-gold focus:ring-2 focus:ring-gold/20 aria-invalid:border-danger aria-invalid:bg-danger-wash/20";
@@ -38,7 +66,10 @@ export function ActionForm({
   children: ReactNode;
   className?: string;
 }) {
-  const [state, dispatch, pending] = useActionState(action, {});
+  const [state, dispatch, pending] = useActionState(
+    (previous: FormState, data: FormData) => reachServer(action, previous, data),
+    {},
+  );
   const ref = useRef<HTMLFormElement>(null);
 
   useEffect(() => {
