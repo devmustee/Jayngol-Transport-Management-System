@@ -20,7 +20,7 @@ export function OperatorForm({
   action: FormAction;
   values?: OperatorDefaults;
   /** Offered only when adding someone new. */
-  assign?: { tricycles: TricycleOption[]; today: string };
+  assign?: { tricycles: TricycleOption[]; today: string; lastJobDate?: string | null };
 }) {
   return (
     <ActionForm action={action}>

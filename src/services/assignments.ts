@@ -9,6 +9,7 @@ import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
+import { lockDailyJob, raiseMissedDays } from "./daily-job";
 import { applyCredit, voidBalancesAfter, voidCharge } from "./ledger";
 import { notifyOperators } from "./notices";
 
@@ -48,12 +49,14 @@ const within = <T>(outer: Tx | undefined, work: (tx: Tx) => Promise<T>) =>
 export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
   requirePermission(ctx, "assignment.manage");
   const input = parseInput(issueSchema, raw);
-  if (input.issuedOn > businessDate(ctx.clock())) {
+  const today = businessDate(ctx.clock());
+  if (input.issuedOn > today) {
     throw fieldError("issuedOn", "Date issued cannot be in the future");
   }
 
   try {
     return await within(outer, async (tx) => {
+      if (input.issuedOn < today) await lockDailyJob(tx);
       const [tricycle] = await tx
         .select()
         .from(tricycles)
@@ -105,6 +108,11 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
         })),
       );
       await tx.update(tricycles).set({ status: "issued" }).where(eq(tricycles.id, tricycle.id));
+      // A past date owes the days the nightly job has already done.
+      const raised =
+        input.issuedOn < today
+          ? await raiseMissedDays(tx, assignment!.id, operator.id, input.issuedOn, today)
+          : { days: [], totalKobo: 0 };
       await auditFrom(ctx, tx, {
         action: "assignment.issue",
         entityType: "tricycle",
@@ -113,9 +121,10 @@ export async function issueTricycle(ctx: Ctx, raw: unknown, outer?: Tx) {
           operatorId: operator.id,
           issuedOn: input.issuedOn,
           dailyBalanceKobo: rates[0]!.amountKobo,
+          ...(raised.days.length > 0 ? { balancesRaised: raised.days, raisedKobo: raised.totalKobo } : {}),
         },
       });
-      return assignment!;
+      return { id: assignment!.id, raised };
     });
   } catch (error) {
     rethrowConstraint(error, OVERLAPS);
@@ -132,8 +141,8 @@ const issueDateSchema = z.object({
  *
  * A later date takes back the daily balances already raised for days the
  * operator did not yet have it; any money paid on them moves to other days.
- * An earlier date raises nothing for the days before, just as issuing with a
- * past date does not: those days are added by hand if owed.
+ * An earlier date raises the balances for days the nightly job has already
+ * done, the same as issuing with a past date.
  */
 export async function changeIssueDate(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "assignment.manage");
@@ -143,14 +152,17 @@ export async function changeIssueDate(ctx: Ctx, rawId: unknown, raw: unknown) {
   if (input.issuedOn > today) throw fieldError("issuedOn", "Date issued cannot be in the future");
 
   try {
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
+      // Moving earlier may raise balances, so wait for the nightly job first.
+      await lockDailyJob(tx);
       const [assignment] = await tx.select().from(assignments).where(eq(assignments.id, assignmentId)).limit(1);
       if (!assignment) throw new DomainError("Assignment not found.");
       const [tricycle] = await tx.select().from(tricycles).where(eq(tricycles.id, assignment.tricycleId)).for("update");
       await tx.select({ id: operators.id }).from(operators).where(eq(operators.id, assignment.operatorId)).for("update");
       if (assignment.returnedOn) throw new DomainError("Only the current operator's date issued can be changed.");
       const before = assignment.issuedOn;
-      if (input.issuedOn === before) return;
+      const none = { days: [] as string[], totalKobo: 0 };
+      if (input.issuedOn === before) return none;
       if (input.issuedOn < tricycle!.purchasedOn) {
         throw fieldError("issuedOn", "Date issued cannot be before the date purchased");
       }
@@ -186,15 +198,22 @@ export async function changeIssueDate(ctx: Ctx, rawId: unknown, raw: unknown) {
           });
         }
       }
+      const raised =
+        input.issuedOn < before ? await raiseMissedDays(tx, assignmentId, assignment.operatorId, input.issuedOn, today) : none;
 
       await auditFrom(ctx, tx, {
         action: "assignment.issue_date",
         entityType: "tricycle",
         entityId: assignment.tricycleId,
         before: { issuedOn: before },
-        after: { issuedOn: input.issuedOn, operatorId: assignment.operatorId },
+        after: {
+          issuedOn: input.issuedOn,
+          operatorId: assignment.operatorId,
+          ...(raised.days.length > 0 ? { balancesRaised: raised.days, raisedKobo: raised.totalKobo } : {}),
+        },
         reason: input.reason,
       });
+      return raised;
     });
   } catch (error) {
     rethrowConstraint(error, OVERLAPS);

@@ -218,6 +218,13 @@
       "when": 1794892441261,
       "tag": "0030_balance_waivers",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794968951412,
+      "tag": "0031_back_entry_windows",
+      "breakpoints": true
     }
   ]
 }

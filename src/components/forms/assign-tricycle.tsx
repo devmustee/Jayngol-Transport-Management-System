@@ -1,13 +1,22 @@
 "use client";
 
 import { useState } from "react";
-import { Field, SelectField } from "@/components/form";
+import { SelectField } from "@/components/form";
+import { IssueDateField } from "./issue-date-field";
 import { tricycleOptionLabel, type TricycleOption } from "@/lib/tricycle-option";
 
 export type { TricycleOption };
 
 /** The issue date appears only once a tricycle is chosen. The tricycle sets the daily balance. */
-export function AssignTricycle({ tricycles, today }: { tricycles: TricycleOption[]; today: string }) {
+export function AssignTricycle({
+  tricycles,
+  today,
+  lastJobDate = null,
+}: {
+  tricycles: TricycleOption[];
+  today: string;
+  lastJobDate?: string | null;
+}) {
   const [chosen, setChosen] = useState("");
   return (
     <>
@@ -24,7 +33,7 @@ export function AssignTricycle({ tricycles, today }: { tricycles: TricycleOption
           </SelectField>
           {chosen ? (
             <>
-              <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} hint="The daily balance is the tricycle's own amount." />
+              <IssueDateField today={today} lastJobDate={lastJobDate} hint="The daily balance is the tricycle's own amount." />
             </>
           ) : null}
         </div>

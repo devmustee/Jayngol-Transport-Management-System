@@ -6,11 +6,13 @@ import { formatNaira } from "@/lib/money";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { systemClock } from "@/lib/clock";
+import { formatShortDate } from "@/lib/format";
 import { DomainError } from "@/lib/errors";
 import type { FormState } from "@/lib/form-state";
 import { clearSession, clientIp, requireCtx, setSessionCookie } from "@/lib/session";
 import { changeIssueDate, changeTricycleBalance, issueTricycle, returnTricycle } from "@/services/assignments";
 import { login } from "@/services/auth";
+import { finishBackEntries, openBackEntries } from "@/services/back-entries";
 import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
 import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
@@ -81,16 +83,27 @@ const toState = (error: unknown): FormState => {
 };
 
 /** Runs a change for the logged-in user and refreshes the screens. */
-async function perform(work: (ctx: Ctx) => Promise<unknown>, message: string): Promise<FormState> {
+async function perform<T>(work: (ctx: Ctx) => Promise<T>, message: string | ((result: T) => string)): Promise<FormState> {
   const ctx = await requireCtx();
+  let result: T;
   try {
-    await work(ctx);
+    result = await work(ctx);
   } catch (error) {
     return toState(error);
   }
   revalidatePath("/", "layout");
-  return { ok: true, message };
+  return { ok: true, message: typeof message === "string" ? message : message(result) };
 }
+
+/** Says which past balances a back-dated issue added. */
+const raisedText = (raised: { days: string[]; totalKobo: number } | undefined) => {
+  if (!raised || raised.days.length === 0) return "";
+  const span =
+    raised.days.length === 1
+      ? formatShortDate(raised.days[0]!)
+      : `${formatShortDate(raised.days[0]!)} to ${formatShortDate(raised.days.at(-1)!)}`;
+  return ` Added ${raised.days.length} daily balance${raised.days.length === 1 ? "" : "s"} (${span}), ${formatNaira(raised.totalKobo)}.`;
+};
 
 export async function loginAction(_: FormState, data: FormData): Promise<FormState> {
   let role: string;
@@ -179,15 +192,23 @@ export async function setOperatorPinAction(id: string, _: FormState, data: FormD
 }
 
 export async function issueTricycleAction(_: FormState, data: FormData) {
-  return perform((ctx) => issueTricycle(ctx, values(data)), "Tricycle issued.");
+  return perform((ctx) => issueTricycle(ctx, values(data)), (result) => `Tricycle issued.${raisedText(result?.raised)}`);
 }
 
 export async function returnTricycleAction(assignmentId: string, _: FormState, data: FormData) {
   return perform((ctx) => returnTricycle(ctx, assignmentId, values(data)), "Tricycle returned.");
 }
 
+export async function openBackEntriesAction(_: FormState, data: FormData) {
+  return perform((ctx) => openBackEntries(ctx, values(data)), "Back entries are open. Fines for those days wait.");
+}
+
+export async function finishBackEntriesAction(_state: FormState, _data: FormData) {
+  return perform((ctx) => finishBackEntries(ctx), "Back entries finished. Tonight's run checks those days.");
+}
+
 export async function changeIssueDateAction(assignmentId: string, _: FormState, data: FormData) {
-  return perform((ctx) => changeIssueDate(ctx, assignmentId, values(data)), "Date issued changed.");
+  return perform((ctx) => changeIssueDate(ctx, assignmentId, values(data)), (raised) => `Date issued changed.${raisedText(raised)}`);
 }
 
 export async function changeTricycleBalanceAction(tricycleId: string, _: FormState, data: FormData) {

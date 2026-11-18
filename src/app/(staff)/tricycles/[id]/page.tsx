@@ -29,6 +29,8 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { formatQuantity } from "@/lib/quantity";
 import { requirePage } from "@/lib/session";
+import { IssueDateField } from "@/components/forms/issue-date-field";
+import { lastJobDate } from "@/services/daily-job";
 import { listAvailableOperators } from "@/services/operators";
 import { getTricycle } from "@/services/tricycles";
 import { tricycleWorkHistory } from "@/services/workshop";
@@ -44,6 +46,7 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
 
   const { tricycle, current, history } = detail;
   const today = businessDate(ctx.clock());
+  const jobDate = await lastJobDate();
   const canManage = can(ctx.actor.role, "assignment.manage");
   const canIssue = canManage && tricycle.status === "in_stock";
   const available = canIssue ? await listAvailableOperators(ctx) : [];
@@ -99,18 +102,16 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
         </summary>
         <div className="mt-3 rounded-xl border border-line/60 bg-card-subtle/50 p-4">
           <ActionForm action={changeIssueDateAction.bind(null, current.assignment.id)}>
-            <Field
-              name="issuedOn"
-              label="Date issued"
-              type="date"
-              max={today}
+            <IssueDateField
+              today={today}
+              lastJobDate={jobDate}
               min={tricycle.purchasedOn}
               defaultValue={current.assignment.issuedOn}
-              hint="Balances are owed from the day after this date."
+              currentIssuedOn={current.assignment.issuedOn}
             />
             <p className="text-sm text-muted">
               A later date takes back the balances already raised for the days in between, and any money paid on them goes to
-              other days. An earlier date does not raise balances for the extra days.
+              other days. An earlier date adds the balances for the extra days.
             </p>
             <TextareaField name="reason" label="Reason" />
             <SubmitButton>Save date issued</SubmitButton>
@@ -172,7 +173,7 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
                       <option key={o.id} value={o.id}>{o.name} ({formatPhone(o.phone)})</option>
                     ))}
                   </SelectField>
-                  <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} />
+                  <IssueDateField today={today} lastJobDate={jobDate} />
                 </div>
                 <p className="text-sm text-muted">
                   The operator will pay this tricycle&apos;s daily balance of {formatNaira(balance.today)}.

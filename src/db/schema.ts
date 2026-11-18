@@ -617,6 +617,30 @@ export const nonCollectionDays = pgTable("non_collection_days", {
     .references(() => users.id),
 });
 
+/**
+ * Days whose payments are still being entered late, so the nightly job holds
+ * their fine checks. Ends when the Manager closes it, or by itself on stop_on.
+ */
+export const backEntryWindows = pgTable(
+  "back_entry_windows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    fromDate: date("from_date", { mode: "string" }).notNull(),
+    untilDate: date("until_date", { mode: "string" }).notNull(),
+    stopOn: date("stop_on", { mode: "string" }).notNull(),
+    openedBy: uuid("opened_by")
+      .notNull()
+      .references(() => users.id),
+    openedAt: timestamp("opened_at", tz).notNull(),
+    closedBy: uuid("closed_by").references(() => users.id),
+    closedAt: timestamp("closed_at", tz),
+  },
+  (t) => [
+    uniqueIndex("one_open_back_entry").on(sql`(closed_at IS NULL)`).where(sql`closed_at IS NULL`),
+    check("back_entry_dates", sql`from_date <= until_date AND until_date < stop_on`),
+  ],
+);
+
 export const jobRuns = pgTable(
   "job_runs",
   {

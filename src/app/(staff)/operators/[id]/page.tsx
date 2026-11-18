@@ -14,6 +14,8 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { tricycleOptionLabel } from "@/lib/tricycle-option";
 import { requirePage } from "@/lib/session";
+import { IssueDateField } from "@/components/forms/issue-date-field";
+import { lastJobDate } from "@/services/daily-job";
 import { getOperatorJourney } from "@/services/award-tracker";
 import { operatorBalancePeriods } from "@/services/balance-periods";
 import { operatorDepositsFor } from "@/services/deposits";
@@ -145,7 +147,7 @@ export default async function OperatorPage({
                       <option key={t.id} value={t.id} disabled={t.dailyBalanceKobo == null}>{tricycleOptionLabel(t)}</option>
                     ))}
                   </SelectField>
-                  <Field name="issuedOn" label="Date issued" type="date" max={businessDate(ctx.clock())} defaultValue={businessDate(ctx.clock())} />
+                  <IssueDateField today={businessDate(ctx.clock())} lastJobDate={await lastJobDate()} />
                 </div>
                 <SubmitButton>Issue tricycle</SubmitButton>
               </ActionForm>

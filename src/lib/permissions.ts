@@ -32,6 +32,8 @@ const MATRIX = {
   "payment.record": OFFICE,
   "payment.reverse": ["manager"],
   "payment.backdate": ["manager"],
+  /** Hold fines while past days' payments are entered late. */
+  "backentry.manage": ["manager"],
   /** Told of every payment reversal and backdate. */
   "payment.oversee": ["owner"],
   "finance.view": ["owner", "manager", "assistant_manager"],

@@ -52,7 +52,7 @@ export async function listContributionRates(exec: Executor) {
  * tricycle as Sunday begins. A tricycle in the workshop still counts: this is
  * a membership contribution, not tied to earnings. A week is raised once.
  */
-export async function createWeeklyContributions(tx: Tx, date: string): Promise<void> {
+export async function createWeeklyContributions(tx: Tx, date: string, onlyOperator?: string): Promise<void> {
   if (!isSunday(date)) return;
   const amountKobo = await contributionRateOn(tx, date);
   if (amountKobo === null) return;
@@ -68,6 +68,7 @@ export async function createWeeklyContributions(tx: Tx, date: string): Promise<v
       ORDER BY a.issued_on DESC LIMIT 1
     ) held ON true
     WHERE o.status = 'active'
+      ${onlyOperator ? sql`AND o.id = ${onlyOperator}` : sql``}
       AND NOT EXISTS (SELECT 1 FROM contribution_weeks w
                       WHERE w.operator_id = o.id AND w.week_ending = ${date}::date)
     ORDER BY o.id

@@ -39,6 +39,7 @@ export function PaymentForm({
   leftKobo,
   startKobo,
   hasTricycle,
+  backdateReason,
 }: {
   purpose: PaymentPurpose;
   operatorId: string;
@@ -51,6 +52,8 @@ export function PaymentForm({
   /** The amount filled in at the start, when it is less than the most. */
   startKobo?: number;
   hasTricycle: boolean;
+  /** Filled in while the day is open for back entry; the Manager can change it. */
+  backdateReason?: string;
 }) {
   const [method, setMethod] = useState("");
   const [amount, setAmount] = useState(koboToInput(Math.min(startKobo ?? leftKobo, leftKobo)));
@@ -121,7 +124,7 @@ export function PaymentForm({
         </fieldset>
       ) : null}
 
-      {backdated ? <TextareaField name="backdateReason" label="Why is this entered late?" /> : null}
+      {backdated ? <TextareaField name="backdateReason" label="Why is this entered late?" defaultValue={backdateReason} /> : null}
 
       <SubmitButton>
         {amountKobo && amountKobo > 0 && !tooMuch ? `Take ${formatNaira(amountKobo)}` : "Save and issue receipt"}

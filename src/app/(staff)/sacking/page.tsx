@@ -9,6 +9,8 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { tricycleOptionLabel } from "@/lib/tricycle-option";
 import { requirePage } from "@/lib/session";
+import { IssueDateField } from "@/components/forms/issue-date-field";
+import { lastJobDate } from "@/services/daily-job";
 import { listDismissals } from "@/services/dismissals";
 import { listInStockTricycles } from "@/services/tricycles";
 
@@ -20,6 +22,7 @@ export default async function SackingPage() {
   const canDecide = can(ctx.actor.role, "dismissal.decide");
   const inStock = canDecide ? await listInStockTricycles(ctx) : [];
   const today = businessDate(ctx.clock());
+  const jobDate = await lastJobDate();
 
   return (
     <>
@@ -74,7 +77,7 @@ export default async function SackingPage() {
                                 <option key={t.id} value={t.id} disabled={t.dailyBalanceKobo == null}>{tricycleOptionLabel(t)}</option>
                               ))}
                             </SelectField>
-                            <Field name="issuedOn" label="Date issued" type="date" max={today} defaultValue={today} />
+                            <IssueDateField today={today} lastJobDate={jobDate} />
                             <SubmitButton>Reinstate operator</SubmitButton>
                           </ActionForm>
                         )}

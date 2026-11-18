@@ -1,7 +1,8 @@
-import { and, eq, gte, isNull, lt, max, or, sql } from "drizzle-orm";
+import { and, eq, gt, gte, isNull, lt, max, or, sql } from "drizzle-orm";
 import { db, type Tx } from "@/db";
 import {
   assignments,
+  backEntryWindows,
   charges,
   dismissals,
   jobRuns,
@@ -88,12 +89,13 @@ export async function processDay(date: string, clock: Clock): Promise<boolean> {
  * handed over during the day. The day of return is still owed. This runs as a
  * day begins, so a day is free only if the tricycle began it in the workshop.
  */
-async function createDailyBalances(tx: Tx, date: string) {
+async function createDailyBalances(tx: Tx, date: string, onlyAssignment?: string) {
+  const raised: number[] = [];
   const [holiday] = await tx
     .select({ date: nonCollectionDays.businessDate })
     .from(nonCollectionDays)
     .where(eq(nonCollectionDays.businessDate, date));
-  if (holiday) return;
+  if (holiday) return raised;
 
   const active = await tx
     .select({
@@ -113,6 +115,7 @@ async function createDailyBalances(tx: Tx, date: string) {
           WHERE p.tricycle_id = ${tricycles.id} AND p.starts_on < ${date}
             AND (p.ends_on IS NULL OR p.ends_on >= ${date}))`,
         eq(operators.status, "active"),
+        onlyAssignment ? eq(assignments.id, onlyAssignment) : undefined,
       ),
     )
     .orderBy(assignments.operatorId)
@@ -121,7 +124,7 @@ async function createDailyBalances(tx: Tx, date: string) {
   for (const row of active) {
     const amountKobo = await rateOn(tx, row.assignmentId, date);
     if (amountKobo === null) continue;
-    await tx
+    const inserted = await tx
       .insert(charges)
       .values({
         type: "daily_balance",
@@ -132,9 +135,44 @@ async function createDailyBalances(tx: Tx, date: string) {
         businessDate: date,
         dueOn: addDays(date, 1),
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning({ amountKobo: charges.amountKobo });
+    raised.push(...inserted.map((charge) => charge.amountKobo));
     await applyCredit(tx, row.operatorId);
   }
+  return raised;
+}
+
+/** Take this before any row locks, in the same order as the job, to avoid a deadlock. */
+export async function lockDailyJob(tx: Tx) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(${ADVISORY_LOCK})`);
+}
+
+/**
+ * A tricycle issued, or moved to an issue date, before days the nightly job has
+ * already done gets those days' balances and contributions now, by the job's own
+ * rules. Holds the job's lock, so a run at the same moment cannot miss a day.
+ */
+export async function raiseMissedDays(
+  tx: Tx,
+  assignmentId: string,
+  operatorId: string,
+  issuedOn: string,
+  today: string,
+) {
+  await lockDailyJob(tx);
+  const [row] = await tx.select({ last: max(jobRuns.businessDate) }).from(jobRuns).where(eq(jobRuns.job, JOB));
+  const days: string[] = [];
+  let totalKobo = 0;
+  if (!row?.last) return { days, totalKobo };
+  const last = row.last < today ? row.last : today;
+  for (let date = addDays(issuedOn, 1); date <= last; date = addDays(date, 1)) {
+    const raised = await createDailyBalances(tx, date, assignmentId);
+    if (raised.length > 0) days.push(date);
+    totalKobo += raised.reduce((sum, amount) => sum + amount, 0);
+    await createWeeklyContributions(tx, date, operatorId);
+  }
+  return { days, totalKobo };
 }
 
 type LateCandidate = {
@@ -150,6 +188,12 @@ type LateCandidate = {
  * now, so a payment after midnight cannot clear an offence already committed.
  */
 async function evaluateLateBalances(tx: Tx, date: string, now: Date) {
+  // Days still being entered late wait, so nobody is fined for staff entering late.
+  const [hold] = await tx
+    .select({ untilDate: backEntryWindows.untilDate })
+    .from(backEntryWindows)
+    .where(and(isNull(backEntryWindows.closedAt), gt(backEntryWindows.stopOn, date)))
+    .limit(1);
   const candidates = (await tx.execute(sql`
     SELECT c.id, c.operator_id, c.tricycle_id, c.amount_kobo::float8 AS amount,
       COALESCE((
@@ -159,6 +203,7 @@ async function evaluateLateBalances(tx: Tx, date: string, now: Date) {
       ), 0)::float8 AS paid
     FROM valid_charges c
     WHERE c.type = 'daily_balance' AND c.due_on < ${date}::date
+      ${hold ? sql`AND c.business_date > ${hold.untilDate}::date` : sql``}
       AND NOT EXISTS (SELECT 1 FROM late_evaluations l WHERE l.charge_id = c.id)
     ORDER BY c.operator_id, c.business_date, c.id
   `)) as unknown as LateCandidate[];

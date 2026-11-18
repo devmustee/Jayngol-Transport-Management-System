@@ -5,17 +5,18 @@ import { Card, PageHeader } from "@/components/ui";
 import { businessDate } from "@/lib/clock";
 import { requirePage } from "@/lib/session";
 import { listInStockTricycles } from "@/services/tricycles";
+import { lastJobDate } from "@/services/daily-job";
 
 export const metadata: Metadata = { title: "Add operator" };
 
 export default async function NewOperatorPage() {
   const ctx = await requirePage("operator.manage");
-  const tricycles = await listInStockTricycles(ctx);
+  const [tricycles, jobDate] = await Promise.all([listInStockTricycles(ctx), lastJobDate()]);
   return (
     <>
       <PageHeader title="Add operator" back={{ href: "/operators", label: "Operators" }} />
       <Card>
-        <OperatorForm action={createOperatorAction} assign={{ tricycles, today: businessDate(ctx.clock()) }} />
+        <OperatorForm action={createOperatorAction} assign={{ tricycles, today: businessDate(ctx.clock()), lastJobDate: jobDate }} />
       </Card>
     </>
   );

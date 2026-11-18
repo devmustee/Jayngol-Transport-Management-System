@@ -36,6 +36,8 @@ import { can, type Permission } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
+import { BackEntriesCard } from "@/components/back-entries-card";
+import { backEntryStatus } from "@/services/back-entries";
 
 export const metadata: Metadata = { title: "Money" };
 
@@ -171,12 +173,13 @@ const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
 export default async function MoneyPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
   const ctx = await requirePage("finance.view");
   const pulse = parsePulse((await searchParams).pulse);
-  const [money, week, month, today, contributions] = await Promise.all([
+  const [money, week, month, today, contributions, backEntries] = await Promise.all([
     financeOverview(ctx),
     fleetPeriod(ctx, "week"),
     fleetPeriod(ctx, "month"),
     pulse === "today" ? fleetToday(ctx) : null,
     contributionSummary(ctx),
+    backEntryStatus(ctx),
   ]);
 
   return (
@@ -191,6 +194,8 @@ export default async function MoneyPage({ searchParams }: { searchParams: Promis
           </LinkButton>
         }
       />
+
+      <BackEntriesCard status={backEntries} />
 
       <MoneySummary money={money} period={pulse === "week" ? week : pulse === "month" ? month : null} today={today} basePath="/money" />
 

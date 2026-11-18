@@ -11,6 +11,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
+import { backEntryReason } from "@/services/back-entries";
 import { listOperators } from "@/services/operators";
 import { finesOwed, paymentContext, paymentDayStatus } from "@/services/payments";
 import { RULE_NAMES } from "@/services/violations";
@@ -183,7 +184,10 @@ export default async function TakePaymentPage({
     const canBackdate = can(ctx.actor.role, "payment.backdate");
     const asked = queryValue(params.day);
     const date = canBackdate && asked && /^\d{4}-\d{2}-\d{2}$/.test(asked) && asked < today ? asked : today;
-    const status = await paymentDayStatus(ctx, operator.id, date);
+    const [status, lateReason] = await Promise.all([
+      paymentDayStatus(ctx, operator.id, date),
+      date < today ? backEntryReason(ctx, date) : undefined,
+    ]);
     const olderDays = balances.filter((b) => b.businessDate < today);
     const olderKobo = olderDays.reduce((sum, b) => sum + b.outstandingKobo, 0);
     const dayName = date === today ? `Today, ${formatShortDate(date)}` : formatDate(date);
@@ -244,6 +248,7 @@ export default async function TakePaymentPage({
                 purpose="day"
                 operatorId={operator.id}
                 clientId={randomUUID()}
+                backdateReason={lateReason}
                 date={date}
                 today={today}
                 leftKobo={status.leftKobo}
