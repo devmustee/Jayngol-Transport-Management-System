@@ -19,6 +19,7 @@ import { lastJobDate } from "@/services/daily-job";
 import { getOperatorJourney } from "@/services/award-tracker";
 import { operatorBalancePeriods } from "@/services/balance-periods";
 import { operatorDepositsFor } from "@/services/deposits";
+import { activeLoanFor } from "@/services/loans";
 import { getOperator } from "@/services/operators";
 import { listInStockTricycles } from "@/services/tricycles";
 
@@ -60,9 +61,9 @@ export default async function OperatorPage({
   const inStock = canIssue ? await listInStockTricycles(ctx) : [];
   const journey = operator.status === "active" ? await getOperatorJourney(ctx, id) : null;
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [deposits, balancePeriods] = seesMoney
-    ? await Promise.all([operatorDepositsFor(ctx, id), operatorBalancePeriods(ctx, id)])
-    : [null, null];
+  const [deposits, balancePeriods, loan] = seesMoney
+    ? await Promise.all([operatorDepositsFor(ctx, id), operatorBalancePeriods(ctx, id), activeLoanFor(ctx, id)])
+    : [null, null, null];
 
   return (
     <>
@@ -129,6 +130,27 @@ export default async function OperatorPage({
           </div>
         ) : null}
         {journey ? <AwardJourneyCard operatorId={id} progress={journey.progress} /> : null}
+
+        {loan ? (
+          <Card
+            title="Loan"
+            subtitle={`${formatNaira(loan.principalKobo)} given ${formatDate(loan.disbursedOn)}`}
+            action={
+              can(ctx.actor.role, "payment.record") ? (
+                <LinkButton href={`/payments/new?operator=${id}&for=loan`} variant="gold">
+                  Take loan repayment
+                </LinkButton>
+              ) : undefined
+            }
+          >
+            <Link href={`/loans/${loan.id}`} className="flex min-h-11 items-center justify-between gap-3 hover:text-gold-deep">
+              <span className="text-sm text-muted">
+                {loan.repaidKobo > 0 ? `${formatNaira(loan.repaidKobo)} paid back` : "Nothing paid back yet"}
+              </span>
+              <span className="font-semibold tabular-nums">{formatNaira(loan.owedKobo)} left</span>
+            </Link>
+          </Card>
+        ) : null}
 
         {deposits ? (
           <Card

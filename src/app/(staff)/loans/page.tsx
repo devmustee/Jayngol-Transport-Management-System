@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ChevronRight, HandCoins } from "lucide-react";
 import { grantLoanAction } from "@/app/actions";
-import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
+import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
+import { LoanOperatorPicker } from "@/components/forms/loan-operator-picker";
 import { MoneySourceField } from "@/components/money-source";
 import { Badge, Card, Disclosure, Empty, PageHeader, SearchBar } from "@/components/ui";
 import { formatDate, queryValue } from "@/lib/format";
@@ -114,9 +115,9 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const active = data.active.filter((row) => matches(row, q));
   const cleared = data.cleared.filter((row) => matches(row, q));
   const hasLoans = data.active.length + data.cleared.length > 0;
-  const [sources, operators] = data.canApprove
+  const [sources, pick] = data.canApprove
     ? await Promise.all([moneySources(ctx), operatorsForLoan(ctx)])
-    : [[], []];
+    : [[], { choices: [], owingCount: 0 }];
   return (
     <>
       <PageHeader title="Loans" subtitle={`Owed to the company: ${formatNaira(data.outstandingKobo)}`} back={{ href: "/money", label: "Money" }} />
@@ -124,13 +125,10 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
         {data.canApprove ? (
           <Disclosure label="Give a loan" open={give}>
             <ActionForm action={grantLoanAction}>
-              <SelectField name="operatorId" label="Operator" defaultValue="" hint="Operators with a loan to clear are not listed.">
-                <option value="" disabled>Choose…</option>
-                {operators.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
-              </SelectField>
-              <Field name="amount" label="Amount (₦)" inputMode="decimal" autoComplete="off" hint="No interest or fee is added." />
-              <MoneySourceField sources={sources} />
-              <TextareaField name="note" label="Note (optional)" />
+              <LoanOperatorPicker choices={pick.choices} owingCount={pick.owingCount}>
+                <MoneySourceField sources={sources} />
+                <TextareaField name="note" label="Note (optional)" />
+              </LoanOperatorPicker>
               <SubmitButton>Give loan</SubmitButton>
             </ActionForm>
           </Disclosure>

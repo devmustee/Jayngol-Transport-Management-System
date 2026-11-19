@@ -1,6 +1,15 @@
 # Jayngol Plan: Giving a Loan and Taking It Back
 
-Status: Planned (19 Nov 2026), not built.
+Status: Built (20 Nov 2026) with the suggested answers, not yet released.
+
+**As built:**
+- **Give a loan:** a search box (name, tricycle, plate or phone) sits above the Operator list. Each choice reads "Name · GRE-4012 · WKR-101VC" or "Name · No tricycle", and the note under the list says how many are left out for owing a loan. Once an operator is chosen, a line before **Give loan** reads "₦25,000 to Haruna Isa, tricycle GRE-4006 (WKR-106VC)."
+- **After giving:** the loan's own page opens. It shows the tricycle and plate, "Loan given" with where repayments are taken, and what is still owed with **Take loan repayment**.
+- **Take payment:** for an operator with a loan, it shows "Loan unpaid · Collect".
+- **Operator's page:** a Loan card shows what was given, what is left and **Take loan repayment**.
+- **Home:** **Take loan repayment** shows while any loan is owed. It lists everyone who owes, with tricycle, plate and what is left, oldest loan first.
+- **Code:** `operatorsForLoan`, `operatorsOwingLoans` and `activeLoanFor` in src/services/loans.ts, and src/components/forms/loan-operator-picker.tsx. It is covered in tests/collections.test.ts.
+- No database change.
 
 ## 1. What happens today
 

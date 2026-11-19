@@ -12,12 +12,14 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { backEntryReason } from "@/services/back-entries";
+import { operatorsOwingLoans } from "@/services/loans";
 import { listOperators } from "@/services/operators";
 import { finesOwed, paymentContext, paymentDayStatus } from "@/services/payments";
 import { RULE_NAMES } from "@/services/violations";
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, unknown>> }): Promise<Metadata> {
-  return { title: queryValue((await searchParams).for) === "contribution" ? "Take contribution" : "Take payment" };
+  const kind = queryValue((await searchParams).for);
+  return { title: kind === "contribution" ? "Take contribution" : kind === "loan" ? "Take loan repayment" : "Take payment" };
 }
 
 const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "numeric", minute: "2-digit", timeZone: "Africa/Lagos" });
@@ -282,6 +284,19 @@ export default async function TakePaymentPage({
             </Link>
           ) : null}
 
+          {data.loanOwedKobo > 0 ? (
+            <Link
+              href={`/payments/new?operator=${operator.id}&for=loan`}
+              className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash p-4 text-sm"
+            >
+              <span>
+                <span className="font-semibold">Loan unpaid</span>
+                <span className="block text-muted">{formatNaira(data.loanOwedKobo)} left to pay back</span>
+              </span>
+              <span className="shrink-0 font-semibold text-gold-deep">Collect</span>
+            </Link>
+          ) : null}
+
           <Card title="Other payments">
             <ul className="divide-y divide-line">
               <li>
@@ -363,6 +378,45 @@ export default async function TakePaymentPage({
             ) : null}
           </Card>
         </div>
+      </>
+    );
+  }
+
+  // Loan repayments: everyone who still owes on a loan, with what is left, so no search is needed.
+  if (forParam === "loan") {
+    const owing = await operatorsOwingLoans(ctx);
+    return (
+      <>
+        <PageHeader
+          title="Take loan repayment"
+          subtitle={owing.length === 0 ? undefined : `${owing.length} operator${owing.length === 1 ? "" : "s"} owe on a loan`}
+          back={{ href: "/loans", label: "Loans" }}
+        />
+        {owing.length === 0 ? (
+          <Empty>No operator owes on a loan.</Empty>
+        ) : (
+          <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
+            {owing.map((o) => (
+              <li key={o.operatorId}>
+                <Link
+                  href={`/payments/new?operator=${o.operatorId}&for=loan`}
+                  className="flex min-h-14 items-center justify-between gap-3 p-3 hover:bg-gold-wash"
+                >
+                  <span className="min-w-0">
+                    <span className="block font-bold">{o.name}</span>
+                    <span className="block text-sm text-muted">
+                      {o.tricycleCode ? `${o.tricycleCode} (${o.registration ?? "no plate"})` : "No tricycle now"} · {formatPhone(o.phone)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-right">
+                    <span className="block font-semibold tabular-nums">{formatNaira(o.owedKobo)}</span>
+                    <span className="block text-xs text-muted">left</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </>
     );
   }

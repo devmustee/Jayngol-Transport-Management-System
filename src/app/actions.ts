@@ -502,7 +502,13 @@ export async function cancelAdvanceAction(id: string, _: FormState, data: FormDa
 }
 
 export async function grantLoanAction(_: FormState, data: FormData) {
-  return perform((ctx) => grantLoan(ctx, values(data)), "Loan recorded.");
+  let id: string | undefined;
+  const state = await perform(async (ctx) => {
+    id = (await grantLoan(ctx, values(data)))?.id;
+  }, "");
+  if (!id) return state;
+  // The loan's own page shows what is owed and where to take it back.
+  redirect(`/loans/${id}?given=1`);
 }
 
 export async function cancelLoanAction(id: string, _: FormState, data: FormData) {

@@ -15,9 +15,16 @@ export const metadata: Metadata = { title: "Loan" };
 
 const TONE = { active: "gold", cleared: "good", cancelled: "plain" } as const;
 
-export default async function LoanPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function LoanPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ given?: string }>;
+}) {
   const ctx = await requirePage("finance.view");
   const { id } = await params;
+  const given = (await searchParams).given === "1";
   const data = isUuid(id) ? await getLoan(ctx, id) : null;
   if (!data) notFound();
   const { loan, repayments, owedKobo } = data;
@@ -25,11 +32,33 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
     <>
       <PageHeader
         title={loan.operatorName}
-        subtitle={`Loan of ${formatNaira(loan.principalKobo)}`}
+        subtitle={`${loan.tricycleCode ? `Tricycle ${loan.tricycleCode} (${loan.registration ?? "no plate"})` : "No tricycle now"} · Loan of ${formatNaira(loan.principalKobo)}`}
         back={{ href: "/loans", label: "Loans" }}
         action={<Badge tone={TONE[loan.status]}>{LOAN_STATUS_LABELS[loan.status]}</Badge>}
       />
       <div className="space-y-4">
+        {given ? (
+          <p className="rounded-xl border border-ok-border bg-ok-wash p-4 text-sm text-ink" role="status">
+            <span className="font-semibold">Loan given.</span> When {loan.operatorName} pays any of it back, tap{" "}
+            <span className="font-semibold">Take loan repayment</span> here. It is also on Loans, on Home and on{" "}
+            <Link href={`/operators/${loan.operatorId}`} className="font-semibold text-gold-deep underline">
+              their page
+            </Link>
+            .
+          </p>
+        ) : null}
+        {data.canCollect && loan.status === "active" ? (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-ink p-4 text-paper">
+            <div>
+              <div className="text-sm text-paper/60">Still owed</div>
+              <div className="text-2xl font-semibold tabular-nums">{formatNaira(owedKobo)}</div>
+            </div>
+            <LinkButton href={`/payments/new?operator=${loan.operatorId}&for=loan`} variant="gold">
+              <HandCoins size={16} aria-hidden />
+              Take loan repayment
+            </LinkButton>
+          </div>
+        ) : null}
         <Card title="Details">
           <Details
             rows={[
@@ -42,12 +71,6 @@ export default async function LoanPage({ params }: { params: Promise<{ id: strin
             ]}
           />
         </Card>
-        {data.canCollect && loan.status === "active" ? (
-          <LinkButton href={`/payments/new?operator=${loan.operatorId}&for=loan`} variant="gold">
-            <HandCoins size={16} aria-hidden />
-            Take loan repayment
-          </LinkButton>
-        ) : null}
         <Card title="Repayments">
           {repayments.length === 0 ? (
             <Empty>Nothing repaid yet.</Empty>

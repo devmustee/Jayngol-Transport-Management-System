@@ -171,21 +171,79 @@ export async function loansToCollect(exec: Executor = db) {
   return { loansActive: row?.loans ?? 0, loansOwedKobo: row?.owed ?? 0 };
 }
 
-/** Active operators free to take a loan. */
+// The tricycle an operator holds now, if any, for a query on operators.
+const operatorTricycle = (column: "code_number" | "registration_number") => sql<string | null>`(
+  SELECT t.${sql.raw(column)} FROM assignments a JOIN tricycles t ON t.id = a.tricycle_id
+  WHERE a.operator_id = ${operators.id} AND a.returned_on IS NULL
+  ORDER BY a.issued_on DESC LIMIT 1)`;
+
+/**
+ * Active operators free to take a loan, with the tricycle and plate they hold
+ * so the right person is picked, and how many are left out for owing a loan.
+ */
 export async function operatorsForLoan(ctx: Ctx) {
   requirePermission(ctx, "loan.approve");
-  return db
-    .select({ id: operators.id, name: operators.name })
+  const rows = await db
+    .select({
+      id: operators.id,
+      name: operators.name,
+      phone: operators.phone,
+      tricycleCode: operatorTricycle("code_number"),
+      registration: operatorTricycle("registration_number"),
+      owing: sql<boolean>`${loans.id} IS NOT NULL`,
+    })
     .from(operators)
     .leftJoin(loans, and(eq(loans.operatorId, operators.id), eq(loans.status, "active")))
-    .where(and(eq(operators.status, "active"), isNull(loans.id)))
+    .where(eq(operators.status, "active"))
     .orderBy(asc(operators.name));
+  return {
+    choices: rows.filter((row) => !row.owing).map(({ owing: _, ...row }) => row),
+    owingCount: rows.filter((row) => row.owing).length,
+  };
+}
+
+/** Operators who still owe on a loan, for taking repayments: the oldest loan first. */
+export async function operatorsOwingLoans(ctx: Ctx) {
+  requirePermission(ctx, "finance.view");
+  const rows = await db
+    .select({
+      operatorId: loans.operatorId,
+      name: operators.name,
+      phone: operators.phone,
+      tricycleCode: operatorTricycle("code_number"),
+      registration: operatorTricycle("registration_number"),
+      principalKobo: loans.principalKobo,
+      repaidKobo: repaid,
+    })
+    .from(loans)
+    .innerJoin(operators, eq(operators.id, loans.operatorId))
+    .where(eq(loans.status, "active"))
+    .orderBy(asc(loans.disbursedOn), asc(operators.name));
+  return rows.map(({ principalKobo, repaidKobo, ...row }) => ({ ...row, owedKobo: principalKobo - repaidKobo }));
+}
+
+/** The operator's loan still being paid back, if any, for their page and the payment form. */
+export async function activeLoanFor(ctx: Ctx, operatorId: string) {
+  requirePermission(ctx, "finance.view");
+  const [row] = await db
+    .select({ id: loans.id, principalKobo: loans.principalKobo, disbursedOn: loans.disbursedOn, repaidKobo: repaid })
+    .from(loans)
+    .where(and(eq(loans.operatorId, operatorId), eq(loans.status, "active")))
+    .limit(1);
+  return row ? { ...row, owedKobo: row.principalKobo - row.repaidKobo } : null;
 }
 
 export async function getLoan(ctx: Ctx, id: string) {
   requirePermission(ctx, "finance.view");
   const [loan] = await db
-    .select({ ...fields, approvedByName: users.name, cancelReason: loans.cancelReason, chargeId: loans.chargeId })
+    .select({
+      ...fields,
+      approvedByName: users.name,
+      cancelReason: loans.cancelReason,
+      chargeId: loans.chargeId,
+      tricycleCode: heldTricycle("code_number"),
+      registration: heldTricycle("registration_number"),
+    })
     .from(loans)
     .innerJoin(operators, eq(operators.id, loans.operatorId))
     .innerJoin(users, eq(users.id, loans.approvedBy))

@@ -1,16 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { charges } from "@/db/schema";
+import { charges, tricycles } from "@/db/schema";
 import { addDays } from "@/lib/clock";
 import { koboToInput, previewPayment } from "@/lib/payment-preview";
 import type { Ctx } from "@/services/context";
 import { financeOverview, listArrears } from "@/services/finance";
 import { openCharges } from "@/services/ledger";
-import { grantLoan, listLoans, loansToCollect } from "@/services/loans";
+import { activeLoanFor, getLoan, grantLoan, listLoans, loansToCollect, operatorsForLoan, operatorsOwingLoans } from "@/services/loans";
+import { issueTricycle } from "@/services/assignments";
 import { paymentContext, recordPayment } from "@/services/payments";
-import { makeOperator, makeUser, nextReference, TODAY } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, nextReference, TODAY } from "./helpers";
 
 /** What each charge received from one payment, by charge id. */
 async function allocationsOf(paymentId: string) {
@@ -194,3 +195,70 @@ describe("taking unpaid balances and loan repayments", () => {
   });
 });
 
+
+describe("giving a loan to the right operator and taking it back", () => {
+  let manager: Ctx;
+  beforeAll(async () => {
+    manager = (await makeUser("manager")).ctx;
+  });
+
+  async function riding() {
+    const { id } = await makeTricycle(manager);
+    const operator = await makeOperator(manager);
+    await issueTricycle(manager, { tricycleId: id, operatorId: operator.id, issuedOn: TODAY });
+    const [tricycle] = await db
+      .select({ codeNumber: tricycles.codeNumber, registrationNumber: tricycles.registrationNumber })
+      .from(tricycles)
+      .where(eq(tricycles.id, id));
+    return { operator, tricycle: tricycle! };
+  }
+
+  it("lists each operator free to borrow with the tricycle and plate they hold", async () => {
+    const { operator, tricycle } = await riding();
+    const walking = await makeOperator(manager);
+    const { choices } = await operatorsForLoan(manager);
+    expect(choices.find((c) => c.id === operator.id)).toMatchObject({
+      tricycleCode: tricycle.codeNumber,
+      registration: tricycle.registrationNumber,
+    });
+    expect(choices.find((c) => c.id === walking.id)).toMatchObject({ tricycleCode: null, registration: null });
+  });
+
+  it("leaves out and counts operators who still owe on a loan", async () => {
+    const { operator } = await riding();
+    const before = await operatorsForLoan(manager);
+    await grantLoan(manager, { operatorId: operator.id, amount: "10,000", source: "owner" });
+    const after = await operatorsForLoan(manager);
+    expect(after.choices.some((c) => c.id === operator.id)).toBe(false);
+    expect(after.owingCount).toBe(before.owingCount + 1);
+  });
+
+  it("shows the loan with the tricycle, lists who owes, and clears when paid back", async () => {
+    const { operator, tricycle } = await riding();
+    const loan = (await grantLoan(manager, { operatorId: operator.id, amount: "15,000", source: "owner" }))!;
+    expect((await getLoan(manager, loan.id))!.loan).toMatchObject({ tricycleCode: tricycle.codeNumber, registration: tricycle.registrationNumber });
+    expect((await operatorsOwingLoans(manager)).find((o) => o.operatorId === operator.id)).toMatchObject({
+      owedKobo: 1_500_000,
+      tricycleCode: tricycle.codeNumber,
+    });
+    expect(await activeLoanFor(manager, operator.id)).toMatchObject({ id: loan.id, owedKobo: 1_500_000, repaidKobo: 0 });
+
+    const repay = (amount: string) =>
+      recordPayment(manager, {
+        operatorId: operator.id,
+        amount,
+        loanAmount: amount,
+        method: "transfer",
+        reference: nextReference(),
+        clientId: randomUUID(),
+      });
+    await repay("5,000");
+    expect(await activeLoanFor(manager, operator.id)).toMatchObject({ owedKobo: 1_000_000, repaidKobo: 500_000 });
+    expect((await operatorsOwingLoans(manager)).find((o) => o.operatorId === operator.id)?.owedKobo).toBe(1_000_000);
+
+    await repay("10,000");
+    expect(await activeLoanFor(manager, operator.id)).toBeNull();
+    expect((await operatorsOwingLoans(manager)).some((o) => o.operatorId === operator.id)).toBe(false);
+    expect((await getLoan(manager, loan.id))!.loan.status).toBe("cleared");
+  });
+});

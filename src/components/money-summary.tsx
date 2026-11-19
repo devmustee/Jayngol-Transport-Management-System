@@ -209,6 +209,15 @@ export function MoneySummary({
           </nav>
           {money.canCollect ? (
             <div className="flex flex-wrap gap-2">
+              {money.loansActive > 0 ? (
+                <Link
+                  href="/payments/new?for=loan"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gold/60 px-4 text-sm font-semibold text-gold-light transition-colors duration-150 hover:bg-paper/10 active:scale-[0.98]"
+                >
+                  <HandCoins size={18} aria-hidden />
+                  <span>Take loan repayment</span>
+                </Link>
+              ) : null}
               <Link
                 href="/payments/new?for=contribution"
                 className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gold/60 px-4 text-sm font-semibold text-gold-light transition-colors duration-150 hover:bg-paper/10 active:scale-[0.98]"
