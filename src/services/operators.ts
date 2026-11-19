@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, ilike, isNull, or, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, isNull, or, sql, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db";
 import { assignments, operators, tricycles, users } from "@/db/schema";
@@ -17,7 +17,7 @@ import { currentRate, issueTricycle } from "./assignments";
 import { auditFrom } from "./audit";
 import { hashCredential } from "./auth";
 import { likePattern, requirePermission, type Ctx } from "./context";
-import { saveOperatorLogin } from "./users";
+import { ONLY_WORKING, saveOperatorLogin } from "./users";
 
 const operatorSchema = z.object({
   name: requiredText("Name"),
@@ -81,10 +81,13 @@ export async function createOperator(ctx: Ctx, raw: unknown) {
   }
 }
 
+/** Saves the details, and sets or resets the portal PIN if one is given. If any part fails, none is saved. */
 export async function updateOperator(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "operator.manage");
   const id = parseInput(idField("operator"), rawId);
   const values = validated(raw);
+  const { pin } = parseInput(firstPin, raw);
+  const credentialHash = pin ? await hashCredential(pin) : null;
   try {
     await db.transaction(async (tx) => {
       const [before] = await tx.select().from(operators).where(eq(operators.id, id)).for("update");
@@ -104,6 +107,10 @@ export async function updateOperator(ctx: Ctx, rawId: unknown, raw: unknown) {
         before,
         after: values,
       });
+      if (credentialHash) {
+        if (before.status !== "active") throw fieldError("pin", ONLY_WORKING);
+        await saveOperatorLogin(tx, ctx, { ...before, name: values.name, phone: values.phone }, credentialHash);
+      }
     });
   } catch (error) {
     rethrowConstraint(error, DUPLICATES);
@@ -136,6 +143,8 @@ export async function markOperatorLeft(ctx: Ctx, rawId: unknown, raw: unknown) {
 }
 
 const OPERATOR_STATUSES = ["active", "sacked", "left"] as const;
+/** The list filter for working operators who still need a portal login. */
+export const NO_LOGIN = "no_login";
 
 export async function listOperators(ctx: Ctx, filter: { q?: string; status?: string } = {}) {
   requirePermission(ctx, "operator.view");
@@ -152,6 +161,7 @@ export async function listOperators(ctx: Ctx, filter: { q?: string; status?: str
   }
   const status = OPERATOR_STATUSES.find((s) => s === filter.status);
   if (status) conditions.push(eq(operators.status, status));
+  if (filter.status === NO_LOGIN) conditions.push(eq(operators.status, "active"), isNull(operators.userId));
 
   return db
     .select({
@@ -159,6 +169,7 @@ export async function listOperators(ctx: Ctx, filter: { q?: string; status?: str
       name: operators.name,
       phone: operators.phone,
       status: operators.status,
+      hasPortalLogin: sql<boolean>`${operators.userId} IS NOT NULL`,
       tricycleCode: tricycles.codeNumber,
     })
     .from(operators)

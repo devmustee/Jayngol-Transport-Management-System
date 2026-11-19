@@ -16,9 +16,12 @@ export function OperatorForm({
   action,
   values,
   assign,
+  login,
 }: {
   action: FormAction;
   values?: OperatorDefaults;
+  /** On Edit, for a working operator: whether a portal login already exists. */
+  login?: { exists: boolean };
   /** Offered only when adding someone new. */
   assign?: { tricycles: TricycleOption[]; today: string; lastJobDate?: string | null };
 }) {
@@ -37,17 +40,23 @@ export function OperatorForm({
         <TextareaField name="guarantorAddress" label="Guarantor address" defaultValue={values?.guarantorAddress ?? undefined} />
       </div>
       {assign ? <AssignTricycle {...assign} /> : null}
-      {values ? null : (
+      {values && !login ? null : (
         <>
-          <h2 className="pt-2 font-bold">Portal login (optional)</h2>
+          <h2 id="portal-login" className="scroll-mt-20 pt-2 font-bold">
+            Portal login{login?.exists ? "" : " (optional)"}
+          </h2>
           <Field
             name="pin"
-            label="6-digit PIN"
+            label={login?.exists ? "New PIN (optional)" : "6-digit PIN"}
             type="password"
             inputMode="numeric"
             autoComplete="new-password"
             maxLength={6}
-            hint="The operator logs in with their phone number and this PIN. Leave empty to set it up later."
+            hint={
+              login?.exists
+                ? "Leave empty to keep the current PIN. A new PIN signs the operator out everywhere."
+                : "The operator logs in with their phone number and this PIN. Leave empty to set it up later."
+            }
           />
         </>
       )}

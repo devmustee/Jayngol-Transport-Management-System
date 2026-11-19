@@ -25,6 +25,7 @@ export default async function EditOperatorPage({ params }: { params: Promise<{ i
             phone: detail.operator.phone.replace(/^\+234/, "0"),
             guarantorPhone: detail.operator.guarantorPhone?.replace(/^\+234/, "0") ?? null,
           }}
+          login={detail.operator.status === "active" ? { exists: detail.hasPortalLogin } : undefined}
         />
       </Card>
     </>

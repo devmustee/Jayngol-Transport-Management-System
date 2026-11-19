@@ -123,6 +123,8 @@ export async function changeOwnPassword(ctx: Ctx, raw: unknown) {
   });
 }
 
+export const ONLY_WORKING = "Only an operator who is working can have a portal login";
+
 /** Creates the operator's login on first use, and replaces the PIN afterwards. */
 export async function saveOperatorLogin(
   tx: Tx,
@@ -164,6 +166,7 @@ export async function setOperatorPin(ctx: Ctx, rawOperatorId: unknown, raw: unkn
         .where(eq(operators.id, operatorId))
         .for("update");
       if (!operator) throw new DomainError("Operator not found.");
+      if (operator.status !== "active") throw fieldError("pin", ONLY_WORKING);
 
       await saveOperatorLogin(tx, ctx, operator, credentialHash);
     });

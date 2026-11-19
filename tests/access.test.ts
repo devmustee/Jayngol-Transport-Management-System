@@ -12,6 +12,9 @@ import {
   getMyPortal,
   getOperator,
   listOperators,
+  markOperatorLeft,
+  NO_LOGIN,
+  updateOperator,
 } from "@/services/operators";
 import {
   createTricycle,
@@ -273,6 +276,94 @@ describe("portal login when adding an operator", () => {
     const phone = `0${user.phone.slice(4)}`;
     await expect(makeOperator(manager, { phone, pin: PIN })).rejects.toMatchObject({ fieldErrors: { phone: expect.anything() } });
     expect(await operatorRow(user.phone)).toBeUndefined();
+  });
+});
+
+describe("portal login for an operator already added", () => {
+  const PIN = "730264";
+  const editValues = (phone: string, extra: Record<string, unknown> = {}) => ({ name: "Ibrahim Login", phone, ...extra });
+  const row = async (id: string) => (await db.select().from(operators).where(eq(operators.id, id)))[0]!;
+
+  it("sets up a login from Edit, in the same save as the details", async () => {
+    const phone = uniquePhone();
+    const o = await makeOperator(manager, { phone });
+    const newPhone = uniquePhone();
+    await updateOperator(manager, o.id, editValues(newPhone, { pin: PIN }));
+    expect((await row(o.id)).userId).not.toBeNull();
+    expect((await login({ phone: newPhone, secret: PIN, ip: ip() }, fixedClock)).role).toBe("operator");
+    expect((await getOperator(manager, o.id))!.hasPortalLogin).toBe(true);
+  });
+
+  it("keeps the login as it is when the PIN is left empty", async () => {
+    const phone = uniquePhone();
+    const o = await makeOperator(manager, { phone, pin: PIN });
+    await updateOperator(manager, o.id, editValues(phone, { pin: "" }));
+    expect((await login({ phone, secret: PIN, ip: ip() }, fixedClock)).role).toBe("operator");
+    const none = await makeOperator(manager, { phone: uniquePhone() });
+    await updateOperator(manager, none.id, editValues(uniquePhone()));
+    expect((await row(none.id)).userId).toBeNull();
+  });
+
+  it("resets the PIN from Edit and signs the operator out", async () => {
+    const phone = uniquePhone();
+    const o = await makeOperator(manager, { phone, pin: PIN });
+    const { token } = await login({ phone, secret: PIN, ip: ip() }, fixedClock);
+    await updateOperator(manager, o.id, editValues(phone, { pin: "915372" }));
+    expect(await resolveSession(token, fixedClock)).toBeNull();
+    await expect(login({ phone, secret: PIN, ip: ip() }, fixedClock)).rejects.toThrow();
+    expect((await login({ phone, secret: "915372", ip: ip() }, fixedClock)).role).toBe("operator");
+  });
+
+  it("saves nothing when the PIN is wrong or the phone has another login", async () => {
+    const phone = uniquePhone();
+    const o = await makeOperator(manager, { phone });
+    await expect(updateOperator(manager, o.id, editValues(phone, { name: "Changed", pin: "12" }))).rejects.toMatchObject({
+      fieldErrors: { pin: expect.anything() },
+    });
+    const { user } = await makeUser("supervisor");
+    const taken = `0${user.phone.slice(4)}`;
+    await expect(updateOperator(manager, o.id, editValues(taken, { pin: PIN }))).rejects.toMatchObject({
+      fieldErrors: { phone: expect.anything() },
+    });
+    const after = await row(o.id);
+    expect(after.userId).toBeNull();
+    expect(after.name).not.toBe("Changed");
+  });
+
+  it("gives no login to an operator who has left, and stops an existing one", async () => {
+    const phone = uniquePhone();
+    const o = await makeOperator(manager, { phone, pin: PIN });
+    const { token } = await login({ phone, secret: PIN, ip: ip() }, fixedClock);
+    await markOperatorLeft(manager, o.id, { reason: "Moved away" });
+    expect(await resolveSession(token, fixedClock)).toBeNull();
+    await expect(login({ phone, secret: PIN, ip: ip() }, fixedClock)).rejects.toThrow();
+
+    const gone = await makeOperator(manager, { phone: uniquePhone() });
+    await markOperatorLeft(manager, gone.id, { reason: "Moved away" });
+    await expect(setOperatorPin(manager, gone.id, { pin: PIN })).rejects.toMatchObject({ fieldErrors: { pin: expect.anything() } });
+    await expect(updateOperator(manager, gone.id, editValues(uniquePhone(), { pin: PIN }))).rejects.toMatchObject({
+      fieldErrors: { pin: expect.anything() },
+    });
+    expect((await row(gone.id)).userId).toBeNull();
+  });
+
+  it("lists working operators with no portal login", async () => {
+    const without = await makeOperator(manager, { phone: uniquePhone() });
+    const withLogin = await makeOperator(manager, { phone: uniquePhone(), pin: PIN });
+    const gone = await makeOperator(manager, { phone: uniquePhone() });
+    await markOperatorLeft(manager, gone.id, { reason: "Moved away" });
+    const ids = (await listOperators(manager, { status: NO_LOGIN })).map((r) => r.id);
+    const all = await db.select({ id: operators.id }).from(operators).where(eq(operators.status, "active"));
+    // The list stops at 200 rows, so check only when everyone fits.
+    if (all.length <= 200) expect(ids).toContain(without.id);
+    expect(ids).not.toContain(withLogin.id);
+    expect(ids).not.toContain(gone.id);
+  });
+
+  it("lets only office staff set a PIN", async () => {
+    const o = await makeOperator(manager, { phone: uniquePhone() });
+    await expect(setOperatorPin(supervisor, o.id, { pin: PIN })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(updateOperator(owner, o.id, editValues(uniquePhone(), { pin: PIN }))).rejects.toBeInstanceOf(ForbiddenError);
   });
 });
 

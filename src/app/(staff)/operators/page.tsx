@@ -6,7 +6,7 @@ import { OPERATOR_STATUS_LABELS, queryValue } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
-import { listOperators } from "@/services/operators";
+import { listOperators, NO_LOGIN } from "@/services/operators";
 
 export const metadata: Metadata = { title: "Operators" };
 
@@ -20,6 +20,7 @@ export default async function OperatorsPage({
   const q = queryValue(params.q);
   const status = queryValue(params.status);
   const rows = await listOperators(ctx, { q, status });
+  const canManage = can(ctx.actor.role, "operator.manage");
 
   return (
     <>
@@ -27,7 +28,7 @@ export default async function OperatorsPage({
         title="Operators"
         subtitle="Everyone who rides a Jayngol tricycle"
         action={
-          can(ctx.actor.role, "operator.manage") ? (
+          canManage ? (
             <LinkButton href="/operators/new" variant="gold">
               <Plus size={16} />
               <span>Add operator</span>
@@ -39,7 +40,7 @@ export default async function OperatorsPage({
         q={q}
         status={status}
         placeholder="Search name, phone or tricycle code"
-        options={OPERATOR_STATUS_LABELS}
+        options={canManage ? { ...OPERATOR_STATUS_LABELS, [NO_LOGIN]: "No portal login" } : OPERATOR_STATUS_LABELS}
       />
       {rows.length === 0 ? (
         <Empty>No operators match your query.</Empty>
@@ -71,6 +72,7 @@ export default async function OperatorsPage({
                         <span className="rounded-md bg-line/50 px-2 py-0.5 font-semibold">No tricycle</span>
                       )}
                       <span className="tabular-nums text-ink">{formatPhone(o.phone)}</span>
+                      {canManage && o.status === "active" && !o.hasPortalLogin ? <span>No portal login</span> : null}
                     </div>
                   </div>
                   <ChevronRight

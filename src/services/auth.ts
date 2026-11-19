@@ -88,6 +88,15 @@ export async function login(input: LoginInput, clock: Clock) {
   }
 
   if (user.status !== "active") throw await fail();
+  if (user.role === "operator") {
+    const [operator] = await db
+      .select({ status: operators.status })
+      .from(operators)
+      .where(eq(operators.userId, user.id))
+      .limit(1);
+    // A login stops working when the operator leaves or is sacked.
+    if (operator?.status !== "active") throw await fail();
+  }
 
   const token = randomBytes(32).toString("base64url");
   await db.transaction(async (tx) => {
@@ -130,7 +139,7 @@ export async function resolveSession(
   const now = clock();
   const tokenHash = hashToken(token);
   const [row] = await db
-    .select({ session: sessions, user: users, operatorId: operators.id })
+    .select({ session: sessions, user: users, operatorId: operators.id, operatorStatus: operators.status })
     .from(sessions)
     .innerJoin(users, eq(users.id, sessions.userId))
     .leftJoin(operators, eq(operators.userId, users.id))
@@ -138,7 +147,11 @@ export async function resolveSession(
     .limit(1);
   if (!row) return null;
 
-  if (row.session.expiresAt <= now || row.user.status !== "active") {
+  if (
+    row.session.expiresAt <= now ||
+    row.user.status !== "active" ||
+    (row.user.role === "operator" && row.operatorStatus !== "active")
+  ) {
     await db.delete(sessions).where(eq(sessions.tokenHash, tokenHash));
     return null;
   }

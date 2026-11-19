@@ -29,7 +29,7 @@ export default async function OperatorPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ balance?: string }>;
+  searchParams: Promise<{ balance?: string; login?: string }>;
 }) {
   const ctx = await requirePage("operator.view");
   const { id } = await params;
@@ -39,6 +39,22 @@ export default async function OperatorPage({
 
   const { operator, history, showSensitive, hasPortalLogin } = detail;
   const canManage = can(ctx.actor.role, "operator.manage");
+  const working = operator.status === "active";
+  const canLogin = canManage && working;
+  const openLogin = (await searchParams).login === "1";
+  const loginHref = `/operators/${id}?login=1#portal-login`;
+  const portalLogin = !working ? (
+      hasPortalLogin ? "Stopped, no longer working" : "Not set up"
+    ) : (
+      <span className="inline-flex flex-wrap justify-end gap-x-2">
+        <span>{hasPortalLogin ? "Set up" : "Not set up"}</span>
+        {canLogin ? (
+          <Link href={loginHref} className="font-semibold text-gold-deep underline">
+            {hasPortalLogin ? "Reset PIN" : "Set up login"}
+          </Link>
+        ) : null}
+      </span>
+    );
   const holdsTricycle = history.some((h) => h.assignment.returnedOn === null);
   const canIssue = can(ctx.actor.role, "assignment.manage") && operator.status === "active" && !holdsTricycle;
   const inStock = canIssue ? await listInStockTricycles(ctx) : [];
@@ -74,10 +90,33 @@ export default async function OperatorPage({
                     ["Guarantor address", operator.guarantorAddress],
                   ] as [string, string | null][])
                 : []),
-              ["Portal login", hasPortalLogin ? "Set up" : "Not set up"],
+              ["Portal login", portalLogin],
             ]}
           />
         </Card>
+
+        {canLogin ? (
+          <div id="portal-login" className="scroll-mt-20">
+            <Disclosure label={hasPortalLogin ? "Reset portal PIN" : "Set up portal login"} open={openLogin}>
+              <ActionForm action={setOperatorPinAction.bind(null, operator.id)}>
+                <Field
+                  name="pin"
+                  label={hasPortalLogin ? "New 6-digit PIN" : "6-digit PIN"}
+                  type="password"
+                  inputMode="numeric"
+                  autoComplete="new-password"
+                  maxLength={6}
+                  hint={
+                    hasPortalLogin
+                      ? "The operator logs in with their phone number and this PIN. Saving signs them out everywhere."
+                      : "The operator logs in with their phone number and this PIN. Tell them the PIN in person."
+                  }
+                />
+                <SubmitButton>Save PIN</SubmitButton>
+              </ActionForm>
+            </Disclosure>
+          </div>
+        ) : null}
 
         {balancePeriods ? (
           <div id="balance" className="scroll-mt-20">
@@ -177,22 +216,6 @@ export default async function OperatorPage({
           )}
         </Card>
 
-        {canManage ? (
-          <Disclosure label={hasPortalLogin ? "Reset portal PIN" : "Set up portal login"}>
-            <ActionForm action={setOperatorPinAction.bind(null, operator.id)}>
-              <Field
-                name="pin"
-                label="6-digit PIN"
-                type="password"
-                inputMode="numeric"
-                autoComplete="new-password"
-                maxLength={6}
-                hint="The operator logs in with their phone number and this PIN."
-              />
-              <SubmitButton>Save PIN</SubmitButton>
-            </ActionForm>
-          </Disclosure>
-        ) : null}
 
         {canManage && operator.status === "active" && !holdsTricycle ? (
           <Disclosure label="Mark as left">
