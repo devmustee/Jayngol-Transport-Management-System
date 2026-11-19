@@ -38,10 +38,13 @@ function matches(o: LoanChoice, query: string) {
 export function LoanOperatorPicker({
   choices,
   owingCount,
+  asking = false,
   children,
 }: {
   choices: LoanChoice[];
   owingCount: number;
+  /** An Assistant Manager's request: the line reads "Ask the Manager for…". */
+  asking?: boolean;
   /** The fields between the amount and the line that repeats who it is for. */
   children?: ReactNode;
 }) {
@@ -59,7 +62,7 @@ export function LoanOperatorPicker({
   const left =
     owingCount === 0
       ? undefined
-      : `${owingCount} operator${owingCount === 1 ? " is" : "s are"} not listed: they still owe on a loan.`;
+      : `${owingCount} operator${owingCount === 1 ? " is" : "s are"} not listed: they still owe on a loan or a request is waiting.`;
 
   return (
     <>
@@ -103,7 +106,9 @@ export function LoanOperatorPicker({
       {children}
       {chosen ? (
         <p className="rounded-xl border border-gold/40 bg-gold-wash p-3 text-sm text-ink" aria-live="polite">
-          {kobo ? <span className="font-semibold">{formatNaira(kobo)}</span> : "A loan"} to{" "}
+          {asking ? "Ask the Manager for " : null}
+          {kobo ? <span className="font-semibold">{formatNaira(kobo)}</span> : asking ? "a loan" : "A loan"}
+          {asking ? " for " : " to "}
           <span className="font-semibold">{chosen.name}</span>
           {chosen.tricycleCode
             ? `, tricycle ${chosen.tricycleCode} (${chosen.registration ?? "no plate"}).`

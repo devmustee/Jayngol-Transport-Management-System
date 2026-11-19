@@ -1,6 +1,6 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, type Executor } from "@/db";
+import { db, type Executor, type Tx } from "@/db";
 import { charges, loans, operators, users } from "@/db/schema";
 import { businessDate, daysBetween } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
@@ -29,50 +29,69 @@ const grantSchema = z.object({
 export async function grantLoan(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "loan.approve");
   const input = parseInput(grantSchema, raw);
-  const now = ctx.clock();
-  const today = businessDate(now);
   try {
-    return await db.transaction(async (tx) => {
-      const [operator] = await tx.select().from(operators).where(eq(operators.id, input.operatorId)).for("update");
-      if (!operator) throw new DomainError("Operator not found.");
-      if (operator.status !== "active") throw fieldError("operatorId", "Only an active operator can be given a loan");
-
-      const [charge] = await tx
-        .insert(charges)
-        .values({ type: "loan", operatorId: operator.id, amountKobo: input.amount, businessDate: today })
-        .returning({ id: charges.id });
-      const [loan] = await tx
-        .insert(loans)
-        .values({
-          operatorId: operator.id,
-          chargeId: charge!.id,
-          principalKobo: input.amount,
-          custodianId: input.source.custodianId,
-          account: input.source.account,
-          note: input.note ?? null,
-          disbursedOn: today,
-          approvedBy: ctx.actor.userId,
-          createdAt: now,
-        })
-        .returning({ id: loans.id });
-      await takeMoneyOut(tx, {
-        ...input.source,
-        amountKobo: input.amount,
-        sourceType: "loan",
-        sourceId: loan!.id,
-        at: now,
-      });
-      await auditFrom(ctx, tx, {
-        action: "loan.grant",
-        entityType: "operator",
-        entityId: operator.id,
-        after: { amountKobo: input.amount },
-      });
-      return loan!;
-    });
+    return await db.transaction((tx) => payOutLoan(tx, ctx, input));
   } catch (error) {
     rethrowConstraint(error, ALREADY);
   }
+}
+
+type PayOut = {
+  operatorId: string;
+  amount: number;
+  source: { custodianId: string | null; account: "bank" | "owner" };
+  note?: string | null;
+};
+
+/**
+ * Pays a loan out: the operator owes it and the money leaves the chosen cash
+ * or bank. Used when the Manager gives a loan and when they approve a request.
+ */
+export async function payOutLoan(tx: Tx, ctx: Ctx, input: PayOut, requestId: string | null = null) {
+  const now = ctx.clock();
+  const today = businessDate(now);
+  const [operator] = await tx.select().from(operators).where(eq(operators.id, input.operatorId)).for("update");
+  if (!operator) throw new DomainError("Operator not found.");
+  if (operator.status !== "active") throw fieldError("operatorId", "Only an active operator can be given a loan");
+  const [owing] = await tx
+    .select({ id: loans.id })
+    .from(loans)
+    .where(and(eq(loans.operatorId, operator.id), eq(loans.status, "active")));
+  if (owing) throw ALREADY.one_active_loan;
+
+  const [charge] = await tx
+    .insert(charges)
+    .values({ type: "loan", operatorId: operator.id, amountKobo: input.amount, businessDate: today })
+    .returning({ id: charges.id });
+  const [loan] = await tx
+    .insert(loans)
+    .values({
+      operatorId: operator.id,
+      chargeId: charge!.id,
+      principalKobo: input.amount,
+      custodianId: input.source.custodianId,
+      account: input.source.account,
+      note: input.note ?? null,
+      disbursedOn: today,
+      approvedBy: ctx.actor.userId,
+      requestId,
+      createdAt: now,
+    })
+    .returning({ id: loans.id });
+  await takeMoneyOut(tx, {
+    ...input.source,
+    amountKobo: input.amount,
+    sourceType: "loan",
+    sourceId: loan!.id,
+    at: now,
+  });
+  await auditFrom(ctx, tx, {
+    action: "loan.grant",
+    entityType: "operator",
+    entityId: operator.id,
+    after: { amountKobo: input.amount, requestId },
+  });
+  return loan!;
 }
 
 /** For a loan entered by mistake. Once anything is repaid, it stands. */
@@ -156,6 +175,7 @@ export async function listLoans(ctx: Ctx) {
     cleared: rows.filter((row) => row.status === "cleared"),
     outstandingKobo: active.reduce((sum, row) => sum + row.owedKobo, 0),
     canApprove: can(ctx.actor.role, "loan.approve"),
+    canRequest: can(ctx.actor.role, "loan.request"),
     canCollect: can(ctx.actor.role, "payment.record"),
   };
 }
@@ -182,7 +202,7 @@ const operatorTricycle = (column: "code_number" | "registration_number") => sql<
  * so the right person is picked, and how many are left out for owing a loan.
  */
 export async function operatorsForLoan(ctx: Ctx) {
-  requirePermission(ctx, "loan.approve");
+  if (!can(ctx.actor.role, "loan.request")) requirePermission(ctx, "loan.approve");
   const rows = await db
     .select({
       id: operators.id,
@@ -190,7 +210,8 @@ export async function operatorsForLoan(ctx: Ctx) {
       phone: operators.phone,
       tricycleCode: operatorTricycle("code_number"),
       registration: operatorTricycle("registration_number"),
-      owing: sql<boolean>`${loans.id} IS NOT NULL`,
+      owing: sql<boolean>`${loans.id} IS NOT NULL OR EXISTS (
+        SELECT 1 FROM loan_requests r WHERE r.operator_id = ${operators.id} AND r.status = 'waiting')`,
     })
     .from(operators)
     .leftJoin(loans, and(eq(loans.operatorId, operators.id), eq(loans.status, "active")))
@@ -239,6 +260,9 @@ export async function getLoan(ctx: Ctx, id: string) {
     .select({
       ...fields,
       approvedByName: users.name,
+      requestId: loans.requestId,
+      requestedByName: sql<string | null>`(
+        SELECT u.name FROM loan_requests r JOIN users u ON u.id = r.requested_by WHERE r.id = loans.request_id)`,
       cancelReason: loans.cancelReason,
       chargeId: loans.chargeId,
       tricycleCode: heldTricycle("code_number"),

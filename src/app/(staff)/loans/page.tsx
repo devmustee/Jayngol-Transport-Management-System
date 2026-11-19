@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ChevronRight, HandCoins } from "lucide-react";
-import { grantLoanAction } from "@/app/actions";
+import { grantLoanAction, requestLoanAction } from "@/app/actions";
+import { LoanRequestLists } from "@/components/loan-requests";
+import { listLoanRequests } from "@/services/loan-requests";
 import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
 import { LoanOperatorPicker } from "@/components/forms/loan-operator-picker";
 import { MoneySourceField } from "@/components/money-source";
@@ -115,9 +117,11 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const active = data.active.filter((row) => matches(row, q));
   const cleared = data.cleared.filter((row) => matches(row, q));
   const hasLoans = data.active.length + data.cleared.length > 0;
-  const [sources, pick] = data.canApprove
-    ? await Promise.all([moneySources(ctx), operatorsForLoan(ctx)])
-    : [[], { choices: [], owingCount: 0 }];
+  const [requests, sources, pick] = await Promise.all([
+    listLoanRequests(ctx),
+    data.canApprove ? moneySources(ctx) : [],
+    data.canApprove || data.canRequest ? operatorsForLoan(ctx) : { choices: [], owingCount: 0 },
+  ]);
   return (
     <>
       <PageHeader title="Loans" subtitle={`Owed to the company: ${formatNaira(data.outstandingKobo)}`} back={{ href: "/money", label: "Money" }} />
@@ -132,7 +136,17 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
               <SubmitButton>Give loan</SubmitButton>
             </ActionForm>
           </Disclosure>
+        ) : data.canRequest ? (
+          <Disclosure label="Request a loan" open={give}>
+            <ActionForm action={requestLoanAction}>
+              <LoanOperatorPicker choices={pick.choices} owingCount={pick.owingCount} asking>
+                <TextareaField name="reason" label="Reason" rows={2} hint="The Manager reads this before deciding." />
+              </LoanOperatorPicker>
+              <SubmitButton>Send to the Manager</SubmitButton>
+            </ActionForm>
+          </Disclosure>
         ) : null}
+        <LoanRequestLists data={requests} now={ctx.clock()} userId={ctx.actor.userId} sources={sources} />
         {hasLoans ? (
           <div>
             <SearchBar q={q} placeholder="Search operator, phone, tricycle or plate" />

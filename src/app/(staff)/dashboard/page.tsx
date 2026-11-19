@@ -1,6 +1,6 @@
 import { formatNaira } from "@/lib/money";
 import { ContributionTile } from "@/components/contribution-tile";
-import { businessDate } from "@/lib/clock";
+import { businessDate, daysBetween } from "@/lib/clock";
 import { contributionSummary } from "@/services/contributions";
 import type { Metadata } from "next";
 import {
@@ -27,11 +27,18 @@ import { getAwardRace } from "@/services/award-tracker";
 import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
 import { depositsToSettle } from "@/services/deposit-settlements";
+import { waitingLoanRequests } from "@/services/loan-requests";
 import Link from "next/link";
 import { inspectionToday } from "@/services/inspections";
 import { lowStock } from "@/services/store";
 import { dashboardCounts } from "@/services/tricycles";
 import { listWorkshop } from "@/services/workshop";
+
+/** "today", "1 day ago" or "N days ago", in Lagos days. */
+function waitedDays(from: Date, now: Date) {
+  const days = daysBetween(businessDate(from), businessDate(now));
+  return days === 0 ? "today" : days === 1 ? "1 day ago" : `${days} days ago`;
+}
 
 export const metadata: Metadata = { title: "Dashboard" };
 
@@ -39,7 +46,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("dashboard.view");
   const pulse = parsePulse((await searchParams).pulse);
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [counts, workshop, low, inspections, race, money, period, today, contributions, toSettle] = await Promise.all([
+  const [counts, workshop, low, inspections, race, money, period, today, contributions, toSettle, loanAsks] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
@@ -50,6 +57,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     seesMoney && pulse === "today" ? fleetToday(ctx) : null,
     seesMoney ? contributionSummary(ctx) : null,
     can(ctx.actor.role, "deposit.settle") ? depositsToSettle() : null,
+    can(ctx.actor.role, "loan.approve") ? waitingLoanRequests() : null,
   ]);
 
   const inspectionsLeft = inspections
@@ -64,7 +72,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         action={
           can(ctx.actor.role, "tricycle.manage") ||
           can(ctx.actor.role, "expense.record") ||
-          can(ctx.actor.role, "loan.approve") ? (
+          can(ctx.actor.role, "loan.approve") ||
+          can(ctx.actor.role, "loan.request") ? (
             <div className="flex flex-wrap items-center gap-2">
               {can(ctx.actor.role, "expense.record") ? (
                 <LinkButton href="/expenses?record=1">
@@ -76,6 +85,11 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                 <LinkButton href="/loans?give=1" variant="secondary">
                   <HandCoins size={16} />
                   <span>Give a loan</span>
+                </LinkButton>
+              ) : can(ctx.actor.role, "loan.request") ? (
+                <LinkButton href="/loans?give=1" variant="secondary">
+                  <HandCoins size={16} />
+                  <span>Request a loan</span>
                 </LinkButton>
               ) : null}
               {can(ctx.actor.role, "tricycle.manage") ? (
@@ -94,6 +108,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           ) : null
         }
       />
+
+      {loanAsks && loanAsks.count > 0 ? (
+        <Link
+          href="/loans"
+          className="mb-4 flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash px-4 py-3 text-sm text-ink hover:border-gold"
+        >
+          <span>
+            <span className="font-semibold">
+              {loanAsks.count} loan request{loanAsks.count === 1 ? "" : "s"} waiting
+            </span>
+            {loanAsks.oldest ? ` · oldest ${waitedDays(loanAsks.oldest, ctx.clock())}` : ""}
+          </span>
+          <span className="shrink-0 font-semibold text-gold-deep">Decide</span>
+        </Link>
+      ) : null}
 
       {toSettle && toSettle.length > 0 ? (
         <Link

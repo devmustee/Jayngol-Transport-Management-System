@@ -232,6 +232,13 @@
       "when": 1795130132612,
       "tag": "0032_deposit_settlements",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1795131285471,
+      "tag": "0033_loan_requests",
+      "breakpoints": true
     }
   ]
 }

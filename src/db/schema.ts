@@ -873,6 +873,7 @@ export const smsOutbox = pgTable(
 /* ---------- Expenses, loans and the bank side of the cash book ---------- */
 
 export const loanStatus = pgEnum("loan_status", ["active", "cleared", "cancelled"]);
+export const loanRequestStatus = pgEnum("loan_request_status", ["waiting", "approved", "rejected", "withdrawn"]);
 export const advanceStatus = pgEnum("expense_advance_status", [
   "open",
   "submitted",
@@ -911,6 +912,33 @@ export const bankMovements = pgTable(
   ],
 );
 
+/** An Assistant Manager asks; the Manager approves (which gives the loan) or rejects. No money moves until approval. */
+export const loanRequests = pgTable(
+  "loan_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+    reason: text("reason").notNull(),
+    status: loanRequestStatus("status").notNull().default("waiting"),
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => users.id),
+    requestedAt: timestamp("requested_at", tz).notNull(),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", tz),
+    rejectReason: text("reject_reason"),
+  },
+  (t) => [
+    uniqueIndex("one_waiting_loan_request").on(t.operatorId).where(sql`status = 'waiting'`),
+    index("loan_requests_status_idx").on(t.status, t.requestedAt),
+    check("loan_request_amount_positive", sql`amount_kobo > 0`),
+    check("loan_request_rejected_reason", sql`status <> 'rejected' OR reject_reason IS NOT NULL`),
+  ],
+);
+
 export const loans = pgTable(
   "loans",
   {
@@ -933,6 +961,10 @@ export const loans = pgTable(
       .notNull()
       .references(() => users.id),
     cancelReason: text("cancel_reason"),
+    /** The Assistant Manager's request this loan came from, if any. */
+    requestId: uuid("request_id")
+      .unique("loan_from_request_once")
+      .references(() => loanRequests.id),
     createdAt: timestamp("created_at", tz).notNull(),
   },
   (t) => [

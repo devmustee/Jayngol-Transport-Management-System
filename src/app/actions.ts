@@ -39,6 +39,7 @@ import {
 } from "@/services/expenses";
 import { approveAward, rejectAward } from "@/services/awards";
 import { cancelLoan, grantLoan } from "@/services/loans";
+import { approveLoanRequest, rejectLoanRequest, requestLoan, withdrawLoanRequest } from "@/services/loan-requests";
 import { recordPayment, reversePayment } from "@/services/payments";
 import { changeRuleAmount } from "@/services/rules";
 import {
@@ -524,6 +525,27 @@ export async function grantLoanAction(_: FormState, data: FormData) {
   if (!id) return state;
   // The loan's own page shows what is owed and where to take it back.
   redirect(`/loans/${id}?given=1`);
+}
+
+export async function requestLoanAction(_: FormState, data: FormData) {
+  return perform((ctx) => requestLoan(ctx, values(data)), "Request sent to the Manager. No money moves until it is approved.");
+}
+
+export async function approveLoanRequestAction(id: string, _: FormState, data: FormData) {
+  let loanId: string | undefined;
+  const state = await perform(async (ctx) => {
+    loanId = (await approveLoanRequest(ctx, id, values(data)))?.id;
+  }, "");
+  if (!loanId) return state;
+  redirect(`/loans/${loanId}?given=1`);
+}
+
+export async function rejectLoanRequestAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => rejectLoanRequest(ctx, id, values(data)), "Request rejected.");
+}
+
+export async function withdrawLoanRequestAction(id: string, _: FormState) {
+  return perform((ctx) => withdrawLoanRequest(ctx, id), "Request withdrawn.");
 }
 
 export async function cancelLoanAction(id: string, _: FormState, data: FormData) {

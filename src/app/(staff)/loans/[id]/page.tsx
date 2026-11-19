@@ -63,6 +63,7 @@ export default async function LoanPage({
           <Details
             rows={[
               ["Given on", formatDate(loan.disbursedOn)],
+              ...(loan.requestedByName ? ([["Requested by", loan.requestedByName]] as [string, string][]) : []),
               ["Approved by", loan.approvedByName],
               ["Repaid", formatNaira(loan.repaidKobo)],
               ["Still owed", formatNaira(owedKobo)],

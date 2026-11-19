@@ -54,6 +54,18 @@ export const CATALOGUE = {
     link: "/waivers",
     audience: { permission: "balance.waive.oversee" },
   },
+  loan_request: {
+    severity: "action",
+    title: "Loan request",
+    link: "/loans",
+    audience: { permission: "loan.approve" },
+  },
+  loan_request_answered: {
+    severity: "info",
+    title: "Loan request answered",
+    link: "/loans",
+    audience: { permission: "loan.request" },
+  },
   large_deposit_refund: {
     severity: "info",
     title: "Large deposit given back",

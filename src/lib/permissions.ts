@@ -49,7 +49,9 @@ const MATRIX = {
   // Told about the Manager's large expenses, which nobody approves.
   "expense.oversee": ["owner"],
   // Giving a loan, or cancelling one entered by mistake.
-  "loan.approve": ["manager", "assistant_manager"],
+  "loan.approve": ["manager"],
+  /** Ask the Manager to give a loan. No money moves until the Manager approves. */
+  "loan.request": ["assistant_manager"],
   "award.approve": ["manager"],
   "awards.track": STAFF,
   "violation.view": STAFF,
