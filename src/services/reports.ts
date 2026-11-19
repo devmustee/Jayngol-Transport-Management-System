@@ -56,6 +56,7 @@ const COLLECTION_FIGURES: Column[] = [
   { key: "cash", label: "Cash", kind: "naira", total: true },
   { key: "transfer", label: "Transfer", kind: "naira", total: true },
   { key: "pos", label: "POS", kind: "naira", total: true },
+  { key: "fromDeposit", label: "From deposit", kind: "naira", total: true },
   { key: "collected", label: "Total received", kind: "naira", total: true },
 ];
 
@@ -113,7 +114,7 @@ export const REPORTS = {
       )
       SELECT periods.lo::text AS day, periods.hi::text AS "to",
         b.due, b.paid, b.due - b.paid AS owed,
-        m.cash, m.transfer, m.pos, m.collected
+        m.cash, m.transfer, m.pos, m.from_deposit AS "fromDeposit", m.collected
       FROM periods
       CROSS JOIN LATERAL (
         SELECT COALESCE(SUM(c.amount_kobo), 0)::float8 AS due,
@@ -126,6 +127,7 @@ export const REPORTS = {
         SELECT COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'cash'), 0)::float8 AS cash,
                COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'transfer'), 0)::float8 AS transfer,
                COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'pos'), 0)::float8 AS pos,
+               COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'deposit'), 0)::float8 AS from_deposit,
                COALESCE(SUM(p.amount_kobo), 0)::float8 AS collected
         FROM payments p
         WHERE p.business_date BETWEEN periods.lo AND periods.hi

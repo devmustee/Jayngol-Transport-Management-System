@@ -353,6 +353,9 @@ export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
   await db.transaction(async (tx) => {
     const [found] = await tx.select().from(payments).where(eq(payments.id, id));
     if (!found) throw new DomainError("Payment not found.");
+    if (found.method === "deposit") {
+      throw new DomainError("This was paid from the operator's deposit. Undo the deposit settlement instead.");
+    }
     await tx
       .select({ id: operators.id })
       .from(operators)

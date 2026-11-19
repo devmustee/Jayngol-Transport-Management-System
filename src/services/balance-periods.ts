@@ -31,7 +31,8 @@ export type BalanceTotals = {
 
 export type MoneyReceived = {
   totalKobo: number;
-  byMethod: { cash: number; pos: number; transfer: number };
+  /** "deposit" is debts cleared from a settled deposit: received, but no new money. */
+  byMethod: { cash: number; pos: number; transfer: number; deposit: number };
   /** What the money was spent on. Credit is money not yet used for anything. */
   forBalancesKobo: number;
   forFinesKobo: number;
@@ -110,11 +111,12 @@ export async function moneyReceived(
       (SELECT COALESCE(SUM(amount_kobo), 0) FROM paid_in WHERE method = 'cash')::float8 AS cash,
       (SELECT COALESCE(SUM(amount_kobo), 0) FROM paid_in WHERE method = 'pos')::float8 AS pos,
       (SELECT COALESCE(SUM(amount_kobo), 0) FROM paid_in WHERE method = 'transfer')::float8 AS transfer,
+      (SELECT COALESCE(SUM(amount_kobo), 0) FROM paid_in WHERE method = 'deposit')::float8 AS deposit,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'daily_balance')::float8 AS balances,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'penalty')::float8 AS fines,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'loan')::float8 AS loans,
       (SELECT COALESCE(SUM(amount), 0) FROM spent WHERE type = 'contribution')::float8 AS contributions
-  `)) as unknown as Record<"total" | "cash" | "pos" | "transfer" | "balances" | "fines" | "loans" | "contributions", number>[];
+  `)) as unknown as Record<"total" | "cash" | "pos" | "transfer" | "deposit" | "balances" | "fines" | "loans" | "contributions", number>[];
   const total = num(row?.total);
   const balances = num(row?.balances);
   const fines = num(row?.fines);
@@ -122,7 +124,7 @@ export async function moneyReceived(
   const contributions = num(row?.contributions);
   return {
     totalKobo: total,
-    byMethod: { cash: num(row?.cash), pos: num(row?.pos), transfer: num(row?.transfer) },
+    byMethod: { cash: num(row?.cash), pos: num(row?.pos), transfer: num(row?.transfer), deposit: num(row?.deposit) },
     forBalancesKobo: balances,
     forFinesKobo: fines,
     forLoansKobo: loans,

@@ -2,6 +2,7 @@ import { getHonourBoard, getMyAwardJourney, getMyRunAtRisk } from "./award-track
 import { getMyContributions } from "./contributions";
 import type { Ctx } from "./context";
 import { getMyDeposits } from "./deposits";
+import { getMySettlements } from "./deposit-settlements";
 import { getMyStatement } from "./finance";
 import { getMyNotices } from "./notices";
 import { getMyPortal } from "./operators";
@@ -13,7 +14,7 @@ import { getMyService } from "./workshop";
  * login session, and nothing here accepts an operator ID.
  */
 export async function getMyRecords(ctx: Ctx) {
-  const [portal, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits, contributions] = await Promise.all([
+  const [portal, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits, contributions, settlements] = await Promise.all([
     getMyPortal(ctx),
     getMyStatement(ctx),
     getMyCompliance(ctx),
@@ -24,6 +25,18 @@ export async function getMyRecords(ctx: Ctx) {
     getMyNotices(ctx),
     getMyDeposits(ctx),
     getMyContributions(ctx),
+    getMySettlements(ctx),
   ]);
-  return { ...portal, statement, compliance, service, journey, honourBoard, runAtRisk, notices, deposits, contributions };
+  return {
+    ...portal,
+    statement,
+    compliance,
+    service,
+    journey,
+    honourBoard,
+    runAtRisk,
+    notices,
+    deposits: { ...deposits, settlements },
+    contributions,
+  };
 }

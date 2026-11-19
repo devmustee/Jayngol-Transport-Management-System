@@ -54,6 +54,12 @@ export const CATALOGUE = {
     link: "/waivers",
     audience: { permission: "balance.waive.oversee" },
   },
+  large_deposit_refund: {
+    severity: "info",
+    title: "Large deposit given back",
+    link: "/deposits",
+    audience: { permission: "deposit.oversee" },
+  },
   large_expense: {
     severity: "info",
     title: "Large expense by the Manager",

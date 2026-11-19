@@ -185,11 +185,33 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
                   {deposit.reversedAt ? (
                     <Badge tone="bad">Reversed</Badge>
                   ) : (
-                    <span className="shrink-0 text-sm font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                    <span className="flex shrink-0 items-center gap-2">
+                      {deposit.settlementId ? <Badge tone="plain">Settled</Badge> : null}
+                      <span className="text-sm font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                    </span>
                   )}
                 </li>
               ))}
             </ul>
+            {deposits.settlements.map((s) => (
+              <dl key={s.id} className="mt-3 space-y-1 rounded-xl border border-line bg-card-subtle p-3 text-sm">
+                <div className="font-semibold text-ink">Settled on {formatDate(s.businessDate)}</div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Cleared what you owed</dt>
+                  <dd className="tabular-nums">{formatNaira(s.clearedKobo)}</dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Given back to you</dt>
+                  <dd className="tabular-nums">{formatNaira(s.givenBackKobo)}</dd>
+                </div>
+                {s.keptKobo > 0 ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted">Kept: {s.keptReason}</dt>
+                    <dd className="tabular-nums">{formatNaira(s.keptKobo)}</dd>
+                  </div>
+                ) : null}
+              </dl>
+            ))}
           </Card>
         ) : null}
 

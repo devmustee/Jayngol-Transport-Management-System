@@ -69,6 +69,10 @@ const MATRIX = {
   /** Told of every balance waiver. */
   "balance.waive.oversee": ["owner"],
   "violation.waive": ["manager"],
+  /** Use a deposit to clear what an operator owes and give the rest back, once they have left. */
+  "deposit.settle": ["manager"],
+  /** Told when a large deposit is given back. */
+  "deposit.oversee": ["owner"],
   "workorder.view": STAFF,
   "workorder.checkin": FIELD,
   "workorder.manage": OFFICE,

@@ -181,7 +181,7 @@ describe("weekly and monthly balances", () => {
   it("counts a late payment as Paid for the week owed and Received for the week paid", async () => {
     const week1 = await moneyReceived(db, WEEK1, { operatorId: a });
     expect(week1.totalKobo).toBe(2_500_000);
-    expect(week1.byMethod).toEqual({ cash: 1_500_000, pos: 0, transfer: 1_000_000 });
+    expect(week1.byMethod).toEqual({ cash: 1_500_000, pos: 0, transfer: 1_000_000, deposit: 0 });
     expect(week1.forBalancesKobo).toBe(2_500_000);
 
     const week2 = await moneyReceived(db, WEEK2, { operatorId: a });

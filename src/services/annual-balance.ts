@@ -27,6 +27,8 @@ export type YearFigures = {
   cashKobo: number;
   posKobo: number;
   transferKobo: number;
+  /** Debts cleared from an operator's deposit when it was settled: received, but no new money came in. */
+  fromDepositKobo: number;
   /** What the money received paid for. Credit is money not yet used for anything. */
   forBalancesKobo: number;
   forFinesKobo: number;
@@ -37,10 +39,14 @@ export type YearFigures = {
   creditKobo: number;
   expensesKobo: number;
   loansGivenKobo: number;
-  /** Money received less expenses and loans given. */
+  /** Money received and deposits kept, less expenses and loans given. */
   netKobo: number;
   /** Deposits are held for operators, so they are never income and stay out of Net. */
   depositsKobo: number;
+  /** Deposits handed back to operators who left. */
+  depositsReturnedKobo: number;
+  /** Deposits the company kept beyond what was owed, with a reason: income on the day. */
+  depositsKeptKobo: number;
 };
 
 type DayFigures = Omit<YearFigures, "owedKobo" | "creditKobo" | "netKobo">;
@@ -53,6 +59,7 @@ const DAY_KEYS = [
   "cashKobo",
   "posKobo",
   "transferKobo",
+  "fromDepositKobo",
   "forBalancesKobo",
   "forFinesKobo",
   "forLoansKobo",
@@ -60,6 +67,8 @@ const DAY_KEYS = [
   "expensesKobo",
   "loansGivenKobo",
   "depositsKobo",
+  "depositsReturnedKobo",
+  "depositsKeptKobo",
 ] as const satisfies readonly (keyof DayFigures)[];
 
 export type WeekPart = { range: DateRange; figures: YearFigures };
@@ -88,6 +97,7 @@ const zero = (): DayFigures => ({
   cashKobo: 0,
   posKobo: 0,
   transferKobo: 0,
+  fromDepositKobo: 0,
   forBalancesKobo: 0,
   forFinesKobo: 0,
   forLoansKobo: 0,
@@ -95,6 +105,8 @@ const zero = (): DayFigures => ({
   expensesKobo: 0,
   loansGivenKobo: 0,
   depositsKobo: 0,
+  depositsReturnedKobo: 0,
+  depositsKeptKobo: 0,
 });
 
 function finish(day: DayFigures): YearFigures {
@@ -102,7 +114,7 @@ function finish(day: DayFigures): YearFigures {
     ...day,
     owedKobo: day.dueKobo - day.paidKobo,
     creditKobo: day.receivedKobo - day.forBalancesKobo - day.forFinesKobo - day.forLoansKobo - day.forContributionsKobo,
-    netKobo: day.receivedKobo - day.expensesKobo - day.loansGivenKobo,
+    netKobo: day.receivedKobo + day.depositsKeptKobo - day.expensesKobo - day.loansGivenKobo,
   };
 }
 
@@ -113,7 +125,7 @@ function addInto(into: DayFigures, from: DayFigures) {
 /** Each figure for each day of the range that has anything, keyed by date. */
 async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<string, DayFigures>> {
   const { from, to } = range;
-  const [balances, received, purposes, expenses, loansGiven, deposits, waived] = await Promise.all([
+  const [balances, received, purposes, expenses, loansGiven, deposits, waived, settled] = await Promise.all([
     exec.execute(sql`
       SELECT c.business_date::text AS day, SUM(c.amount_kobo)::float8 AS due,
              SUM(LEAST(c.amount_kobo, COALESCE((SELECT SUM(e.amount_kobo) FROM effective_allocations e
@@ -126,7 +138,8 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
       SELECT p.business_date::text AS day, SUM(p.amount_kobo)::float8 AS total,
              COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'cash'), 0)::float8 AS cash,
              COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'pos'), 0)::float8 AS pos,
-             COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'transfer'), 0)::float8 AS transfer
+             COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'transfer'), 0)::float8 AS transfer,
+             COALESCE(SUM(p.amount_kobo) FILTER (WHERE p.method = 'deposit'), 0)::float8 AS from_deposit
       FROM payments p
       WHERE p.business_date BETWEEN ${from}::date AND ${to}::date
         AND NOT EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id)
@@ -173,6 +186,12 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
         AND NOT EXISTS (SELECT 1 FROM charge_voids v WHERE v.charge_id = c.id)
       GROUP BY c.business_date
     `),
+    exec.execute(sql`
+      SELECT s.business_date::text AS day, SUM(s.given_back_kobo)::float8 AS given_back, SUM(s.kept_kobo)::float8 AS kept
+      FROM deposit_settlements s
+      WHERE s.undone_at IS NULL AND s.business_date BETWEEN ${from}::date AND ${to}::date
+      GROUP BY s.business_date
+    `),
   ]);
 
   const days = new Map<string, DayFigures>();
@@ -194,6 +213,7 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
     day.cashKobo = n(row.cash);
     day.posKobo = n(row.pos);
     day.transferKobo = n(row.transfer);
+    day.fromDepositKobo = n(row.from_deposit);
   }
   for (const row of purposes as unknown as Row[]) {
     const day = at(String(row.day));
@@ -206,6 +226,11 @@ async function dailyFigures(exec: Executor, range: DateRange): Promise<Map<strin
   for (const row of loansGiven as unknown as Row[]) at(String(row.day)).loansGivenKobo = n(row.total);
   for (const row of deposits as unknown as Row[]) at(String(row.day)).depositsKobo = n(row.total);
   for (const row of waived as unknown as Row[]) at(String(row.day)).waivedKobo = n(row.total);
+  for (const row of settled as unknown as Row[]) {
+    const day = at(String(row.day));
+    day.depositsReturnedKobo = n(row.given_back);
+    day.depositsKeptKobo = n(row.kept);
+  }
   return days;
 }
 
@@ -301,6 +326,7 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "cash", label: "Cash", kind: "naira" },
   { key: "pos", label: "POS", kind: "naira" },
   { key: "transfer", label: "Transfer", kind: "naira" },
+  { key: "fromDeposit", label: "From deposit", kind: "naira" },
   { key: "forBalances", label: "For balances", kind: "naira" },
   { key: "forFines", label: "For fines", kind: "naira" },
   { key: "loansRepaid", label: "Loans repaid", kind: "naira" },
@@ -310,6 +336,8 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "loansGiven", label: "Loans given", kind: "naira" },
   { key: "net", label: "Net", kind: "naira" },
   { key: "deposits", label: "Deposits taken", kind: "naira" },
+  { key: "depositsReturned", label: "Deposits given back", kind: "naira" },
+  { key: "depositsKept", label: "Deposits kept", kind: "naira" },
 ];
 
 function csvRow(line: string, range: DateRange, f: YearFigures) {
@@ -325,6 +353,7 @@ function csvRow(line: string, range: DateRange, f: YearFigures) {
     cash: f.cashKobo,
     pos: f.posKobo,
     transfer: f.transferKobo,
+    fromDeposit: f.fromDepositKobo,
     forBalances: f.forBalancesKobo,
     forFines: f.forFinesKobo,
     loansRepaid: f.forLoansKobo,
@@ -334,6 +363,8 @@ function csvRow(line: string, range: DateRange, f: YearFigures) {
     loansGiven: f.loansGivenKobo,
     net: f.netKobo,
     deposits: f.depositsKobo,
+    depositsReturned: f.depositsReturnedKobo,
+    depositsKept: f.depositsKeptKobo,
   };
 }
 

@@ -52,6 +52,7 @@ export const METHOD_LABELS: Record<string, string> = {
   cash: "Cash",
   transfer: "Transfer",
   pos: "POS",
+  deposit: "From deposit",
 };
 
 export const CHARGE_LABELS = {
@@ -126,6 +127,8 @@ export const BOOK_LABELS: Record<string, string> = {
   payment_reversal: "Payment reversed",
   deposit: "Operator deposit received",
   deposit_reversal: "Operator deposit reversed",
+  deposit_refund: "Deposit given back",
+  deposit_refund_undo: "Deposit given back, undone",
   expense_advance: "Expense paid",
   expense_advance_cancel: "Expense removed or corrected",
   expense_change: "Change returned",

@@ -304,6 +304,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
               { label: "Cash", value: (f) => f.cashKobo },
               { label: "POS", value: (f) => f.posKobo },
               { label: "Transfer", value: (f) => f.transferKobo },
+              ...(total.fromDepositKobo > 0 ? [{ label: "From deposit", value: (f: YearFigures) => f.fromDepositKobo }] : []),
               { label: "Total", value: (f) => f.receivedKobo },
             ]}
           />
@@ -333,7 +334,11 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
           />
         </Card>
         <Card title="Deposits taken" subtitle="Held for operators, so never counted as income or in Net.">
-          <MonthTable months={report.months} total={total} columns={[{ label: "Deposits", value: (f) => f.depositsKobo }]} />
+          <MonthTable months={report.months} total={total} columns={[
+            { label: "Taken", value: (f) => f.depositsKobo },
+            { label: "Given back", value: (f) => f.depositsReturnedKobo },
+            { label: "Kept", value: (f) => f.depositsKeptKobo },
+          ]} />
         </Card>
       </div>
     </>

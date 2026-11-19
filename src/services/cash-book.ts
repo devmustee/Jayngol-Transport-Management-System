@@ -257,7 +257,8 @@ export async function cashBook(ctx: Ctx, range: { from: string; to: string }) {
       LEFT JOIN payments p ON b.source_type IN ('payment', 'payment_reversal') AND p.id::text = b.source_id
       LEFT JOIN operators po ON po.id = p.operator_id
       LEFT JOIN operator_deposits d ON b.source_type IN ('deposit', 'deposit_reversal') AND d.id::text = b.source_id
-      LEFT JOIN operators dpo ON dpo.id = d.operator_id
+      LEFT JOIN deposit_settlements ds ON b.source_type IN ('deposit_refund', 'deposit_refund_undo') AND ds.id::text = b.source_id
+      LEFT JOIN operators dpo ON dpo.id = COALESCE(d.operator_id, ds.operator_id)
       LEFT JOIN expense_advances a ON b.source_type IN ('expense_advance', 'expense_advance_cancel') AND a.id::text = b.source_id
       LEFT JOIN expense_lines el ON b.source_type IN ('expense_change', 'expense_change_void') AND el.id::text = b.source_id
       LEFT JOIN expense_advances la ON la.id = el.advance_id

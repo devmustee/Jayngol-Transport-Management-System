@@ -225,6 +225,13 @@
       "when": 1794968951412,
       "tag": "0031_back_entry_windows",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1795130132612,
+      "tag": "0032_deposit_settlements",
+      "breakpoints": true
     }
   ]
 }

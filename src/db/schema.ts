@@ -43,7 +43,8 @@ export const returnReason = pgEnum("return_reason", [
   "other",
 ]);
 export const chargeType = pgEnum("charge_type", ["daily_balance", "penalty", "loan", "contribution"]);
-export const paymentMethod = pgEnum("payment_method", ["cash", "transfer", "pos"]);
+/** "deposit": paid out of money the operator left with the company, when their deposit is settled. */
+export const paymentMethod = pgEnum("payment_method", ["cash", "transfer", "pos", "deposit"]);
 /**
  * What a payment is for. A day's balance pays that one day; older payments
  * (before this was recorded) are "general" and pay the oldest days first.
@@ -1215,6 +1216,63 @@ export const operatorDepositReversals = pgTable("operator_deposit_reversals", {
   reason: text("reason").notNull(),
   reversedAt: timestamp("reversed_at", tz).notNull(),
 });
+
+/**
+ * An operator's held deposits settled when they stop working: part clears what
+ * they owe (a payment with method "deposit"), part is given back out of cash or
+ * the bank, and part may be kept with a reason. Undone only on the day it was saved.
+ */
+export const depositSettlements = pgTable(
+  "deposit_settlements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id")
+      .notNull()
+      .references(() => operators.id),
+    heldKobo: bigint("held_kobo", { mode: "number" }).notNull(),
+    clearedKobo: bigint("cleared_kobo", { mode: "number" }).notNull(),
+    givenBackKobo: bigint("given_back_kobo", { mode: "number" }).notNull(),
+    keptKobo: bigint("kept_kobo", { mode: "number" }).notNull(),
+    keptReason: text("kept_reason"),
+    /** The "Paid from deposit" receipt, when anything owed was cleared. */
+    paymentId: uuid("payment_id").references(() => payments.id),
+    /** Where the money given back came from: a person's cash, or the bank or owner. */
+    custodianId: uuid("custodian_id").references(() => users.id),
+    account: bankSide("account"),
+    reference: text("reference"),
+    settledBy: uuid("settled_by")
+      .notNull()
+      .references(() => users.id),
+    settledAt: timestamp("settled_at", tz).notNull(),
+    businessDate: date("business_date", { mode: "string" }).notNull(),
+    undoneBy: uuid("undone_by").references(() => users.id),
+    undoneAt: timestamp("undone_at", tz),
+  },
+  (t) => [
+    index("deposit_settlements_operator_idx").on(t.operatorId, t.settledAt),
+    check("deposit_settlement_adds_up", sql`held_kobo = cleared_kobo + given_back_kobo + kept_kobo`),
+    check(
+      "deposit_settlement_amounts",
+      sql`held_kobo > 0 AND cleared_kobo >= 0 AND given_back_kobo >= 0 AND kept_kobo >= 0`,
+    ),
+    check("deposit_settlement_kept_reason", sql`kept_kobo = 0 OR kept_reason IS NOT NULL`),
+  ],
+);
+
+/** The deposits one settlement covers. Removed when the settlement is undone, so each is settled once. */
+export const depositSettlementItems = pgTable(
+  "deposit_settlement_items",
+  {
+    settlementId: uuid("settlement_id")
+      .notNull()
+      .references(() => depositSettlements.id),
+    depositId: uuid("deposit_id")
+      .notNull()
+      .unique("deposit_settled_once")
+      .references(() => operatorDeposits.id),
+  },
+  (t) => [primaryKey({ columns: [t.settlementId, t.depositId] })],
+);
 
 /**
  * The bank's reference for a transfer or POS payment or deposit. One table, so a

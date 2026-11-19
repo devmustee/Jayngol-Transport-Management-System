@@ -17,6 +17,7 @@ import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
 import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
 import { recordDeposit, reverseDeposit } from "@/services/deposits";
+import { settleDeposit, undoSettlement } from "@/services/deposit-settlements";
 import { addNonCollectionDay, closeCash, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
 import { markAllRead, openNotification } from "@/services/notifications";
@@ -265,6 +266,20 @@ export async function recordDepositAction(_: FormState, data: FormData): Promise
 
 export async function reverseDepositAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => reverseDeposit(ctx, id, values(data)), "Deposit reversed.");
+}
+
+export async function settleDepositAction(_: FormState, data: FormData) {
+  return perform(
+    (ctx) => settleDeposit(ctx, { ...values(data), clear: data.getAll("clear") }),
+    (result) =>
+      result.givenBackKobo > 0
+        ? `Deposit settled. Give ${formatNaira(result.givenBackKobo)} back to the operator.`
+        : "Deposit settled.",
+  );
+}
+
+export async function undoSettlementAction(id: string, _: FormState) {
+  return perform((ctx) => undoSettlement(ctx, id), "Settlement undone. The deposit is held again.");
 }
 
 export async function closeCashAction(_: FormState, data: FormData) {

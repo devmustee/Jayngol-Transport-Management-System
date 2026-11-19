@@ -1,7 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { issueTricycleAction, markOperatorLeftAction, setOperatorPinAction } from "@/app/actions";
+import { issueTricycleAction, markOperatorLeftAction, setOperatorPinAction, undoSettlementAction } from "@/app/actions";
+import { DepositSettleForm } from "@/components/forms/deposit-settle-form";
 import { AwardJourneyCard } from "@/components/award-tracker";
 import { OperatorBalanceCard } from "@/components/balance-periods";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
@@ -19,6 +20,8 @@ import { lastJobDate } from "@/services/daily-job";
 import { getOperatorJourney } from "@/services/award-tracker";
 import { operatorBalancePeriods } from "@/services/balance-periods";
 import { operatorDepositsFor } from "@/services/deposits";
+import { depositPosition } from "@/services/deposit-settlements";
+import { moneySources } from "@/services/cash-book";
 import { activeLoanFor } from "@/services/loans";
 import { getOperator } from "@/services/operators";
 import { listInStockTricycles } from "@/services/tricycles";
@@ -61,9 +64,17 @@ export default async function OperatorPage({
   const inStock = canIssue ? await listInStockTricycles(ctx) : [];
   const journey = operator.status === "active" ? await getOperatorJourney(ctx, id) : null;
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [deposits, balancePeriods, loan] = seesMoney
-    ? await Promise.all([operatorDepositsFor(ctx, id), operatorBalancePeriods(ctx, id), activeLoanFor(ctx, id)])
-    : [null, null, null];
+  const [deposits, balancePeriods, loan, position] = seesMoney
+    ? await Promise.all([
+        operatorDepositsFor(ctx, id),
+        operatorBalancePeriods(ctx, id),
+        activeLoanFor(ctx, id),
+        depositPosition(ctx, id),
+      ])
+    : [null, null, null, null];
+  const settleNow = position && position.canSettle && position.heldKobo > 0 && !position.notYet;
+  const sources = settleNow ? await moneySources(ctx) : [];
+  const today = businessDate(ctx.clock());
 
   return (
     <>
@@ -175,13 +186,85 @@ export default async function OperatorPage({
                       {deposit.reversedAt ? (
                         <Badge tone="bad">Reversed</Badge>
                       ) : (
-                        <span className="shrink-0 font-semibold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                        <span className="flex shrink-0 items-center gap-2">
+                          {deposit.settlementId ? <Badge tone="plain">Settled</Badge> : null}
+                          <span className="font-semibold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
+                        </span>
                       )}
                     </Link>
                   </li>
                 ))}
               </ul>
             )}
+            {position && position.heldKobo > 0 && position.notYet && !working ? (
+              <p className="mt-3 text-sm text-muted">{position.notYet}</p>
+            ) : null}
+          </Card>
+        ) : null}
+
+        {settleNow ? (
+          <div id="deposit" className="scroll-mt-24">
+            <Card title="Settle deposit" subtitle="Clear what is owed from the deposit and give the rest back.">
+              <DepositSettleForm operatorId={operator.id} heldKobo={position.heldKobo} owed={position.owed} sources={sources} />
+            </Card>
+          </div>
+        ) : null}
+
+        {position && position.settlements.length > 0 ? (
+          <Card title="Deposit settlements">
+            <ul className="divide-y divide-line">
+              {position.settlements.map((s) => (
+                <li key={s.id} className="space-y-1 py-3 first:pt-0 last:pb-0">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-semibold">
+                      {formatDate(s.businessDate)} · {formatNaira(s.heldKobo)} held
+                    </span>
+                    {s.undoneAt ? (
+                      <Badge tone="bad">Undone</Badge>
+                    ) : s.keptKobo > 0 ? (
+                      <Badge tone="warning">Partly kept</Badge>
+                    ) : (
+                      <Badge tone="good">Settled</Badge>
+                    )}
+                  </div>
+                  <dl className="grid gap-x-4 text-sm sm:grid-cols-3">
+                    <div className="flex justify-between gap-2 sm:block">
+                      <dt className="text-muted">Cleared debts</dt>
+                      <dd className="tabular-nums">
+                        {formatNaira(s.clearedKobo)}
+                        {s.paymentId && s.receiptNumber ? (
+                          <Link href={`/payments/${s.paymentId}`} className="ml-1 text-gold-deep underline">
+                            {s.receiptNumber}
+                          </Link>
+                        ) : null}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2 sm:block">
+                      <dt className="text-muted">Given back</dt>
+                      <dd className="tabular-nums">
+                        {formatNaira(s.givenBackKobo)}
+                        {s.givenBackKobo > 0 ? (
+                          <span className="text-muted">
+                            {" "}from {s.custodianName ? `${s.custodianName}'s cash` : "the bank"}
+                            {s.reference ? ` · ${s.reference}` : ""}
+                          </span>
+                        ) : null}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2 sm:block">
+                      <dt className="text-muted">Kept</dt>
+                      <dd className="tabular-nums">{formatNaira(s.keptKobo)}</dd>
+                    </div>
+                  </dl>
+                  {s.keptReason ? <p className="text-sm text-muted">Kept because: {s.keptReason}</p> : null}
+                  {!s.undoneAt && s.businessDate === today && position.canSettle ? (
+                    <ActionForm action={undoSettlementAction.bind(null, s.id)} className="pt-1">
+                      <SubmitButton tone="plain">Undo settlement</SubmitButton>
+                    </ActionForm>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
           </Card>
         ) : null}
 

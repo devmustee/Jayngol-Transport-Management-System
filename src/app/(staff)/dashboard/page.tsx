@@ -1,3 +1,4 @@
+import { formatNaira } from "@/lib/money";
 import { ContributionTile } from "@/components/contribution-tile";
 import { businessDate } from "@/lib/clock";
 import { contributionSummary } from "@/services/contributions";
@@ -25,6 +26,8 @@ import { requirePage } from "@/lib/session";
 import { getAwardRace } from "@/services/award-tracker";
 import { fleetPeriod, fleetToday } from "@/services/balance-periods";
 import { financeOverview } from "@/services/finance";
+import { depositsToSettle } from "@/services/deposit-settlements";
+import Link from "next/link";
 import { inspectionToday } from "@/services/inspections";
 import { lowStock } from "@/services/store";
 import { dashboardCounts } from "@/services/tricycles";
@@ -36,7 +39,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("dashboard.view");
   const pulse = parsePulse((await searchParams).pulse);
   const seesMoney = can(ctx.actor.role, "finance.view");
-  const [counts, workshop, low, inspections, race, money, period, today, contributions] = await Promise.all([
+  const [counts, workshop, low, inspections, race, money, period, today, contributions, toSettle] = await Promise.all([
     dashboardCounts(ctx),
     listWorkshop(ctx),
     can(ctx.actor.role, "stock.view") ? lowStock(ctx) : null,
@@ -46,6 +49,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     seesMoney && pulse !== "today" ? fleetPeriod(ctx, pulse) : null,
     seesMoney && pulse === "today" ? fleetToday(ctx) : null,
     seesMoney ? contributionSummary(ctx) : null,
+    can(ctx.actor.role, "deposit.settle") ? depositsToSettle() : null,
   ]);
 
   const inspectionsLeft = inspections
@@ -90,6 +94,21 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           ) : null
         }
       />
+
+      {toSettle && toSettle.length > 0 ? (
+        <Link
+          href="/deposits"
+          className="mb-4 flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash px-4 py-3 text-sm text-ink hover:border-gold"
+        >
+          <span>
+            <span className="font-semibold">
+              {toSettle.length} deposit{toSettle.length === 1 ? "" : "s"} to settle
+            </span>{" "}
+            · {formatNaira(toSettle.reduce((sum, row) => sum + row.held, 0))} held for operators who left
+          </span>
+          <span className="shrink-0 font-semibold text-gold-deep">Settle</span>
+        </Link>
+      ) : null}
 
       {money ? <MoneySummary money={money} period={period} today={today} basePath="/dashboard" /> : null}
 

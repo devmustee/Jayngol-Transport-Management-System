@@ -2,6 +2,7 @@ import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
+  depositSettlementItems,
   bankMovements,
   cashMovements,
   operatorDepositReversals,
@@ -145,6 +146,11 @@ export async function reverseDeposit(ctx: Ctx, rawId: unknown, raw: unknown) {
       .from(operatorDepositReversals)
       .where(eq(operatorDepositReversals.depositId, id));
     if (already) throw new DomainError("This deposit has already been reversed.");
+    const [settled] = await tx
+      .select({ id: depositSettlementItems.settlementId })
+      .from(depositSettlementItems)
+      .where(eq(depositSettlementItems.depositId, id));
+    if (settled) throw new DomainError("This deposit has been settled. Undo the settlement first.");
 
     await tx.insert(operatorDepositReversals).values({
       depositId: id,
@@ -195,6 +201,7 @@ const depositRow = {
   operatorId: operatorDeposits.operatorId,
   operatorName: operators.name,
   reversedAt: operatorDepositReversals.reversedAt,
+  settlementId: depositSettlementItems.settlementId,
 };
 
 const depositRows = (exec: Executor) =>
@@ -203,11 +210,13 @@ const depositRows = (exec: Executor) =>
     .from(operatorDeposits)
     .innerJoin(operators, eq(operators.id, operatorDeposits.operatorId))
     .leftJoin(operatorDepositReversals, eq(operatorDepositReversals.depositId, operatorDeposits.id))
+    .leftJoin(depositSettlementItems, eq(depositSettlementItems.depositId, operatorDeposits.id))
     .$dynamic();
 
 const heldTotal = (operatorId?: string) => sql`
   SELECT COALESCE(SUM(d.amount_kobo), 0)::float8 AS held FROM operator_deposits d
   WHERE NOT EXISTS (SELECT 1 FROM operator_deposit_reversals r WHERE r.deposit_id = d.id)
+    AND NOT EXISTS (SELECT 1 FROM deposit_settlement_items i WHERE i.deposit_id = d.id)
     ${operatorId ? sql`AND d.operator_id = ${operatorId}` : sql``}
 `;
 

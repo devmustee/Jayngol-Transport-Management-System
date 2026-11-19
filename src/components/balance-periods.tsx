@@ -97,6 +97,11 @@ function TakingsTile({ label, money }: { label: string; money: MoneyReceived }) 
           </div>
         ))}
       </dl>
+      {money.byMethod.deposit > 0 ? (
+        <p className="mt-1.5 text-xs text-muted">
+          Includes {formatNaira(money.byMethod.deposit)} from deposits: no new money.
+        </p>
+      ) : null}
     </div>
   );
 }
