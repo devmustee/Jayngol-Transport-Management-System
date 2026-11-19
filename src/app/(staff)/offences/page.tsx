@@ -63,6 +63,7 @@ export default async function OffencesPage({
         <Card title="Fines owed" subtitle="Paid here, separately from the daily balance." className="mb-4">
           <FinesOwed
             canCollect={canCollect}
+            canWaive={canWaive}
             owing={owing.map((o) => ({
               operatorId: o.operatorId,
               name: o.name,

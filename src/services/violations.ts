@@ -3,6 +3,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
 import {
+  chargeVoids,
   charges,
   meetings,
   operators,
@@ -182,6 +183,29 @@ export async function rejectViolation(ctx: Ctx, rawId: unknown, raw: unknown) {
   });
 }
 
+/** Waives one confirmed offence inside the caller's transaction. Its fine stops being owed. */
+async function waiveOne(tx: Tx, ctx: Ctx, v: typeof violations.$inferSelect, reason: string) {
+  if (v.status !== "confirmed") throw new DomainError("Only a confirmed offence can be waived.");
+  if (v.chargeId) await voidCharge(tx, v.chargeId, { userId: ctx.actor.userId, at: ctx.clock() }, reason);
+  await tx
+    .update(violations)
+    .set({
+      status: "waived",
+      decidedBy: ctx.actor.userId,
+      decidedAt: ctx.clock(),
+      decisionReason: reason,
+    })
+    .where(eq(violations.id, v.id));
+  await auditFrom(ctx, tx, {
+    action: "violation.waive",
+    entityType: "operator",
+    entityId: v.operatorId,
+    after: { rule: v.ruleCode, amountKobo: v.amountKobo },
+    reason,
+  });
+  await tellOffenceDecided(tx, ctx, decided(v), "waived", reason);
+}
+
 export async function waiveViolation(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "violation.waive");
   const id = parseInput(idField("offence"), rawId);
@@ -190,27 +214,72 @@ export async function waiveViolation(ctx: Ctx, rawId: unknown, raw: unknown) {
     const v = await lockViolation(tx, id);
     if (v.status !== "confirmed") throw new DomainError("Only a confirmed offence can be waived.");
     await tx.select({ id: operators.id }).from(operators).where(eq(operators.id, v.operatorId)).for("update");
-    if (v.chargeId) {
-      await voidCharge(tx, v.chargeId, { userId: ctx.actor.userId, at: ctx.clock() }, reason);
-      await applyCredit(tx, v.operatorId);
+    await waiveOne(tx, ctx, v, reason);
+    // Anything already paid towards the fine goes to the daily balance instead.
+    if (v.chargeId) await applyCredit(tx, v.operatorId);
+  });
+}
+
+const waiveFinesSchema = z.object({
+  chargeIds: z
+    .array(idField("fine"))
+    .min(1, "Tick at least one fine to waive")
+    .max(500, "Waive at most 500 fines at a time")
+    .transform((ids) => [...new Set(ids)].sort()),
+  reason: requiredText("Reason", 500),
+});
+
+/**
+ * Waives several fines at once, from the Fines owed list: all of them or none.
+ * Money already paid towards a waived fine goes to the operator's daily balance.
+ */
+export async function waiveFines(ctx: Ctx, raw: unknown) {
+  requirePermission(ctx, "violation.waive");
+  const { chargeIds, reason } = parseInput(waiveFinesSchema, raw);
+  return db.transaction(async (tx) => {
+    const found = await tx
+      .select({ id: charges.id, operatorId: charges.operatorId, type: charges.type, amountKobo: charges.amountKobo })
+      .from(charges)
+      .where(inArray(charges.id, chargeIds));
+    if (found.length !== chargeIds.length || found.some((c) => c.type !== "penalty")) {
+      throw new DomainError("Some of these fines were not found. Refresh the page and try again.");
     }
-    await tx
-      .update(violations)
-      .set({
-        status: "waived",
-        decidedBy: ctx.actor.userId,
-        decidedAt: ctx.clock(),
-        decisionReason: reason,
-      })
-      .where(eq(violations.id, id));
-    await auditFrom(ctx, tx, {
-      action: "violation.waive",
-      entityType: "operator",
-      entityId: v.operatorId,
-      after: { rule: v.ruleCode, amountKobo: v.amountKobo },
-      reason,
-    });
-    await tellOffenceDecided(tx, ctx, decided(v), "waived", reason);
+    const voided = await tx
+      .select({ id: chargeVoids.chargeId })
+      .from(chargeVoids)
+      .where(inArray(chargeVoids.chargeId, chargeIds));
+    if (voided.length > 0) throw new DomainError("Some of these fines were already waived. Refresh the page and try again.");
+
+    // Operators in a fixed order, so two waivers at once cannot deadlock.
+    const operatorIds = [...new Set(found.map((c) => c.operatorId))].sort();
+    for (const operatorId of operatorIds) {
+      await tx.select({ id: operators.id }).from(operators).where(eq(operators.id, operatorId)).for("update");
+    }
+    const linked = await tx
+      .select()
+      .from(violations)
+      .where(inArray(violations.chargeId, chargeIds))
+      .orderBy(asc(violations.id))
+      .for("update");
+    for (const v of linked) await waiveOne(tx, ctx, v, reason);
+    // Fines with no offence behind them are cancelled directly.
+    const withOffence = new Set(linked.map((v) => v.chargeId));
+    for (const charge of found.filter((c) => !withOffence.has(c.id))) {
+      await voidCharge(tx, charge.id, { userId: ctx.actor.userId, at: ctx.clock() }, reason);
+      await auditFrom(ctx, tx, {
+        action: "fine.waive",
+        entityType: "operator",
+        entityId: charge.operatorId,
+        after: { chargeId: charge.id, amountKobo: charge.amountKobo },
+        reason,
+      });
+    }
+    for (const operatorId of operatorIds) await applyCredit(tx, operatorId);
+    return {
+      fines: found.length,
+      operators: operatorIds.length,
+      totalKobo: found.reduce((sum, c) => sum + c.amountKobo, 0),
+    };
   });
 }
 

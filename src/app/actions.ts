@@ -62,7 +62,7 @@ import {
   recordAttendance,
   scheduleMeeting,
 } from "@/services/meetings";
-import { confirmViolation, raiseLateWork, rejectViolation, waiveViolation } from "@/services/violations";
+import { confirmViolation, raiseLateWork, rejectViolation, waiveFines, waiveViolation } from "@/services/violations";
 import { createOperator, markOperatorLeft, updateOperator } from "@/services/operators";
 import { createTricycle, retireTricycle, unretireTricycle, updateTricycle } from "@/services/tricycles";
 import {
@@ -281,6 +281,19 @@ export async function rejectViolationAction(id: string, _: FormState, data: Form
 
 export async function waiveViolationAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => waiveViolation(ctx, id, values(data)), "Fine waived.");
+}
+
+/** The ticked fines on the Fines owed list, waived together. */
+export async function waiveFinesAction(_: FormState, data: FormData): Promise<FormState> {
+  let message = "";
+  const state = await perform(async (ctx) => {
+    const done = await waiveFines(ctx, { chargeIds: data.getAll("chargeId").map(String), reason: data.get("waiveReason") });
+    message = `Waived ${done.fines} fine${done.fines === 1 ? "" : "s"} (${formatNaira(done.totalKobo)}) for ${done.operators} operator${done.operators === 1 ? "" : "s"}.`;
+  }, "");
+  if (state.ok) return { ...state, message };
+  // The reason box has its own name, apart from the reason boxes on each offence.
+  const { reason, ...rest } = state.fieldErrors ?? {};
+  return reason ? { ...state, fieldErrors: { ...rest, waiveReason: reason } } : state;
 }
 
 /** The ticked days and any part amounts, as one waiver. */

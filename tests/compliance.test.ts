@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { db } from "@/db";
-import { assignments, charges, inspections, operators, violations } from "@/db/schema";
+import { assignments, chargeVoids, charges, inspections, operators, violations } from "@/db/schema";
 import { DomainError, ForbiddenError } from "@/lib/errors";
 import { issueTricycle, returnTricycle } from "@/services/assignments";
 import type { Ctx } from "@/services/context";
@@ -21,8 +21,10 @@ import {
   getMyCompliance,
   raiseLateWork,
   rejectViolation,
+  waiveFines,
   waiveViolation,
 } from "@/services/violations";
+import { operatorsOwingFines } from "@/services/payments";
 import { reportFault } from "@/services/workshop";
 import { makeOperator, makeTricycle, makeUser, noticesFor, TODAY } from "./helpers";
 
@@ -555,5 +557,76 @@ describe("today list and coverage", () => {
     expect(report.bySupervisor.some((s) => s.name === supervisor.actor.name && s.total >= 1)).toBe(true);
     const seen = await inspectionCoverage(on(supervisor, TODAY), { date });
     expect(seen.bySupervisor.some((s) => s.name === supervisor.actor.name)).toBe(true);
+  });
+});
+
+describe("waiving fines from the Fines owed list", () => {
+  async function confirmedFine() {
+    const { tricycle, operator } = await held();
+    await inspect(supervisor, tricycle.id, "2026-11-09", { stickerIntact: false });
+    const [v] = await db.select().from(violations).where(eq(violations.operatorId, operator.id));
+    await confirmViolation(assistant, v!.id);
+    const [after] = await db.select().from(violations).where(eq(violations.id, v!.id));
+    return { operatorId: operator.id, violationId: v!.id, chargeId: after!.chargeId! };
+  }
+  async function plainFine(amountKobo = 300_000) {
+    const operator = await makeOperator(manager);
+    const [row] = await db
+      .insert(charges)
+      .values({ type: "penalty", operatorId: operator.id, amountKobo, businessDate: "2026-11-19" })
+      .returning({ id: charges.id });
+    return { operatorId: operator.id, chargeId: row!.id };
+  }
+  const owed = async (operatorId: string) =>
+    (await operatorsOwingFines(manager)).find((o) => o.operatorId === operatorId)?.owedKobo ?? 0;
+
+  it("waives several fines for several operators in one go", async () => {
+    const a = await confirmedFine();
+    const b = await plainFine();
+    const extra = await db
+      .insert(charges)
+      .values({ type: "penalty", operatorId: b.operatorId, amountKobo: 300_000, businessDate: "2026-11-19" })
+      .returning({ id: charges.id });
+    expect(await owed(b.operatorId)).toBe(600_000);
+
+    const done = await waiveFines(manager, {
+      chargeIds: [a.chargeId, b.chargeId, extra[0]!.id],
+      reason: "Raised for back-entry days",
+    });
+    expect(done).toMatchObject({ fines: 3, operators: 2 });
+    expect(await owed(a.operatorId)).toBe(0);
+    expect(await owed(b.operatorId)).toBe(0);
+    const [v] = await db.select().from(violations).where(eq(violations.id, a.violationId));
+    expect(v).toMatchObject({ status: "waived", decisionReason: "Raised for back-entry days", decidedBy: manager.actor.userId });
+  });
+
+  it("waives all or none", async () => {
+    const a = await plainFine();
+    const b = await plainFine();
+    await waiveFines(manager, { chargeIds: [b.chargeId], reason: "Mistake" });
+    await expect(waiveFines(manager, { chargeIds: [a.chargeId, b.chargeId], reason: "Again" })).rejects.toThrow(/already waived/);
+    expect(await owed(a.operatorId)).toBe(300_000);
+    const voids = await db.select().from(chargeVoids).where(eq(chargeVoids.chargeId, a.chargeId));
+    expect(voids).toHaveLength(0);
+  });
+
+  it("refuses anything that is not a fine, an empty list, and a missing reason", async () => {
+    const a = await plainFine();
+    const operator = await makeOperator(manager);
+    const [balance] = await db
+      .insert(charges)
+      .values({ type: "daily_balance", operatorId: operator.id, amountKobo: 1_000_000, businessDate: "2026-11-19" })
+      .returning({ id: charges.id });
+    await expect(waiveFines(manager, { chargeIds: [a.chargeId, balance!.id], reason: "x" })).rejects.toThrow(/not found/);
+    await expect(waiveFines(manager, { chargeIds: [], reason: "x" })).rejects.toBeInstanceOf(DomainError);
+    await expect(waiveFines(manager, { chargeIds: [a.chargeId], reason: "" })).rejects.toBeInstanceOf(DomainError);
+    expect(await owed(a.operatorId)).toBe(300_000);
+  });
+
+  it("lets only the Manager waive", async () => {
+    const a = await plainFine();
+    for (const who of [assistant, supervisor, owner]) {
+      await expect(waiveFines(who, { chargeIds: [a.chargeId], reason: "x" })).rejects.toBeInstanceOf(ForbiddenError);
+    }
   });
 });
