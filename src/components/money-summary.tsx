@@ -10,6 +10,7 @@ import {
   Sparkles,
   ArrowDownRight,
   ArrowUpRight,
+  PiggyBank,
   Wallet,
 } from "lucide-react";
 import { CountUp } from "@/components/count-up";
@@ -207,13 +208,22 @@ export function MoneySummary({
             })}
           </nav>
           {money.canCollect ? (
-            <Link
-              href="/payments/new"
-              className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gold px-4 text-sm font-semibold text-ink transition-colors duration-150 hover:bg-gold-light active:scale-[0.98]"
-            >
-              <Wallet size={18} aria-hidden />
-              <span>Take payment</span>
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href="/payments/new?for=contribution"
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-gold/60 px-4 text-sm font-semibold text-gold-light transition-colors duration-150 hover:bg-paper/10 active:scale-[0.98]"
+              >
+                <PiggyBank size={18} aria-hidden />
+                <span>Take contribution</span>
+              </Link>
+              <Link
+                href="/payments/new"
+                className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-gold px-4 text-sm font-semibold text-ink transition-colors duration-150 hover:bg-gold-light active:scale-[0.98]"
+              >
+                <Wallet size={18} aria-hidden />
+                <span>Take payment</span>
+              </Link>
+            </div>
           ) : null}
         </div>
 

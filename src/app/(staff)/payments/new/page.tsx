@@ -16,7 +16,9 @@ import { listOperators } from "@/services/operators";
 import { finesOwed, paymentContext, paymentDayStatus } from "@/services/payments";
 import { RULE_NAMES } from "@/services/violations";
 
-export const metadata: Metadata = { title: "Take payment" };
+export async function generateMetadata({ searchParams }: { searchParams: Promise<Record<string, unknown>> }): Promise<Metadata> {
+  return { title: queryValue((await searchParams).for) === "contribution" ? "Take contribution" : "Take payment" };
+}
 
 const timeFormat = new Intl.DateTimeFormat("en-GB", { hour: "numeric", minute: "2-digit", timeZone: "Africa/Lagos" });
 const formatTime = (at: Date) => timeFormat.format(at);
@@ -368,8 +370,13 @@ export default async function TakePaymentPage({
   const results = q?.trim() ? (await listOperators(ctx, { q })).slice(0, 20) : [];
   return (
     <>
-      <PageHeader title="Take payment" back={{ href: "/money", label: "Money" }} />
+      <PageHeader
+        title={forContribution ? "Take contribution" : "Take payment"}
+        subtitle={forContribution ? "Find the operator paying their weekly contribution" : undefined}
+        back={forContribution ? { href: "/contributions", label: "Contributions" } : { href: "/money", label: "Money" }}
+      />
       <form className="mb-4 flex gap-2" role="search">
+        {forContribution ? <input type="hidden" name="for" value="contribution" /> : null}
         <input
           name="q"
           defaultValue={q}
@@ -387,7 +394,10 @@ export default async function TakePaymentPage({
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
             {results.map((o) => (
               <li key={o.id}>
-                <Link href={`/payments/new?operator=${o.id}`} className="block p-3 hover:bg-gold-wash">
+                <Link
+                  href={`/payments/new?operator=${o.id}${forContribution ? "&for=contribution" : ""}`}
+                  className="block p-3 hover:bg-gold-wash"
+                >
                   <div className="font-bold">{o.name}</div>
                   <div className="text-sm text-muted">
                     {o.tricycleCode ?? "No tricycle"} · {formatPhone(o.phone)}

@@ -62,7 +62,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   return (
     <div className="min-h-dvh md:flex bg-paper">
       {/* Desktop Executive Sidebar */}
-      <aside className="print:hidden sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-ink p-5 md:flex">
+      <aside className="print:hidden sticky top-0 hidden h-dvh w-64 shrink-0 flex-col bg-ink p-5 low:py-3 md:flex">
         <Link href="/dashboard" className="flex items-center gap-3 group">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -77,14 +77,14 @@ export default async function StaffLayout({ children }: { children: React.ReactN
           </div>
         </Link>
 
-        <div className="mt-5">
+        <div className="mt-5 low:mt-3">
           <NotificationBell href="/notifications" initial={bell} label />
         </div>
 
         <SideNav items={items} />
 
         {/* User Profile Pill at Sidebar Bottom */}
-        <div className="mt-auto pt-4 border-t border-paper/10">
+        <div className="mt-auto pt-4 low:pt-2 border-t border-paper/10">
           <Link
             href="/account"
             className="flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-paper/5"
@@ -103,7 +103,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       {/* Main Workspace Area */}
       <div className="min-w-0 flex-1 flex flex-col">
         {/* Mobile Header */}
-        <header className="sticky top-0 z-20 flex min-h-16 items-center justify-between bg-ink px-4 py-2 md:hidden print:hidden">
+        <header className="sticky top-0 z-20 short:static flex min-h-16 short:min-h-12 items-center justify-between bg-ink px-4 py-2 md:hidden print:hidden">
           <Link href="/dashboard" className="flex items-center gap-2.5">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/jayngol-mark.svg" alt="Jayngol Logo" width={34} height={34} />
@@ -127,7 +127,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
 
         {urgent ? <UrgentBanner notice={urgent} more={Math.max(0, bell.critical - 1)} /> : null}
 
-        <main className="mx-auto w-full max-w-6xl flex-1 p-4 sm:p-6 md:p-8 pb-28 md:pb-12">
+        {/* Below md the bottom bar covers the last 65 px (52 px on a phone on its side), so the page ends well above it at every width. */}
+        <main className="mx-auto w-full max-w-6xl flex-1 px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+6rem)] sm:px-6 sm:pt-6 md:p-8 md:pb-12">
           {children}
         </main>
       </div>

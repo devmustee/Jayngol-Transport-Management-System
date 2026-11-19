@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Award,
   BarChart3,
   Bike,
   CalendarRange,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   ClipboardCheck,
   ClipboardList,
@@ -74,6 +75,20 @@ function useIsActive(items: NavItem[]) {
 
 export function SideNav({ items }: { items: NavItem[] }) {
   const isActive = useIsActive(items);
+  const listRef = useRef<HTMLElement>(null);
+  const [moreBelow, setMoreBelow] = useState(false);
+  const measure = useCallback(() => {
+    const el = listRef.current;
+    if (el) setMoreBelow(el.scrollTop + el.clientHeight < el.scrollHeight - 4);
+  }, []);
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [measure]);
 
   // Categorize items for desktop sidebar
   const primaryItems = items.filter(
@@ -82,8 +97,9 @@ export function SideNav({ items }: { items: NavItem[] }) {
   const operationItems = items.filter(
     (i) => ["workshop", "store", "offences", "meetings"].includes(i.icon)
   );
+  // Account is left out: the name at the foot of the menu opens it.
   const systemItems = items.filter(
-    (i) => !primaryItems.includes(i) && !operationItems.includes(i)
+    (i) => !primaryItems.includes(i) && !operationItems.includes(i) && i.icon !== "account"
   );
 
   const renderGroup = (groupItems: NavItem[], title?: string) => {
@@ -91,7 +107,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
     return (
       <div className="space-y-1">
         {title ? (
-          <div className="px-3 pt-5 pb-1 text-xs text-paper/40">
+          <div className="px-3 pt-5 low:pt-3 pb-1 text-xs text-paper/40">
             {title}
           </div>
         ) : null}
@@ -103,7 +119,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm transition-colors duration-150 ${
+              className={`flex min-h-11 low:min-h-9 items-center gap-3 rounded-xl px-3 text-sm transition-colors duration-150 ${
                 active ? "bg-paper/10 font-semibold text-paper" : "text-paper/65 hover:bg-paper/5 hover:text-paper"
               }`}
             >
@@ -121,11 +137,27 @@ export function SideNav({ items }: { items: NavItem[] }) {
   };
 
   return (
-    <nav className="mt-6 flex-1 space-y-2 overflow-y-auto pr-1" aria-label="Main">
-      {renderGroup(primaryItems)}
-      {renderGroup(operationItems, "Operations")}
-      {renderGroup(systemItems, "Management")}
-    </nav>
+    <div className="relative mt-6 low:mt-3 flex min-h-0 flex-1 flex-col">
+      <nav
+        ref={listRef}
+        onScroll={measure}
+        className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-color:rgb(251_247_236/0.25)_transparent] [scrollbar-width:thin] low:space-y-1"
+        aria-label="Main"
+      >
+        {renderGroup(primaryItems)}
+        {renderGroup(operationItems, "Operations")}
+        {renderGroup(systemItems, "Management")}
+      </nav>
+      {/* Shows there is more below while the list is not scrolled to its end. */}
+      <div
+        aria-hidden
+        className={`pointer-events-none absolute inset-x-0 bottom-0 flex h-10 items-end justify-center bg-gradient-to-t from-ink to-transparent transition-opacity duration-150 ${
+          moreBelow ? "opacity-100" : "opacity-0"
+        }`}
+      >
+        <ChevronDown size={16} className="mb-0.5 text-paper/50" />
+      </div>
+    </div>
   );
 }
 
@@ -171,7 +203,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
+              className={`relative flex min-h-16 short:min-h-[52px] flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
                 active ? "text-paper" : "text-paper/55 hover:text-paper"
               }`}
             >
@@ -182,7 +214,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
                 />
               ) : null}
               <NavIcon icon={Icon} size={22} className={active ? "text-gold-light" : "text-paper/50"} />
-              <span>{item.label}</span>
+              <span className="short:sr-only">{item.label}</span>
             </Link>
           );
         })}
@@ -193,7 +225,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
           onClick={() => setMoreOpen(true)}
           aria-expanded={moreOpen}
           aria-label="More navigation options"
-          className={`relative flex min-h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
+          className={`relative flex min-h-16 short:min-h-[52px] flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 active:scale-95 ${
             isAnySecondaryActive || moreOpen ? "text-paper" : "text-paper/55 hover:text-paper"
           }`}
         >
@@ -204,7 +236,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
             />
           ) : null}
           <Menu size={22} aria-hidden className={isAnySecondaryActive ? "text-gold-light" : "text-paper/50"} />
-          <span>More</span>
+          <span className="short:sr-only">More</span>
         </button>
       </nav>
 

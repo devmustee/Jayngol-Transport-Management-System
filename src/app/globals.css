@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+/* Screen height: "low" for short laptops and tablets on their side, "short" for phones on their side. */
+@custom-variant low (@media (max-height: 760px));
+@custom-variant short (@media (max-height: 500px));
+
 @theme {
   --color-ink: #1a150c;
   --color-ink-soft: #2c2415;
