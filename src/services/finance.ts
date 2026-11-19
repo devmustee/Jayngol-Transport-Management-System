@@ -338,12 +338,18 @@ export async function removeNonCollectionDay(ctx: Ctx, date: string) {
 
 /* ---------- Dashboard ---------- */
 
+/** Earlier than any business date, for "every day up to". */
+const OLDEST = "2000-01-01";
+
 export async function financeOverview(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
-  const [collections, arrears, toConfirm, alerts, lastRun, trail, advances, awardsWaiting, givenOut, loansOwed] = await Promise.all([
+  const yesterday = addDays(today, -1);
+  const [collections, arrears, older, toConfirm, alerts, lastRun, trail, advances, awardsWaiting, givenOut, loansOwed] = await Promise.all([
     collectionsFor(ctx, today),
     listArrears(ctx),
+    // Older debts are the days before today; today's unpaid balances are today's Remaining.
+    listArrears(ctx, { from: OLDEST, to: yesterday }),
     db.select({ value: count() }).from(violations).where(eq(violations.status, "proposed")),
     db.select({ value: count() }).from(dismissals).where(eq(dismissals.status, "flagged")),
     lastJobDate(),
@@ -353,13 +359,16 @@ export async function financeOverview(ctx: Ctx) {
     givenOutOn(db, today),
     loansToCollect(db),
   ]);
-  const working = arrears.filter((a) => a.status === "active");
   return {
     today,
     ...collections,
     ...givenOut,
-    overdueOperators: working.length,
-    overdueOwedKobo: working.reduce((sum, a) => sum + a.owed, 0),
+    // Everyone who owes, including operators who have left, so Home adds up with the week and month.
+    overdueOperators: older.length,
+    overdueOwedKobo: older.reduce((sum, a) => sum + a.owed, 0),
+    overdueFrom: older.reduce<string | null>((first, a) => (first === null || a.oldest < first ? a.oldest : first), null),
+    yesterday,
+    owedTotalKobo: arrears.reduce((sum, a) => sum + a.owed, 0),
     ...loansOwed,
     canCollect: can(ctx.actor.role, "payment.record"),
     toConfirm: toConfirm[0]?.value ?? 0,

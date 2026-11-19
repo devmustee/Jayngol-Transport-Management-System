@@ -225,9 +225,14 @@ export function MoneySummary({
             balances={period.balances}
             owedHref={`/arrears?from=${period.period.soFar.from}&to=${period.period.soFar.to}`}
             trend={trendOf(period)}
+            remainingSplit={splitOf(period)}
             countId={`${basePath}:${period.period.kind}`}
           >
-            <span>All money in: {formatNaira(period.received.totalKobo)}{period.received.totalKobo !== period.balances.paidKobo ? ", including old debts, fines and loans" : ""}</span>
+            <span>
+              All money in: {formatNaira(period.received.totalKobo)}
+              {period.received.totalKobo !== period.balances.paidKobo ? ", including old debts, fines and loans" : ""}
+              {period.recordsStart ? `. Records start ${formatShortDate(period.recordsStart)}` : ""}
+            </span>
             <LoansLink money={money} />
           </Pulse>
         ) : today ? (
@@ -248,10 +253,13 @@ export function MoneySummary({
                   ? ", including old debts, fines and loans"
                   : ""}
             </span>
-            {money.overdueOperators > 0 ? (
-              <FooterLink href="/arrears">
-                Older debts: {formatNaira(money.overdueOwedKobo)} from {money.overdueOperators} operator{money.overdueOperators === 1 ? "" : "s"}
+            {money.overdueOperators > 0 && money.overdueFrom ? (
+              <FooterLink href={`/arrears?from=${money.overdueFrom}&to=${money.yesterday}`}>
+                Older debts, before today: {formatNaira(money.overdueOwedKobo)} from {money.overdueOperators} operator{money.overdueOperators === 1 ? "" : "s"}
               </FooterLink>
+            ) : null}
+            {money.owedTotalKobo > 0 ? (
+              <FooterLink href="/arrears">Owed in total: {formatNaira(money.owedTotalKobo)}</FooterLink>
             ) : null}
             <LoansLink money={money} />
           </Pulse>
@@ -312,6 +320,7 @@ function Pulse({
   owedHref,
   trend = null,
   waiting = null,
+  remainingSplit = null,
   countId,
   children,
 }: {
@@ -324,6 +333,8 @@ function Pulse({
   trend?: Trend | null;
   /** Shown instead of the figures when nothing has been charged yet. */
   waiting?: string | null;
+  /** Where the remaining comes from, for a week or month. */
+  remainingSplit?: string | null;
   countId: string;
   /** The quiet footer: all money in, older debts, loans. */
   children?: React.ReactNode;
@@ -375,6 +386,9 @@ function Pulse({
                   </Link>
                 ) : null}
               </dd>
+              {remainingSplit && balances.owedKobo > 0 ? (
+                <dd className="mt-0.5 text-xs text-paper/60">{remainingSplit}</dd>
+              ) : null}
             </div>
           </dl>
         </>
@@ -390,6 +404,13 @@ function Pulse({
 }
 
 type Trend = { kobo: number; text: string };
+
+/** "₦315,000 from today, ₦347,900 from earlier days", so today and older debts visibly add up. */
+export function splitOf({ balances, todayOwedKobo }: FleetPeriod): string | null {
+  const earlier = balances.owedKobo - todayOwedKobo;
+  if (todayOwedKobo <= 0 || earlier <= 0) return null;
+  return `${formatNaira(todayOwedKobo)} from today, ${formatNaira(earlier)} from earlier days`;
+}
 
 /** The comparison with the same point last week or month, with its direction for the arrow. */
 function trendOf(data: FleetPeriod): Trend | null {

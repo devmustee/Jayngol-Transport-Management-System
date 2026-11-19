@@ -134,9 +134,31 @@ export async function moneyReceived(
 export type FleetPeriod = {
   period: Period;
   balances: BalanceTotals;
-  /** The same point in the period before, for comparison. */
+  /** The same point in the period before, for comparison. Nothing due when that was before records began. */
   previous: BalanceTotals;
   received: MoneyReceived;
+  /** Of what is still owed for the period, the part from today's balances. */
+  todayOwedKobo: number;
+  /** Set when records began inside this period, so it is counted from that day. */
+  recordsStart: string | null;
+};
+
+/** The first day any daily balance was charged: the day records began. */
+export async function recordsStart(exec: Executor): Promise<string | null> {
+  const [row] = (await exec.execute(sql`
+    SELECT MIN(c.business_date)::text AS first FROM valid_charges c WHERE c.type = 'daily_balance'
+  `)) as unknown as { first: string | null }[];
+  return row?.first ?? null;
+}
+
+const NOTHING: BalanceTotals = {
+  dueKobo: 0,
+  waivedKobo: 0,
+  paidKobo: 0,
+  owedKobo: 0,
+  daysCharged: 0,
+  daysPaidInFull: 0,
+  oldestUnpaid: null,
 };
 
 export type FleetDay = {
@@ -154,16 +176,32 @@ export async function fleetToday(ctx: Ctx): Promise<FleetDay> {
   return { date, balances, received };
 }
 
+/**
+ * A period as far as records go. Records that began inside it count from that
+ * day, so the month does not claim days with no records; and comparing with a
+ * period before records began, or only part of one, would mislead.
+ */
+export function countFrom(whole: Period, first: string | null, today: string) {
+  const late = first !== null && first > whole.soFar.from && first <= today ? first : null;
+  return {
+    period: late ? { ...whole, soFar: { from: late, to: today } } : whole,
+    late,
+    comparable: first !== null && first <= whole.previous.from,
+  };
+}
+
 /** Whole-fleet figures for this week or month so far. */
 export async function fleetPeriod(ctx: Ctx, kind: PeriodKind): Promise<FleetPeriod> {
   requirePermission(ctx, "finance.view");
-  const period = periodOf(kind, businessDate(ctx.clock()));
-  const [balances, previous, received] = await Promise.all([
+  const today = businessDate(ctx.clock());
+  const { period, late, comparable } = countFrom(periodOf(kind, today), await recordsStart(db), today);
+  const [balances, previous, received, todays] = await Promise.all([
     balanceTotals(db, period.soFar),
-    balanceTotals(db, period.previous),
+    comparable ? balanceTotals(db, period.previous) : Promise.resolve(NOTHING),
     moneyReceived(db, period.soFar),
+    balanceTotals(db, { from: today, to: today }),
   ]);
-  return { period, balances, previous, received };
+  return { period, balances, previous, received, todayOwedKobo: todays.owedKobo, recordsStart: late };
 }
 
 export type StillToCome = { days: number; kobo: number };

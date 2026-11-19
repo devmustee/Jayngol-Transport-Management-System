@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { charges } from "@/db/schema";
+import { addDays } from "@/lib/clock";
 import { koboToInput, previewPayment } from "@/lib/payment-preview";
 import type { Ctx } from "@/services/context";
 import { financeOverview, listArrears } from "@/services/finance";
@@ -162,14 +163,28 @@ describe("taking unpaid balances and loan repayments", () => {
     expect((await loansToCollect()).loansOwedKobo).toBe(outstandingKobo);
   });
 
-  it("counts only working operators in the pulse, and their total matches the list", async () => {
+  it("counts everyone's older debts before today, so Home adds up with the week and month", async () => {
     const o = await owingOperator();
     await db.execute(sql`UPDATE operators SET status = 'left' WHERE id = ${o.operatorId}`);
-    const [money, arrears] = await Promise.all([financeOverview(manager), listArrears(manager)]);
-    const working = arrears.filter((row) => row.status === "active");
-    expect(money.overdueOperators).toBe(working.length);
-    expect(money.overdueOwedKobo).toBe(working.reduce((sum, row) => sum + row.owed, 0));
-    expect(arrears.find((row) => row.id === o.operatorId)?.status).toBe("left");
+    const money = await financeOverview(manager);
+    const today = money.today;
+    const yesterday = addDays(today, -1);
+    const [before, all] = await Promise.all([
+      listArrears(manager, { from: "2000-01-01", to: yesterday }),
+      listArrears(manager),
+    ]);
+    expect(money.overdueOperators).toBe(before.length);
+    expect(money.overdueOwedKobo).toBe(before.reduce((sum, row) => sum + row.owed, 0));
+    expect(before.find((row) => row.id === o.operatorId)?.status).toBe("left");
+    expect(money.owedTotalKobo).toBe(all.reduce((sum, row) => sum + row.owed, 0));
+    expect(money.yesterday).toBe(yesterday);
+
+    // Today's unpaid balance is today's Remaining, never an older debt.
+    const fresh = await makeOperator(manager);
+    await db.insert(charges).values({ type: "daily_balance", operatorId: fresh.id, amountKobo: 700_000, businessDate: today });
+    const after = await financeOverview(manager);
+    expect(after.overdueOwedKobo).toBe(money.overdueOwedKobo);
+    expect(after.owedTotalKobo).toBe(money.owedTotalKobo + 700_000);
   });
 
   it("writes amounts the way staff type them", () => {

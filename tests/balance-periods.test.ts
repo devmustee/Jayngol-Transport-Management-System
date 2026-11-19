@@ -8,6 +8,7 @@ import { ForbiddenError } from "@/lib/errors";
 import { monthEnd, parsePulse, parseRange, periodOf, weekStart } from "@/lib/periods";
 import { changeTricycleBalance, issueTricycle } from "@/services/assignments";
 import {
+  countFrom,
   balanceStillToCome,
   balanceTotals,
   collectionsByCashier,
@@ -55,6 +56,24 @@ describe("week and month boundaries", () => {
     // 31 March cannot compare with 31 February, so it stops at the end of February.
     expect(periodOf("month", "2028-03-31").previous).toEqual({ from: "2028-02-01", to: "2028-02-29" });
     expect(periodOf("month", "2028-03-31").full).toEqual({ from: "2028-03-01", to: "2028-03-31" });
+  });
+
+  it("counts a period from the day records began, and compares only with a whole earlier period", () => {
+    // Records began on Monday 16 Nov 2026; today is Thursday 19 Nov.
+    const month = countFrom(periodOf("month", "2026-11-19"), "2026-11-16", "2026-11-19");
+    expect(month).toMatchObject({ late: "2026-11-16", comparable: false });
+    expect(month.period.soFar).toEqual({ from: "2026-11-16", to: "2026-11-19" });
+    expect(month.period.full).toEqual({ from: "2026-11-01", to: "2026-11-30" });
+    const week = countFrom(periodOf("week", "2026-11-19"), "2026-11-16", "2026-11-19");
+    expect(week).toMatchObject({ late: null, comparable: false });
+    expect(week.period.soFar).toEqual({ from: "2026-11-16", to: "2026-11-19" });
+    // The next week compares with this one.
+    expect(countFrom(periodOf("week", "2026-11-25"), "2026-11-16", "2026-11-25")).toMatchObject({ late: null, comparable: true });
+    // December compares with November only once a whole November is on record; here it is not.
+    expect(countFrom(periodOf("month", "2026-12-03"), "2026-11-16", "2026-12-03").comparable).toBe(false);
+    expect(countFrom(periodOf("month", "2027-01-03"), "2026-11-16", "2027-01-03").comparable).toBe(true);
+    // No records at all.
+    expect(countFrom(periodOf("week", "2026-11-19"), null, "2026-11-19")).toMatchObject({ late: null, comparable: false });
   });
 
   it("ignores date ranges from the page address that are not real", () => {
@@ -229,6 +248,14 @@ describe("weekly and monthly balances", () => {
     expect(fleet.balances.dueKobo).toBe(due);
     expect(fleet.balances.paidKobo).toBe(paid);
     expect(charged.map((row) => row.id)).toEqual(expect.arrayContaining([a, b, c, d]));
+  });
+
+  it("splits what is still owed this week into today's and earlier days'", async () => {
+    const fleet = await fleetPeriod(on(manager, "2028-02-13", "18:00"), "week");
+    const today = await fleetToday(on(manager, "2028-02-13", "18:00"));
+    expect(fleet.todayOwedKobo).toBe(today.balances.owedKobo);
+    expect(fleet.balances.owedKobo).toBeGreaterThanOrEqual(fleet.todayOwedKobo);
+    expect(fleet.recordsStart).toBeNull();
   });
 
   it("gives today's due, received and remaining, which add up", async () => {
