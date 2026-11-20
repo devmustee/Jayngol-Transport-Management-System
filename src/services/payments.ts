@@ -30,7 +30,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
-import { cashDate } from "./cash-book";
+import { cashDate, moneySourceField, takeMoneyOut } from "./cash-book";
 import { applyContributionCredit, checkContributionPayment, contributionPosition } from "./contributions";
 import { allocate, allocateBalances, applyCredit, openCharges, syncLoanStatus } from "./ledger";
 import { describeLastPayment, dayStatus } from "./day-balance";
@@ -200,6 +200,7 @@ export async function recordPayment(ctx: Ctx, raw: unknown) {
           backdateReason: input.backdateReason ?? null,
           purpose: PURPOSES[purpose],
           forDate: purpose === "day" ? paymentDate : null,
+          createdAt: now,
         })
         .returning();
 
@@ -344,10 +345,21 @@ async function checkDayPayment(tx: Tx, operatorId: string, date: string, today: 
   }
 }
 
+const reversalSchema = z.object({
+  reason: requiredText("Reason", 500),
+  /** Where cash taken back comes from. Empty means the person who received it. */
+  source: z.preprocess((value) => (value === "" ? undefined : value), moneySourceField.optional()),
+});
+
+/**
+ * Undoes a payment. Cash comes back out of the cash of the person who took it,
+ * unless another source is chosen, and only if that cash is still held there,
+ * so a reversal can never leave someone holding less than nothing.
+ */
 export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "payment.reverse");
   const id = parseInput(idField("payment"), rawId);
-  const { reason } = parseInput(z.object({ reason: requiredText("Reason", 500) }), raw);
+  const { reason, source } = parseInput(reversalSchema, raw);
   const now = ctx.clock();
 
   await db.transaction(async (tx) => {
@@ -378,14 +390,12 @@ export async function reversePayment(ctx: Ctx, rawId: unknown, raw: unknown) {
     await tx.update(paymentReferences).set({ releasedAt: now }).where(eq(paymentReferences.paymentId, id));
 
     if (found.method === "cash") {
-      await tx.insert(cashMovements).values({
-        custodianId: found.receivedBy,
-        amountKobo: -found.amountKobo,
-        businessDate: await cashDate(tx, found.receivedBy, businessDate(now)),
-        sourceType: "payment_reversal",
-        sourceId: id,
-        at: now,
-      });
+      const from = source ?? { custodianId: found.receivedBy, account: "bank" as const };
+      await takeMoneyOut(
+        tx,
+        { ...from, amountKobo: found.amountKobo, sourceType: "payment_reversal", sourceId: id, at: now },
+        "source",
+      );
     } else {
       await tx.insert(bankMovements).values({
         amountKobo: -found.amountKobo,
@@ -459,26 +469,69 @@ export async function getPayment(ctx: Ctx, id: string) {
     .where(eq(paymentAllocations.paymentId, id))
     .orderBy(charges.businessDate);
   const allocated = lines.reduce((sum, line) => sum + line.amountKobo, 0);
-  return { ...row, lines, creditKobo: row.payment.amountKobo - allocated };
+  // Where the money of a reversed cash payment was taken back from.
+  let takenBackFrom: string | null = null;
+  if (row.reversedAt && row.payment.method === "cash") {
+    const [cash] = await db
+      .select({ name: users.name })
+      .from(cashMovements)
+      .innerJoin(users, eq(users.id, cashMovements.custodianId))
+      .where(and(eq(cashMovements.sourceType, "payment_reversal"), eq(cashMovements.sourceId, id)));
+    const [bank] = cash
+      ? []
+      : await db
+          .select({ account: bankMovements.account })
+          .from(bankMovements)
+          .where(and(eq(bankMovements.sourceType, "payment_reversal"), eq(bankMovements.sourceId, id)));
+    takenBackFrom = cash ? `Cash held by ${cash.name}` : bank ? (bank.account === "owner" ? "Owner" : "Bank") : null;
+  }
+  return { ...row, lines, creditKobo: row.payment.amountKobo - allocated, takenBackFrom };
 }
 
+/**
+ * A day's payments: those paid for the day, and those entered that day for
+ * earlier days. Cash moves on the day a payment is entered, so the day's
+ * takings are counted by entry day, which makes them match the cash.
+ */
 export async function listPayments(ctx: Ctx, date: string) {
   requirePermission(ctx, "finance.view");
-  return db
+  const enteredOn = sql<string>`((${payments.createdAt} AT TIME ZONE 'Africa/Lagos')::date)::text`;
+  const rows = await db
     .select({
       id: payments.id,
       receiptNumber: payments.receiptNumber,
       amountKobo: payments.amountKobo,
       method: payments.method,
+      purpose: payments.purpose,
       receivedAt: payments.receivedAt,
+      businessDate: payments.businessDate,
+      enteredOn,
       operatorName: operators.name,
       reversed: paymentReversals.paymentId,
     })
     .from(payments)
     .innerJoin(operators, eq(operators.id, payments.operatorId))
     .leftJoin(paymentReversals, eq(paymentReversals.paymentId, payments.id))
-    .where(eq(payments.businessDate, date))
+    .where(sql`${payments.businessDate} = ${date}::date OR ((${payments.createdAt} AT TIME ZONE 'Africa/Lagos')::date) = ${date}::date`)
     .orderBy(desc(payments.receivedAt));
+  const forDay = rows.filter((row) => row.businessDate === date);
+  const lateEntries = rows.filter((row) => row.businessDate < date && row.enteredOn === date);
+  // Taken on this day: entered this day, whatever day it pays, and not reversed.
+  const taken = rows.filter((row) => row.enteredOn === date && !row.reversed);
+  const byMethod = taken.reduce<Record<string, number>>((sum, row) => {
+    sum[row.method] = (sum[row.method] ?? 0) + row.amountKobo;
+    return sum;
+  }, {});
+  const reversed = rows.filter((row) => row.reversed && row.enteredOn === date);
+  return {
+    forDay,
+    lateEntries,
+    takenKobo: taken.reduce((sum, row) => sum + row.amountKobo, 0),
+    takenCount: taken.length,
+    byMethod,
+    reversedKobo: reversed.reduce((sum, row) => sum + row.amountKobo, 0),
+    reversedCount: reversed.length,
+  };
 }
 
 /** Everything the payment screen needs to show about one operator. */

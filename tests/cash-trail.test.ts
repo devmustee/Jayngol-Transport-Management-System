@@ -10,7 +10,7 @@ import type { Ctx } from "@/services/context";
 import { cashDay, closeCash, correctCashCount } from "@/services/finance";
 import { cancelLoan, grantLoan } from "@/services/loans";
 import { getMyNotices, markMyNoticesRead } from "@/services/notices";
-import { recordPayment, reversePayment } from "@/services/payments";
+import { listPayments, recordPayment, reversePayment } from "@/services/payments";
 import { acceptTransfer, createTransfer, rejectTransfer, voidTransfer } from "@/services/transfers";
 import { makeOperator, makeUser, nextReference } from "./helpers";
 
@@ -494,5 +494,57 @@ describe("cash close fixes", () => {
     const later = on(boss, "2036-06-05");
     expect((await cashDay(later, "2036-06-05")).some((row) => row.id === person.actor.userId)).toBe(false);
     expect((await cashAlerts(db, "2036-06-05")).cashNotClosed.some((row) => row.id === person.actor.userId)).toBe(false);
+  });
+});
+
+describe("payment fixes", () => {
+  it("will not reverse cash the collector no longer holds, unless another source is chosen", async () => {
+    const date = "2037-02-02";
+    const person = on(await someone(), date);
+    const payment = await collect(person, "5,000");
+    await createTransfer(person, { from: person.actor.userId, to: "owner", amount: "5,000" });
+    const boss = on(manager, date);
+    await expect(reversePayment(boss, payment.id, { reason: "Wrong operator" })).rejects.toMatchObject({
+      fieldErrors: { source: expect.stringMatching(/Only ₦0/) },
+    });
+    await reversePayment(boss, payment.id, { reason: "Wrong operator", source: "owner" });
+    expect(await expectedCash(db, person.actor.userId, date)).toBe(0);
+  });
+
+  it("still takes a reversal from the collector when they hold the cash", async () => {
+    const date = "2037-02-03";
+    const person = on(await someone(), date);
+    const payment = await collect(person, "3,000");
+    await reversePayment(on(manager, date), payment.id, { reason: "Entered twice", source: "" });
+    expect(await expectedCash(db, person.actor.userId, date)).toBe(0);
+  });
+
+  it("totals a day by entry day, and lists late entries apart", async () => {
+    const date = "2037-02-10";
+    const boss = on(manager, date);
+    const operator = await makeOperator(manager);
+    const today = await recordPayment(boss, { operatorId: operator.id, amount: "4,000", method: "cash", clientId: randomUUID() });
+    const late = await recordPayment(boss, {
+      operatorId: operator.id,
+      amount: "2,000",
+      method: "pos",
+      reference: nextReference(),
+      clientId: randomUUID(),
+      backdateTo: "2037-02-08",
+      backdateReason: "Paper receipt from the weekend",
+    });
+    const gone = await recordPayment(boss, { operatorId: operator.id, amount: "1,000", method: "cash", clientId: randomUUID() });
+    await reversePayment(boss, gone.id, { reason: "Mistake" });
+
+    const day = await listPayments(boss, date);
+    const mine = (ids: { id: string }[]) => ids.filter((row) => [today.id, late.id, gone.id].includes(row.id)).map((row) => row.id);
+    expect(mine(day.forDay).sort()).toEqual([today.id, gone.id].sort());
+    expect(mine(day.lateEntries)).toEqual([late.id]);
+    expect(day.byMethod.pos).toBeGreaterThanOrEqual(200_000);
+    expect(day.reversedKobo).toBeGreaterThanOrEqual(100_000);
+
+    const weekend = await listPayments(boss, "2037-02-08");
+    expect(mine(weekend.forDay)).toEqual([late.id]);
+    expect(weekend.forDay.find((row) => row.id === late.id)!.enteredOn).toBe(date);
   });
 });

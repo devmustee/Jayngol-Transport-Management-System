@@ -1,14 +1,15 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { reversePaymentAction } from "@/app/actions";
-import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
+import { ReversePaymentForm } from "@/components/forms/reverse-payment-form";
+import { ReceiptActions } from "@/components/receipt-actions";
 import { Badge, Card, Details, Disclosure, PageHeader } from "@/components/ui";
 import { isUuid } from "@/lib/fields";
 import { CHARGE_LABELS, formatDate, formatDateTime, METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { moneySources } from "@/services/cash-book";
 import { getPayment, paymentReferenceOf } from "@/services/payments";
 
 export const metadata: Metadata = { title: "Receipt" };
@@ -24,9 +25,23 @@ export default async function ReceiptPage({
   const { id } = await params;
   const data = isUuid(id) ? await getPayment(ctx, id) : null;
   if (!data) notFound();
-  const { payment, operatorName, receivedByName, lines, creditKobo, reversalReason } = data;
+  const { payment, operatorName, receivedByName, lines, creditKobo, reversalReason, takenBackFrom } = data;
 
-  const reference = await paymentReferenceOf(payment.id);
+  const canReverse = !reversalReason && can(ctx.actor.role, "payment.reverse");
+  const [reference, sources] = await Promise.all([
+    paymentReferenceOf(payment.id),
+    canReverse && payment.method === "cash" ? moneySources(ctx) : Promise.resolve([]),
+  ]);
+  const shareLines = [
+    `Jayngol receipt ${payment.receiptNumber}`,
+    `${formatNaira(payment.amountKobo)} from ${operatorName}, ${formatDateTime(payment.receivedAt)} (${METHOD_LABELS[payment.method]})`,
+    ...lines.map(
+      (line) =>
+        `${CHARGE_LABELS[line.type]} ${line.type === "contribution" ? "Sunday " : ""}${formatDate(line.businessDate)}: ${formatNaira(line.amountKobo)}`,
+    ),
+    ...(creditKobo > 0 ? [`Kept for later: ${formatNaira(creditKobo)}`] : []),
+    ...(reversalReason ? ["This payment was reversed."] : []),
+  ];
   return (
     <>
       <PageHeader
@@ -53,6 +68,7 @@ export default async function ReceiptPage({
                 : ([["Tricycle brought", payment.tricyclePresent ? "Yes" : "No"]] as [string, string][])),
               ...(payment.backdateReason ? ([["Backdated because", payment.backdateReason]] as [string, string][]) : []),
               ...(reversalReason ? ([["Reversed because", reversalReason]] as [string, string][]) : []),
+              ...(takenBackFrom ? ([["Taken back from", takenBackFrom]] as [string, string][]) : []),
             ]}
           />
         </Card>
@@ -75,12 +91,16 @@ export default async function ReceiptPage({
             ) : null}
           </ul>
         </Card>
-        {!reversalReason && can(ctx.actor.role, "payment.reverse") ? (
+        <ReceiptActions title={`Receipt ${payment.receiptNumber}`} text={shareLines.join("\n")} />
+        {canReverse ? (
           <Disclosure label="Reverse this payment">
-            <ActionForm action={reversePaymentAction.bind(null, payment.id)}>
-              <TextareaField name="reason" label="Reason" hint="The receipt stays on record, marked as reversed." />
-              <SubmitButton>Reverse payment</SubmitButton>
-            </ActionForm>
+            <ReversePaymentForm
+              paymentId={payment.id}
+              amountKobo={payment.amountKobo}
+              cash={payment.method === "cash"}
+              collector={sources.find((person) => person.id === payment.receivedBy) ?? null}
+              sources={sources}
+            />
           </Disclosure>
         ) : null}
       </div>

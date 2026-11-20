@@ -55,6 +55,16 @@ export const METHOD_LABELS: Record<string, string> = {
   deposit: "From deposit",
 };
 
+/** What a payment was for, as shown in lists. */
+export const PAYMENT_PURPOSE_LABELS: Record<string, string> = {
+  day_balance: "Day's balance",
+  old_balance: "Older days",
+  fine: "Fines",
+  loan: "Loan",
+  contribution: "Contribution",
+  general: "Balance",
+};
+
 export const CHARGE_LABELS = {
   daily_balance: "Daily balance",
   penalty: "Penalty",

@@ -212,6 +212,7 @@ async function settleIn(tx: Tx, ctx: Ctx, input: SettleInput, tellOwner: boolean
         receiptNumber: `R-${String(seq[0]!.n).padStart(6, "0")}`,
         clientId: crypto.randomUUID(),
         purpose: "general",
+        createdAt: now,
       })
       .returning({ id: payments.id });
     paymentId = payment!.id;
