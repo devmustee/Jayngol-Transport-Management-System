@@ -89,7 +89,7 @@ export default async function TransfersPage() {
                   {item.note ? <div className="text-sm">{item.note}</div> : null}
                   {item.reason ? <div className="text-sm text-muted">Reason: {item.reason}</div> : null}
                   {item.photoId ? (
-                    <a href={`/api/photos/${item.photoId}`} className="text-sm text-gold-deep underline">View teller</a>
+                    <a href={`/api/photos/${item.photoId}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gold-deep underline">View teller</a>
                   ) : null}
                   {isManager && item.status === "done" ? (
                     <Disclosure label="Reverse this move">

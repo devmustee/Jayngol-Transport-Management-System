@@ -93,7 +93,7 @@ export default async function ExpensePage({
               ]}
             />
             {latest.photoId ? (
-              <a href={`/api/photos/${latest.photoId}`} className="mt-2 inline-block text-sm text-gold-deep underline">View receipt</a>
+              <a href={`/api/photos/${latest.photoId}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block text-sm text-gold-deep underline">View receipt</a>
             ) : null}
           </Card>
         ) : (
@@ -152,7 +152,7 @@ export default async function ExpensePage({
                           {formatDate(line.spentOn)}
                         </div>
                         {line.photoId ? (
-                          <a href={`/api/photos/${line.photoId}`} className="text-sm text-gold-deep underline">View receipt</a>
+                          <a href={`/api/photos/${line.photoId}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gold-deep underline">View receipt</a>
                         ) : null}
                         {voidReason ? <div className="text-sm text-danger">Removed: {voidReason}</div> : null}
                       </div>
