@@ -124,11 +124,14 @@ export function FieldError({ name }: { name: string }) {
 
 function Wrapper({
   name,
+  id = name,
   label,
   hint,
   children,
 }: {
   name: string;
+  /** Set when the same name is in more than one form on a page. */
+  id?: string;
   label: string;
   hint?: string;
   children: ReactNode;
@@ -136,13 +139,13 @@ function Wrapper({
   const error = useContext(FormContext).state.fieldErrors?.[name];
   return (
     <div>
-      <label htmlFor={name} className="block text-sm font-medium text-ink">
+      <label htmlFor={id} className="block text-sm font-medium text-ink">
         {label}
       </label>
       {children}
       {hint && !error ? <p className="mt-1 text-xs font-medium text-muted">{hint}</p> : null}
       {error ? (
-        <p id={`${name}-error`} className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-danger">
+        <p id={`${id}-error`} className="mt-1 flex items-center gap-1.5 text-xs font-semibold text-danger">
           <AlertCircle size={14} className="shrink-0" />
           <span>{error}</span>
         </p>
@@ -156,11 +159,11 @@ type FieldProps = { name: string; label: string; hint?: string };
 const errorProps = (name: string, error?: string) =>
   error ? { "aria-invalid": true, "aria-describedby": `${name}-error` } : {};
 
-export function Field({ name, label, hint, ...rest }: FieldProps & ComponentProps<"input">) {
+export function Field({ name, id = name, label, hint, ...rest }: FieldProps & ComponentProps<"input">) {
   const error = useContext(FormContext).state.fieldErrors?.[name];
   return (
-    <Wrapper name={name} label={label} hint={hint}>
-      <input id={name} name={name} className={INPUT} {...errorProps(name, error)} {...rest} />
+    <Wrapper name={name} id={id} label={label} hint={hint}>
+      <input id={id} name={name} className={INPUT} {...errorProps(id, error)} {...rest} />
     </Wrapper>
   );
 }
@@ -182,11 +185,11 @@ export function SelectField({
   );
 }
 
-export function TextareaField({ name, label, hint, ...rest }: FieldProps & ComponentProps<"textarea">) {
+export function TextareaField({ name, id = name, label, hint, ...rest }: FieldProps & ComponentProps<"textarea">) {
   const error = useContext(FormContext).state.fieldErrors?.[name];
   return (
-    <Wrapper name={name} label={label} hint={hint}>
-      <textarea id={name} name={name} rows={2} className={INPUT} {...errorProps(name, error)} {...rest} />
+    <Wrapper name={name} id={id} label={label} hint={hint}>
+      <textarea id={id} name={name} rows={2} className={INPUT} {...errorProps(id, error)} {...rest} />
     </Wrapper>
   );
 }

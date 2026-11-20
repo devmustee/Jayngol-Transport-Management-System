@@ -4,7 +4,17 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { bankMovements, moneyTransfers, notificationRecipients, notifications, users } from "@/db/schema";
 import { ForbiddenError } from "@/lib/errors";
-import { bankPosition, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
+import {
+  bankPosition,
+  bookAt,
+  confirmBankItems,
+  confirmBankPayment,
+  correctOpeningBalance,
+  correctReconciliation,
+  recordReconciliation,
+  setOpeningBalance,
+  undoBankConfirm,
+} from "@/services/bank";
 import { cashAlerts, cashBook, cashPosition, expectedCash, moneySources } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
 import { cashDay, closeCash, correctCashCount } from "@/services/finance";
@@ -352,11 +362,61 @@ describe("owner money", () => {
 });
 
 describe("bank reconciliation", () => {
-  it("sets the opening balance once, for the Manager only", async () => {
+  const ownBank = (date: string, before: string) =>
+    db.execute(sql`
+      SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS sum FROM bank_movements
+      WHERE account = 'bank' AND source_type <> 'opening_balance' AND business_date >= ${date}::date AND business_date < ${before}::date
+    `) as unknown as Promise<{ sum: number }[]>;
+
+  it("refuses a month before there is an opening balance", async () => {
+    await expect(recordReconciliation(on(manager, "2036-06-15"), { month: "2036-05", statement: "1" })).rejects.toThrow(
+      /opening bank balance first/,
+    );
+  });
+
+  it("sets the opening balance once, for the Manager only, and counts bank money only from its date", async () => {
+    // Bank money from before the opening date is already in the opening figure.
+    await db.insert(bankMovements).values({
+      amountKobo: 1_000_000,
+      businessDate: "2029-12-31",
+      sourceType: "transfer_in",
+      sourceId: randomUUID(),
+      at: wat("2029-12-31"),
+    });
     await expect(setOpeningBalance(assistant, { amount: "1", date: DAY })).rejects.toBeInstanceOf(ForbiddenError);
     await setOpeningBalance(on(manager, DAY), { amount: "100,000", date: "2030-01-01" });
     await expect(setOpeningBalance(on(manager, DAY), { amount: "1", date: "2030-01-01" })).rejects.toThrow(/already/);
     expect((await bankPosition(on(manager, DAY))).hasOpening).toBe(true);
+    const [{ sum }] = (await ownBank("2030-01-01", "2030-01-02")) as [{ sum: number }];
+    expect((await bookAt(db, "2030-01-02")).bookKobo).toBe(10_000_000 + sum);
+    const book = await cashBook(manager, { from: "2029-12-01", to: "2030-01-01", whose: "bank" });
+    expect(book.bank.openingKobo).toBe(0);
+    expect(book.bank.closingKobo).toBe(10_000_000 + sum);
+  });
+
+  it("corrects the opening balance with a reason, minus allowed, and keeps the first figure", async () => {
+    const ctx = on(manager, DAY);
+    await expect(correctOpeningBalance(assistant, { amount: "1", date: "2030-01-01", reason: "x" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(correctOpeningBalance(ctx, { amount: "-1,000.50", date: "2030-01-01" })).rejects.toMatchObject({
+      fieldErrors: { reason: expect.anything() },
+    });
+    await correctOpeningBalance(ctx, { amount: "-1,000.50", date: "2030-01-01", reason: "Overdrawn on the statement" });
+    const [{ sum }] = (await ownBank("2030-01-01", "2030-01-02")) as [{ sum: number }];
+    expect((await bookAt(db, "2030-01-02")).bookKobo).toBe(-100_050 + sum);
+    await correctOpeningBalance(ctx, { amount: "100,000", date: "2030-01-01", reason: "Typed the wrong figure" });
+    const position = await bankPosition(ctx);
+    expect(position.opening).toMatchObject({ amountKobo: 10_000_000, asOf: "2030-01-01", first: { amountKobo: 10_000_000 } });
+    expect(position.opening!.corrections).toHaveLength(2);
+    expect(position.canCorrectOpening).toBe(true);
+    await expect(correctOpeningBalance(ctx, { amount: "100,000", date: "2030-01-01", reason: "x" })).rejects.toMatchObject({
+      fieldErrors: { amount: expect.anything() },
+    });
+  });
+
+  it("refuses a month before the opening month", async () => {
+    await expect(recordReconciliation(on(manager, "2036-06-15"), { month: "2029-12", statement: "1" })).rejects.toMatchObject({
+      fieldErrors: { month: expect.stringMatching(/books start/) },
+    });
   });
 
   it("freezes the month-end figures and needs a reason for a difference", async () => {
@@ -364,20 +424,97 @@ describe("bank reconciliation", () => {
     await expect(recordReconciliation(ctx, { month: "2036-06", statement: "1" })).rejects.toMatchObject({
       fieldErrors: { month: expect.anything() },
     });
-    const [{ book } = { book: 0 }] = (await db.execute(sql`
-      SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS book FROM bank_movements
-      WHERE account = 'bank' AND business_date < '2036-06-01'
-    `)) as unknown as { book: number }[];
+    const { bookKobo: book } = await bookAt(db, "2036-06-01");
     const statement = ((book + 50_000) / 100).toFixed(2);
     await expect(recordReconciliation(ctx, { month: "2036-05", statement })).rejects.toMatchObject({
       fieldErrors: { explanation: expect.anything() },
     });
     await recordReconciliation(ctx, { month: "2036-05", statement, explanation: "Bank charges" });
     const { history } = await bankPosition(ctx);
-    expect(history[0]).toMatchObject({ month: "2036-05-01", bookKobo: book, statementKobo: book + 50_000 });
+    expect(history[0]).toMatchObject({ month: "2036-05-01", book, statement: book + 50_000, recorded_by: expect.any(String) });
     await expect(recordReconciliation(ctx, { month: "2036-05", statement, explanation: "x" })).rejects.toMatchObject({
       fieldErrors: { month: expect.anything() },
     });
+  });
+
+  it("takes an overdrawn statement figure", async () => {
+    const ctx = on(manager, "2036-07-15");
+    await recordReconciliation(ctx, { month: "2036-06", statement: "-2,500", explanation: "Overdrawn" });
+    expect((await bankPosition(ctx)).history[0]).toMatchObject({ month: "2036-06-01", statement: -250_000 });
+  });
+
+  it("fixes the opening balance once a month is reconciled", async () => {
+    await expect(
+      correctOpeningBalance(on(manager, DAY), { amount: "5", date: "2030-01-01", reason: "Late fix" }),
+    ).rejects.toThrow(/fixed/);
+    expect((await bankPosition(on(manager, DAY))).canCorrectOpening).toBe(false);
+  });
+
+  it("corrects a statement figure once, with a reason, keeping the first", async () => {
+    const ctx = on(manager, "2036-07-15");
+    const row = (await bankPosition(ctx)).history.find((r) => r.month === "2036-05-01")!;
+    await expect(correctReconciliation(ctx, row.id, { statement: (row.book / 100).toFixed(2) })).rejects.toMatchObject({
+      fieldErrors: { reason: expect.anything() },
+    });
+    await expect(
+      correctReconciliation(ctx, row.id, { statement: ((row.book + 1) / 100).toFixed(2), reason: "Typo" }),
+    ).rejects.toMatchObject({ fieldErrors: { explanation: expect.anything() } });
+    await correctReconciliation(ctx, row.id, { statement: (row.book / 100).toFixed(2), reason: "Typed an extra 500" });
+    const fixed = (await bankPosition(ctx)).history.find((r) => r.id === row.id)!;
+    expect(fixed).toMatchObject({ statement: row.book + 50_000, corrected_statement: row.book, correction_reason: "Typed an extra 500" });
+    await expect(
+      correctReconciliation(ctx, row.id, { statement: "1", explanation: "x", reason: "Again" }),
+    ).rejects.toThrow(/once/);
+  });
+
+  it("suggests the first ended month not yet reconciled", async () => {
+    expect((await bankPosition(on(manager, "2036-07-15"))).nextMonth).toBe("2030-01");
+  });
+});
+
+describe("confirming against the statement", () => {
+  const ref = async (ctx: Ctx) => (await payBy(on(ctx, DAY), "transfer", nextReference())) as { id: string; receiptNumber?: string };
+
+  it("counts all waiting, finds by reference, and confirms several at once", async () => {
+    const reference = nextReference();
+    const mine = (await payBy(on(assistant, DAY), "pos", reference)) as { id: string };
+    const other = await ref(assistant);
+    const position = await bankPosition(manager, { q: reference.toLowerCase() });
+    expect(position.toConfirm.map((row) => row.id)).toEqual([mine.id]);
+    expect(position.matchedCount).toBe(1);
+    expect(position.waitingCount).toBeGreaterThanOrEqual(2);
+    expect((await bankPosition(manager, { q: "5,000" })).matchedCount).toBeGreaterThanOrEqual(2);
+
+    await expect(confirmBankItems(manager, { items: [] })).rejects.toBeDefined();
+    await expect(confirmBankItems(assistant, { items: [`payment:${mine.id}`] })).rejects.toThrow(/different person/);
+    expect(await confirmBankItems(on(manager, DAY), { items: [`payment:${mine.id}`, `payment:${other.id}`] })).toEqual({ confirmed: 2 });
+    // Already confirmed: skipped, not an error.
+    expect(await confirmBankItems(on(manager, DAY), { items: [`payment:${mine.id}`] })).toEqual({ confirmed: 0 });
+    const today = await bankPosition(on(manager, DAY));
+    expect(today.confirmedToday.map((row) => row.id)).toEqual(expect.arrayContaining([mine.id, other.id]));
+  });
+
+  it("is all or none when one cannot be confirmed", async () => {
+    const theirs = await ref(assistant);
+    const own = await ref(manager);
+    await expect(
+      confirmBankItems(on(manager, DAY), { items: [`payment:${theirs.id}`, `payment:${own.id}`] }),
+    ).rejects.toThrow(/different person/);
+    const [row] = (await db.execute(bankRow(theirs.id))) as unknown as { confirmed_at: Date | null }[];
+    expect(row!.confirmed_at).toBeNull();
+  });
+
+  it("undoes a confirmation the same day, only by whoever made it", async () => {
+    const paid = await ref(assistant);
+    await confirmBankPayment(on(manager, DAY), paid.id);
+    await expect(undoBankConfirm(on(owner, DAY), { kind: "payment", id: paid.id })).rejects.toBeDefined();
+    const other = await someone();
+    await expect(undoBankConfirm(on(other, DAY), { kind: "payment", id: paid.id })).rejects.toThrow(/person who confirmed/);
+    await expect(undoBankConfirm(on(manager, "2034-03-11"), { kind: "payment", id: paid.id })).rejects.toThrow(/today/);
+    await undoBankConfirm(on(manager, DAY), { kind: "payment", id: paid.id });
+    const [row] = (await db.execute(bankRow(paid.id))) as unknown as { confirmed_at: Date | null }[];
+    expect(row!.confirmed_at).toBeNull();
+    await expect(undoBankConfirm(on(manager, DAY), { kind: "payment", id: paid.id })).rejects.toThrow(/not been confirmed/);
   });
 });
 

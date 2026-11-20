@@ -7,6 +7,7 @@ import { addDays, businessDate } from "@/lib/clock";
 import { DomainError, fieldError } from "@/lib/errors";
 import { isUuid } from "@/lib/fields";
 import { formatNaira } from "@/lib/money";
+import { BANK_BOOK } from "./bank";
 import { requirePermission, type Ctx } from "./context";
 
 export type BankSide = "bank" | "owner";
@@ -324,9 +325,9 @@ export async function cashBook(
           FROM cash_movements m`;
   const bank = place
     ? sql`SELECT b.id, b.account::text, NULL::uuid AS custodian_id, b.amount_kobo, b.business_date, b.source_type, b.source_id, b.at
-          FROM bank_movements b WHERE b.account = ${place}`
+          FROM ${BANK_BOOK} b WHERE b.account = ${place}`
     : sql`SELECT b.id, b.account::text, NULL::uuid AS custodian_id, b.amount_kobo, b.business_date, b.source_type, b.source_id, b.at
-          FROM bank_movements b`;
+          FROM ${BANK_BOOK} b`;
   const all = person ? cash : place ? bank : sql`${cash} UNION ALL ${bank}`;
   const kindFilter = kinds ? sql`AND source_type IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})` : sql``;
   const inRange = sql`SELECT * FROM (${all}) x

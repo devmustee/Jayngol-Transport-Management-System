@@ -16,7 +16,16 @@ import { login } from "@/services/auth";
 import { finishBackEntries, openBackEntries } from "@/services/back-entries";
 import type { Ctx } from "@/services/context";
 import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services/dismissals";
-import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
+import {
+  confirmBankDeposit,
+  confirmBankItems,
+  confirmBankPayment,
+  correctOpeningBalance,
+  correctReconciliation,
+  recordReconciliation,
+  setOpeningBalance,
+  undoBankConfirm,
+} from "@/services/bank";
 import { recordDeposit, reverseDeposit } from "@/services/deposits";
 import { refundAllDue, settleDeposit, undoSettlement } from "@/services/deposit-settlements";
 import { addNonCollectionDay, closeCash, correctCashCount, removeNonCollectionDay } from "@/services/finance";
@@ -607,6 +616,25 @@ export async function confirmBankDepositAction(id: string, _state: FormState, _d
 
 export async function confirmBankPaymentAction(id: string, _state: FormState, _data: FormData) {
   return perform((ctx) => confirmBankPayment(ctx, id), "Confirmed.");
+}
+
+export async function confirmBankItemsAction(_: FormState, data: FormData) {
+  return perform(
+    (ctx) => confirmBankItems(ctx, { items: data.getAll("item").map(String) }),
+    ({ confirmed }) => (confirmed === 1 ? "1 confirmed." : `${confirmed} confirmed.`),
+  );
+}
+
+export async function undoBankConfirmAction(kind: string, id: string, _state: FormState, _data: FormData) {
+  return perform((ctx) => undoBankConfirm(ctx, { kind, id }), "Confirmation undone.");
+}
+
+export async function correctOpeningBalanceAction(_: FormState, data: FormData) {
+  return perform((ctx) => correctOpeningBalance(ctx, values(data)), "Opening balance corrected.");
+}
+
+export async function correctReconciliationAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => correctReconciliation(ctx, id, values(data)), "Statement figure corrected.");
 }
 
 export async function setOpeningBalanceAction(_: FormState, data: FormData) {

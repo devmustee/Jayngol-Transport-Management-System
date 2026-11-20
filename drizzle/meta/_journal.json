@@ -260,6 +260,13 @@
       "when": 1795169270110,
       "tag": "0036_expense_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1795170809424,
+      "tag": "0037_bank_corrections",
+      "breakpoints": true
     }
   ]
 }

@@ -1419,3 +1419,29 @@ export const bankReconciliations = pgTable("bank_reconciliations", {
     .references(() => users.id),
   createdAt: timestamp("created_at", tz).notNull(),
 });
+
+// Append-only. A mistyped statement figure, corrected once with a reason; the first stays on record.
+export const bankReconciliationCorrections = pgTable("bank_reconciliation_corrections", {
+  reconciliationId: uuid("reconciliation_id")
+    .primaryKey()
+    .references(() => bankReconciliations.id),
+  statementKobo: bigint("statement_kobo", { mode: "number" }).notNull(),
+  explanation: text("explanation"),
+  reason: text("reason").notNull(),
+  correctedBy: uuid("corrected_by")
+    .notNull()
+    .references(() => users.id),
+  correctedAt: timestamp("corrected_at", tz).notNull(),
+});
+
+// Append-only. A corrected opening bank balance; the latest one counts. Only before any month is reconciled.
+export const bankOpeningCorrections = pgTable("bank_opening_corrections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  amountKobo: bigint("amount_kobo", { mode: "number" }).notNull(),
+  asOf: date("as_of", { mode: "string" }).notNull(),
+  reason: text("reason").notNull(),
+  correctedBy: uuid("corrected_by")
+    .notNull()
+    .references(() => users.id),
+  correctedAt: timestamp("corrected_at", tz).notNull(),
+});

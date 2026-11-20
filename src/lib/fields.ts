@@ -73,6 +73,19 @@ export const nairaField = (label: string) =>
     return kobo;
   });
 
+/** A naira figure that may be below zero, such as an overdrawn bank balance. */
+export const signedNairaField = (label: string) =>
+  z.string(`${label} is required`).transform((value, ctx) => {
+    const trimmed = value.trim();
+    const minus = /^[-−–]/.test(trimmed);
+    const kobo = parseNairaToKobo(minus ? trimmed.slice(1) : trimmed);
+    if (kobo === null) {
+      ctx.addIssue({ code: "custom", message: `Enter ${label.toLowerCase()} as a number, with a minus if overdrawn` });
+      return z.NEVER;
+    }
+    return minus && kobo > 0 ? -kobo : kobo;
+  });
+
 export const positiveNairaField = (label: string) =>
   nairaField(label).refine((kobo) => kobo > 0, `${label} must be more than zero`);
 
