@@ -6,6 +6,7 @@ import { systemClock } from "@/lib/clock";
 import { can, isStaff, type Permission } from "@/lib/permissions";
 import { endSession, resolveSession } from "@/services/auth";
 import type { Actor, Ctx } from "@/services/context";
+import { PATH_HEADER } from "@/lib/return-path";
 
 const COOKIE = "jayngol_session";
 const THIRTY_DAYS = 30 * 24 * 60 * 60;
@@ -29,7 +30,11 @@ export async function getActorQuietly(): Promise<Actor | null> {
 
 export async function requireCtx(): Promise<Ctx> {
   const actor = await getActor();
-  if (!actor) redirect("/login");
+  if (!actor) {
+    // Remember the page, so signing in returns to it.
+    const path = (await headers()).get(PATH_HEADER);
+    redirect(path && path !== "/" && path.startsWith("/") && !path.startsWith("//") ? `/login?next=${encodeURIComponent(path)}` : "/login");
+  }
   return { actor, clock: systemClock };
 }
 
@@ -41,7 +46,7 @@ export async function requireStaffCtx(): Promise<Ctx> {
 
 export async function requirePage(permission: Permission): Promise<Ctx> {
   const ctx = await requireStaffCtx();
-  if (!can(ctx.actor.role, permission)) redirect("/dashboard");
+  if (!can(ctx.actor.role, permission)) redirect("/dashboard?denied=1");
   return ctx;
 }
 

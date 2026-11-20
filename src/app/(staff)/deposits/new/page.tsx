@@ -18,6 +18,7 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
   const params = await searchParams;
   const q = queryValue(params.q);
   const operatorId = queryValue(params.operator);
+  const fromOperator = queryValue(params.from) === "operator";
 
   if (operatorId) {
     const data = isUuid(operatorId) ? await paymentContext(ctx, operatorId) : null;
@@ -27,7 +28,11 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
         <PageHeader
           title={data.operator.name}
           subtitle={data.current ? `Tricycle ${data.current.codeNumber}` : "No tricycle"}
-          back={{ href: "/deposits/new", label: "Choose another operator" }}
+          back={
+            fromOperator
+              ? { href: `/operators/${data.operator.id}`, label: data.operator.name }
+              : { href: "/deposits/new", label: "Choose another operator" }
+          }
         />
         <Card title="Record deposit" subtitle="Held for the operator. It does not pay any balance.">
           <DepositForm operatorId={data.operator.id} clientId={randomUUID()} />

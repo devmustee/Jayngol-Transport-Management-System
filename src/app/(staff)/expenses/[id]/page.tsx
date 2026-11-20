@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ForgetParams } from "@/components/forget-params";
 import { notFound } from "next/navigation";
 import {
   addExpenseLineAction,
@@ -61,6 +62,7 @@ export default async function ExpensePage({
                 : ADVANCE_STATUS_LABELS[advance.status]}</Badge>}
       />
       <div className="space-y-4">
+        <ForgetParams names={["recorded"]} />
         {recorded && advance.status !== "cancelled" ? (
           <p role="status" className="rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-medium text-ok">
             {data.noApprovalNeeded

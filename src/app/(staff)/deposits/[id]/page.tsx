@@ -13,7 +13,13 @@ import { getDeposit } from "@/services/deposits";
 
 export const metadata: Metadata = { title: "Deposit receipt" };
 
-export default async function DepositReceiptPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function DepositReceiptPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
+}) {
   const ctx = await requirePage("finance.view");
   const { id } = await params;
   const data = isUuid(id) ? await getDeposit(ctx, id) : null;
@@ -24,7 +30,11 @@ export default async function DepositReceiptPage({ params }: { params: Promise<{
     <>
       <PageHeader
         title={`Deposit ${deposit.receiptNumber}`}
-        back={{ href: "/deposits", label: "Deposits" }}
+        back={
+          (await searchParams).from === "operator"
+            ? { href: `/operators/${deposit.operatorId}`, label: operatorName }
+            : { href: "/deposits", label: "Deposits" }
+        }
         action={reversalReason ? <Badge tone="bad">Reversed</Badge> : <Badge tone="good">Held</Badge>}
       />
       <div className="space-y-4">

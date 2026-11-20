@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { PlaceMemory } from "@/components/back-link";
 import { BottomNav, SideNav, type NavItem } from "@/components/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
@@ -6,6 +8,23 @@ import { NotificationBell } from "@/components/notification-bell";
 import { UrgentBanner } from "@/components/urgent-banner";
 import { staffBell } from "@/services/needs-action";
 import { latestUrgent } from "@/services/notifications";
+
+/** Money pages that live outside /money: the menu shows Money as the current section on them. */
+const MONEY_PAGES = [
+  "/payments",
+  "/deposits",
+  "/loans",
+  "/expenses",
+  "/transfers",
+  "/cash",
+  "/cash-book",
+  "/bank",
+  "/contributions",
+  "/arrears",
+  "/waivers",
+  "/sacking",
+  "/no-balance-days",
+];
 
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireStaffCtx();
@@ -17,7 +36,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     { href: "/operators", label: "Operators", icon: "operators", primary: true },
   ];
   if (can(actor.role, "finance.view")) {
-    items.push({ href: "/money", label: "Money", icon: "money", primary: true });
+    items.push({ href: "/money", label: "Money", icon: "money", primary: true, also: MONEY_PAGES });
     items.push({ href: "/money/year", label: "Annual balance", icon: "annual", primary: false });
   }
   if (can(actor.role, "inspection.record")) {
@@ -134,6 +153,9 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       </div>
 
       <BottomNav items={items} />
+      <Suspense fallback={null}>
+        <PlaceMemory />
+      </Suspense>
     </div>
   );
 }

@@ -16,7 +16,7 @@ export default async function EditOperatorPage({ params }: { params: Promise<{ i
   if (!detail) notFound();
   return (
     <>
-      <PageHeader title={`Edit ${detail.operator.name}`} back={{ href: `/operators/${id}`, label: "Back" }} />
+      <PageHeader title={`Edit ${detail.operator.name}`} back={{ href: `/operators/${id}`, label: detail.operator.name }} />
       <Card>
         <OperatorForm
           action={updateOperatorAction.bind(null, id)}

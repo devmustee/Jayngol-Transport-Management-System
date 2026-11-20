@@ -17,7 +17,7 @@ export default async function EditTricyclePage({ params }: { params: Promise<{ i
   if (!detail) notFound();
   return (
     <>
-      <PageHeader title={`Edit ${detail.tricycle.codeNumber}`} back={{ href: `/tricycles/${id}`, label: "Back" }} />
+      <PageHeader title={`Edit ${detail.tricycle.codeNumber}`} back={{ href: `/tricycles/${id}`, label: detail.tricycle.codeNumber }} />
       <Card>
         <TricycleForm
           action={updateTricycleAction.bind(null, id)}

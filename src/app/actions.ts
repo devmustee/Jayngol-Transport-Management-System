@@ -3,6 +3,7 @@
 import { setContributionRate, waiveContribution } from "@/services/contributions";
 import { reverseWaiver, waiveBalances, waiveFleetDay } from "@/services/waivers";
 import { formatNaira } from "@/lib/money";
+import { returnPath } from "@/lib/return-path";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { systemClock } from "@/lib/clock";
@@ -123,7 +124,7 @@ export async function loginAction(_: FormState, data: FormData): Promise<FormSta
   } catch (error) {
     return toState(error);
   }
-  redirect(role === "operator" ? "/me" : "/dashboard");
+  redirect(returnPath(data.get("next"), role));
 }
 
 export async function logoutAction() {

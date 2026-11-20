@@ -13,7 +13,13 @@ import { getPayment, paymentReferenceOf } from "@/services/payments";
 
 export const metadata: Metadata = { title: "Receipt" };
 
-export default async function ReceiptPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function ReceiptPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
+}) {
   const ctx = await requirePage("finance.view");
   const { id } = await params;
   const data = isUuid(id) ? await getPayment(ctx, id) : null;
@@ -25,7 +31,11 @@ export default async function ReceiptPage({ params }: { params: Promise<{ id: st
     <>
       <PageHeader
         title={`Receipt ${payment.receiptNumber}`}
-        back={{ href: "/payments", label: "Payments" }}
+        back={
+          (await searchParams).from === "operator"
+            ? { href: `/operators/${payment.operatorId}`, label: operatorName }
+            : { href: "/payments", label: "Payments" }
+        }
         action={reversalReason ? <Badge tone="bad">Reversed</Badge> : <Badge tone="good">Paid</Badge>}
       />
       <div className="space-y-4">

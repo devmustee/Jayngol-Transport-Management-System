@@ -4,12 +4,15 @@ import { ShieldCheck } from "lucide-react";
 import { loginAction } from "@/app/actions";
 import { ClearOffline } from "@/components/clear-offline";
 import { ActionForm, Field, SubmitButton } from "@/components/form";
+import { returnPath } from "@/lib/return-path";
 import { getActor } from "@/lib/session";
 
 export const metadata: Metadata = { title: "Log in" };
 
-export default async function LoginPage() {
-  if (await getActor()) redirect("/");
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
+  const next = (await searchParams).next;
+  const actor = await getActor();
+  if (actor) redirect(returnPath(next, actor.role));
   return (
     <main className="flex min-h-dvh items-center justify-center bg-paper p-4">
       <ClearOffline />
@@ -31,6 +34,7 @@ export default async function LoginPage() {
 
         <div className="mt-7">
           <ActionForm action={loginAction} className="space-y-4">
+            {typeof next === "string" ? <input type="hidden" name="next" value={next} /> : null}
             <Field
               name="phone"
               label="Phone number"

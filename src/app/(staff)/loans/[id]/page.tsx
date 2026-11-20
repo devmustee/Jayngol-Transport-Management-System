@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ForgetParams } from "@/components/forget-params";
 import Link from "next/link";
 import { HandCoins } from "lucide-react";
 import { notFound } from "next/navigation";
@@ -20,11 +21,12 @@ export default async function LoanPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ given?: string }>;
+  searchParams: Promise<{ given?: string; from?: string }>;
 }) {
   const ctx = await requirePage("finance.view");
   const { id } = await params;
-  const given = (await searchParams).given === "1";
+  const query = await searchParams;
+  const given = query.given === "1";
   const data = isUuid(id) ? await getLoan(ctx, id) : null;
   if (!data) notFound();
   const { loan, repayments, owedKobo } = data;
@@ -33,10 +35,11 @@ export default async function LoanPage({
       <PageHeader
         title={loan.operatorName}
         subtitle={`${loan.tricycleCode ? `Tricycle ${loan.tricycleCode} (${loan.registration ?? "no plate"})` : "No tricycle now"} · Loan of ${formatNaira(loan.principalKobo)}`}
-        back={{ href: "/loans", label: "Loans" }}
+        back={query.from === "operator" ? { href: `/operators/${loan.operatorId}`, label: loan.operatorName } : { href: "/loans", label: "Loans" }}
         action={<Badge tone={TONE[loan.status]}>{LOAN_STATUS_LABELS[loan.status]}</Badge>}
       />
       <div className="space-y-4">
+        <ForgetParams names={["given"]} />
         {given ? (
           <p className="rounded-xl border border-ok-border bg-ok-wash p-4 text-sm text-ink" role="status">
             <span className="font-semibold">Loan given.</span> When {loan.operatorName} pays any of it back, tap{" "}

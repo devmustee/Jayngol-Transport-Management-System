@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { ForgetParams } from "@/components/forget-params";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
@@ -30,11 +31,11 @@ export default async function WorkOrderPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ taken?: string }>;
+  searchParams: Promise<{ taken?: string; from?: string }>;
 }) {
   const ctx = await requirePage("workorder.view");
   const { id } = await params;
-  const { taken } = await searchParams;
+  const { taken, from } = await searchParams;
   const detail = isUuid(id) ? await getWorkOrder(ctx, id) : null;
   if (!detail) notFound();
 
@@ -51,10 +52,11 @@ export default async function WorkOrderPage({
     <>
       <PageHeader
         title={`${code} ${WORK_TYPE_LABELS[order.type].toLowerCase()}`}
-        back={{ href: "/workshop", label: "Workshop" }}
+        back={from === "tricycle" ? { href: `/tricycles/${order.tricycleId}`, label: code } : { href: "/workshop", label: "Workshop" }}
         action={<Badge tone={TONE[order.status]}>{WORK_STATUS_LABELS[order.status]}</Badge>}
       />
       <div className="space-y-4">
+        <ForgetParams names={["taken"]} />
         {taken ? (
           <p role="status" className="rounded-xl border border-ok-border bg-ok-wash px-4 py-3 text-sm font-medium text-ok">
             Taken out of the store. The items are listed under Parts used.

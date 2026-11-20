@@ -1,4 +1,5 @@
 import { formatNaira } from "@/lib/money";
+import { ForgetParams } from "@/components/forget-params";
 import { ContributionTile } from "@/components/contribution-tile";
 import { businessDate, daysBetween } from "@/lib/clock";
 import { contributionSummary } from "@/services/contributions";
@@ -42,9 +43,11 @@ function waitedDays(from: Date, now: Date) {
 
 export const metadata: Metadata = { title: "Dashboard" };
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ pulse?: string }> }) {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<{ pulse?: string; denied?: string }> }) {
   const ctx = await requirePage("dashboard.view");
-  const pulse = parsePulse((await searchParams).pulse);
+  const query = await searchParams;
+  const pulse = parsePulse(query.pulse);
+  const denied = query.denied === "1";
   const seesMoney = can(ctx.actor.role, "finance.view");
   const [counts, workshop, low, inspections, race, money, period, today, contributions, toSettle, loanAsks] = await Promise.all([
     dashboardCounts(ctx),
@@ -113,6 +116,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           ) : null
         }
       />
+      <ForgetParams names={["denied"]} />
+      {denied ? (
+        <p role="status" className="mb-4 rounded-xl border border-line bg-card-subtle px-4 py-3 text-sm text-ink">
+          That page is not open to your role, so you were brought Home.
+        </p>
+      ) : null}
 
       {loanAsks && loanAsks.count > 0 ? (
         <Link

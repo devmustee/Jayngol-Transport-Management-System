@@ -148,13 +148,13 @@ export default async function OperatorPage({
             subtitle={`${formatNaira(loan.principalKobo)} given ${formatDate(loan.disbursedOn)}`}
             action={
               can(ctx.actor.role, "payment.record") ? (
-                <LinkButton href={`/payments/new?operator=${id}&for=loan`} variant="gold">
+                <LinkButton href={`/payments/new?operator=${id}&for=loan&from=operator`} variant="gold">
                   Take loan repayment
                 </LinkButton>
               ) : undefined
             }
           >
-            <Link href={`/loans/${loan.id}`} className="flex min-h-11 items-center justify-between gap-3 hover:text-gold-deep">
+            <Link href={`/loans/${loan.id}?from=operator`} className="flex min-h-11 items-center justify-between gap-3 hover:text-gold-deep">
               <span className="text-sm text-muted">
                 {loan.repaidKobo > 0 ? `${formatNaira(loan.repaidKobo)} paid back` : "Nothing paid back yet"}
               </span>
@@ -173,7 +173,7 @@ export default async function OperatorPage({
             }
             action={
               operator.status === "active" && can(ctx.actor.role, "payment.record") ? (
-                <LinkButton href={`/deposits/new?operator=${id}`}>Record saving</LinkButton>
+                <LinkButton href={`/deposits/new?operator=${id}&from=operator`}>Record saving</LinkButton>
               ) : undefined
             }
           >
@@ -183,7 +183,7 @@ export default async function OperatorPage({
               <ul className="divide-y divide-line">
                 {deposits.items.map((deposit) => (
                   <li key={deposit.id}>
-                    <Link href={`/deposits/${deposit.id}`} className="flex min-h-11 items-center justify-between gap-3 py-2 hover:text-gold-deep">
+                    <Link href={`/deposits/${deposit.id}?from=operator`} className="flex min-h-11 items-center justify-between gap-3 py-2 hover:text-gold-deep">
                       <span className="min-w-0 text-sm">
                         {deposit.receiptNumber} · {METHOD_LABELS[deposit.method]} · {formatDate(deposit.businessDate)}
                       </span>
@@ -237,7 +237,7 @@ export default async function OperatorPage({
                       <dd className="tabular-nums">
                         {formatNaira(s.clearedKobo)}
                         {s.paymentId && s.receiptNumber ? (
-                          <Link href={`/payments/${s.paymentId}`} className="ml-1 text-gold-deep underline">
+                          <Link href={`/payments/${s.paymentId}?from=operator`} className="ml-1 text-gold-deep underline">
                             {s.receiptNumber}
                           </Link>
                         ) : null}
@@ -281,7 +281,7 @@ export default async function OperatorPage({
           <div className="flex flex-wrap gap-2">
             <LinkButton href={`/operators/${id}/statement`}>View statement</LinkButton>
             {can(ctx.actor.role, "payment.record") ? (
-              <LinkButton href={`/payments/new?operator=${id}`}>Take payment</LinkButton>
+              <LinkButton href={`/payments/new?operator=${id}&from=operator`}>Take payment</LinkButton>
             ) : null}
           </div>
         ) : null}

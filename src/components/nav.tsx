@@ -51,6 +51,8 @@ export type NavItem = {
   icon: keyof typeof ICONS;
   /** Shown on the phone's bottom bar. Others are reached through More/Account. */
   primary: boolean;
+  /** Other pages that belong to this item, such as the Money pages that live outside /money. */
+  also?: string[];
 };
 
 /** Inside a menu link: pulses its icon from the tap until the page arrives. */
@@ -61,15 +63,20 @@ function NavIcon({ icon: Icon, size, className }: { icon: (typeof ICONS)[keyof t
 
 const covers = (href: string, pathname: string) => pathname === href || pathname.startsWith(`${href}/`);
 
+/** How closely an item matches the page: the length of its longest covering address, or 0. */
+const closeness = (item: NavItem, pathname: string) =>
+  Math.max(0, ...[item.href, ...(item.also ?? [])].filter((href) => covers(href, pathname)).map((href) => href.length));
+
 /**
  * Only the closest menu item is current: on /money/year that is "Annual
- * balance", not "Money" as well.
+ * balance", not "Money" as well, and on /cash it is "Money".
  */
 function useIsActive(items: NavItem[]) {
   const pathname = usePathname();
   const best = items
-    .filter((item) => covers(item.href, pathname))
-    .sort((a, b) => b.href.length - a.href.length)[0];
+    .map((item) => ({ item, score: closeness(item, pathname) }))
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score)[0]?.item;
   return (href: string) => best?.href === href;
 }
 

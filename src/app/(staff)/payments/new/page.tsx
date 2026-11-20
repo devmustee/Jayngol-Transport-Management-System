@@ -37,6 +37,9 @@ export default async function TakePaymentPage({
   const forParam = queryValue(params.for);
   const mode = forParam === "balance" ? "old" : forParam === "fines" ? "fine" : forParam === "loan" ? "loan" : null;
   const forContribution = forParam === "contribution";
+  // Opened from the operator's page: every back link leads there, not to the operator picker.
+  const fromOperator = queryValue(params.from) === "operator";
+  const keep = fromOperator ? "&from=operator" : "";
 
   if (operatorId) {
     const data = isUuid(operatorId) ? await paymentContext(ctx, operatorId) : null;
@@ -53,7 +56,7 @@ export default async function TakePaymentPage({
           <PageHeader
             title={operator.name}
             subtitle={current ? `Tricycle ${current.codeNumber} · Weekly contribution` : "Weekly contribution"}
-            back={{ href: `/contributions`, label: "Contributions" }}
+            back={fromOperator ? { href: `/operators/${operator.id}`, label: operator.name } : { href: `/contributions`, label: "Contributions" }}
             action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
           />
           <div className="space-y-4">
@@ -135,7 +138,7 @@ export default async function TakePaymentPage({
           <PageHeader
             title={operator.name}
             subtitle={current ? `Tricycle ${current.codeNumber} · ${titles[mode]}` : titles[mode]}
-            back={{ href: `/payments/new?operator=${operator.id}`, label: "Today's balance" }}
+            back={{ href: `/payments/new?operator=${operator.id}${keep}`, label: "Today's balance" }}
             action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
           />
           <div className="space-y-4">
@@ -209,7 +212,7 @@ export default async function TakePaymentPage({
         <PageHeader
           title={operator.name}
           subtitle={status.tricycleCode ? `Tricycle ${status.tricycleCode}` : "No tricycle"}
-          back={{ href: "/payments/new", label: "Choose another operator" }}
+          back={fromOperator ? { href: `/operators/${operator.id}`, label: operator.name } : { href: "/payments/new", label: "Choose another operator" }}
           action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
         />
         <div className="space-y-4">
@@ -267,7 +270,7 @@ export default async function TakePaymentPage({
 
           {data.contribution.owedKobo > 0 ? (
             <Link
-              href={`/payments/new?operator=${operator.id}&for=contribution`}
+              href={`/payments/new?operator=${operator.id}&for=contribution${keep}`}
               className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash p-4 text-sm"
             >
               <span>
@@ -286,7 +289,7 @@ export default async function TakePaymentPage({
 
           {data.loanOwedKobo > 0 ? (
             <Link
-              href={`/payments/new?operator=${operator.id}&for=loan`}
+              href={`/payments/new?operator=${operator.id}&for=loan${keep}`}
               className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-gold/40 bg-gold-wash p-4 text-sm"
             >
               <span>
@@ -301,7 +304,7 @@ export default async function TakePaymentPage({
             <ul className="divide-y divide-line">
               <li>
                 <Link
-                  href={`/payments/new?operator=${operator.id}&for=balance`}
+                  href={`/payments/new?operator=${operator.id}&for=balance${keep}`}
                   className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm hover:text-gold-deep"
                 >
                   <span>Older days</span>
@@ -313,7 +316,7 @@ export default async function TakePaymentPage({
               {data.penaltiesOwedKobo > 0 ? (
                 <li>
                   <Link
-                    href={`/payments/new?operator=${operator.id}&for=fines`}
+                    href={`/payments/new?operator=${operator.id}&for=fines${keep}`}
                     className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm hover:text-gold-deep"
                   >
                     <span>Fines</span>
@@ -324,7 +327,7 @@ export default async function TakePaymentPage({
               {data.contribution.started ? (
                 <li>
                   <Link
-                    href={`/payments/new?operator=${operator.id}&for=contribution`}
+                    href={`/payments/new?operator=${operator.id}&for=contribution${keep}`}
                     className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm hover:text-gold-deep"
                   >
                     <span>Weekly contribution</span>
@@ -341,7 +344,7 @@ export default async function TakePaymentPage({
               {data.loanOwedKobo > 0 ? (
                 <li>
                   <Link
-                    href={`/payments/new?operator=${operator.id}&for=loan`}
+                    href={`/payments/new?operator=${operator.id}&for=loan${keep}`}
                     className="flex min-h-12 items-center justify-between gap-3 py-2 text-sm hover:text-gold-deep"
                   >
                     <span>Loan</span>
@@ -357,7 +360,7 @@ export default async function TakePaymentPage({
                   {olderDays.slice(-7).map((d) => (
                     <Link
                       key={d.businessDate}
-                      href={`/payments/new?operator=${operator.id}&day=${d.businessDate}`}
+                      href={`/payments/new?operator=${operator.id}&day=${d.businessDate}${keep}`}
                       aria-current={d.businessDate === date ? "true" : undefined}
                       className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-line bg-card px-3 text-sm hover:bg-card-subtle aria-[current=true]:border-ink"
                     >
@@ -367,7 +370,7 @@ export default async function TakePaymentPage({
                   ))}
                   {date !== today ? (
                     <Link
-                      href={`/payments/new?operator=${operator.id}`}
+                      href={`/payments/new?operator=${operator.id}${keep}`}
                       className="inline-flex min-h-10 items-center rounded-lg px-3 text-sm underline underline-offset-2"
                     >
                       Back to today

@@ -1,5 +1,6 @@
+import { BackLink } from "@/components/back-link";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, Inbox, LucideIcon, Search } from "lucide-react";
+import { ChevronDown, Inbox, LucideIcon, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -17,13 +18,7 @@ export function PageHeader({
     <header className="mb-5 sm:mb-6">
       {back ? (
         <div className="mb-1 -ml-2.5">
-          <Link
-            href={back.href}
-            className="group inline-flex min-h-11 items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-semibold text-gold-deep transition-all duration-150 hover:bg-gold-wash"
-          >
-            <ArrowLeft size={16} className="transition-transform group-hover:-translate-x-0.5" />
-            <span>{back.label}</span>
-          </Link>
+          <BackLink href={back.href} label={back.label} />
         </div>
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
