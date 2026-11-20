@@ -6,6 +6,7 @@ import { formatDate, formatDateTime, METHOD_LABELS, PAYMENT_PURPOSE_LABELS, quer
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { listPayments } from "@/services/payments";
 
 export const metadata: Metadata = { title: "Payments" };
@@ -51,6 +52,7 @@ export default async function PaymentsPage({
     <>
       <PageHeader
         title="Payments"
+        help={helpForPage(ctx.actor.role, "/payments")?.id}
         subtitle={formatDate(date)}
         back={{ href: "/money", label: "Money" }}
         action={can(ctx.actor.role, "payment.record") ? <LinkButton href="/payments/new">Take payment</LinkButton> : undefined}

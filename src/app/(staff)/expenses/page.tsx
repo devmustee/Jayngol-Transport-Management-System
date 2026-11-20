@@ -11,6 +11,7 @@ import { ADVANCE_STATUS_LABELS, EXPENSE_CATEGORY_LABELS, formatDate, queryValue 
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { EXPENSE_FREE_DAYS, listAdvances } from "@/services/expenses";
 
 export const metadata: Metadata = { title: "Expenses" };
@@ -81,6 +82,7 @@ export default async function ExpensesPage({
     <>
       <PageHeader
         title="Expenses"
+        help={helpForPage(ctx.actor.role, "/expenses")?.id}
         subtitle="Money spent, taken off the company balance. Never paid back."
         back={{ href: "/money", label: "Money" }}
         action={

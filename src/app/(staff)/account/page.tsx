@@ -5,6 +5,7 @@ import { ActionForm, Field, SubmitButton } from "@/components/form";
 import { Card, PageHeader } from "@/components/ui";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
+import { topicsFor } from "@/guide";
 
 export const metadata: Metadata = { title: "Account" };
 
@@ -24,6 +25,7 @@ export default async function AccountPage() {
     ...(can(actor.role, "finance.view") ? [{ href: "/reports", label: "Reports" }, { href: "/awards", label: "Awards" }] : []),
     ...(can(actor.role, "user.manage") ? [{ href: "/users", label: "Staff logins" }] : []),
     ...(can(actor.role, "audit.view") ? [{ href: "/audit", label: "Audit log" }] : []),
+    ...(topicsFor(actor.role).length > 0 ? [{ href: "/guide", label: "Guide: how things work" }] : []),
   ];
   return (
     <>

@@ -1,6 +1,6 @@
 import { BackLink } from "@/components/back-link";
 import Link from "next/link";
-import { ChevronDown, Inbox, LucideIcon, Search } from "lucide-react";
+import { ChevronDown, CircleHelp, Inbox, LucideIcon, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -8,11 +8,14 @@ export function PageHeader({
   subtitle,
   back,
   action,
+  help,
 }: {
   title: string;
   subtitle?: ReactNode;
   back?: { href: string; label: string };
   action?: ReactNode;
+  /** A Guide topic id: shows a "?" that opens it. Pass null when the person cannot see it. */
+  help?: string | null;
 }) {
   return (
     <header className="mb-5 sm:mb-6">
@@ -23,9 +26,21 @@ export function PageHeader({
       ) : null}
       <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3">
         <div className="min-w-0 flex-[1_1_16rem]">
-          <h1 className="text-2xl leading-tight font-bold tracking-tight text-ink md:text-[1.75rem]">
-            {title}
-          </h1>
+          <div className="flex items-start gap-2">
+            <h1 className="min-w-0 text-2xl leading-tight font-bold tracking-tight text-ink md:text-[1.75rem]">
+              {title}
+            </h1>
+            {help ? (
+              <Link
+                href={`/guide/${help}`}
+                aria-label="How this works"
+                title="How this works"
+                className="-my-1.5 flex size-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-gold-wash hover:text-gold-deep"
+              >
+                <CircleHelp size={20} aria-hidden />
+              </Link>
+            ) : null}
+          </div>
           {subtitle ? (
             <div className="mt-1 text-sm leading-snug text-muted">{subtitle}</div>
           ) : null}

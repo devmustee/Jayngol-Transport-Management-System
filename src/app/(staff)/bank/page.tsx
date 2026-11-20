@@ -12,6 +12,7 @@ import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/component
 import { formatDate, formatDateTime, METHOD_LABELS, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { bankPosition, type ToConfirm } from "@/services/bank";
 
 export const metadata: Metadata = { title: "Bank check" };
@@ -43,7 +44,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <PageHeader title="Bank check" subtitle="Match the books to the bank statement" back={{ href: "/money", label: "Money" }} />
+      <PageHeader title="Bank check" help={helpForPage(ctx.actor.role, "/bank")?.id} subtitle="Match the books to the bank statement" back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         <Card title="Bank position">
           <Details

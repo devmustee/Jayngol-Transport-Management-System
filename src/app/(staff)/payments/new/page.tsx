@@ -11,6 +11,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { backEntryReason } from "@/services/back-entries";
 import { operatorsOwingLoans } from "@/services/loans";
 import { listOperators } from "@/services/operators";
@@ -218,6 +219,7 @@ export default async function TakePaymentPage({
         <PageHeader
           title={operator.name}
           subtitle={status.tricycleCode ? `Tricycle ${status.tricycleCode}` : "No tricycle"}
+          help={helpForPage(ctx.actor.role, "/payments/new")?.id}
           back={fromOperator ? { href: `/operators/${operator.id}`, label: operator.name } : { href: "/payments/new", label: "Choose another operator" }}
           action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
         />
@@ -435,6 +437,7 @@ export default async function TakePaymentPage({
     <>
       <PageHeader
         title={forContribution ? "Take contribution" : "Take payment"}
+        help={forContribution ? null : helpForPage(ctx.actor.role, "/payments/new")?.id}
         subtitle={forContribution ? "Find the operator paying their weekly contribution" : undefined}
         back={forContribution ? { href: "/contributions", label: "Contributions" } : { href: "/money", label: "Money" }}
       />

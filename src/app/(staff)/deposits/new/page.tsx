@@ -8,6 +8,7 @@ import { isUuid } from "@/lib/fields";
 import { queryValue } from "@/lib/format";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { listOperators } from "@/services/operators";
 import { paymentContext } from "@/services/payments";
 
@@ -27,6 +28,7 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
       <>
         <PageHeader
           title={data.operator.name}
+          help={helpForPage(ctx.actor.role, "/deposits/new")?.id}
           subtitle={data.current ? `Tricycle ${data.current.codeNumber}` : "No tricycle"}
           back={
             fromOperator
@@ -44,7 +46,7 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
   const results = q?.trim() ? (await listOperators(ctx, { q })).slice(0, 20) : [];
   return (
     <>
-      <PageHeader title="Record saving" back={{ href: "/deposits", label: "Savings" }} />
+      <PageHeader title="Record saving" help={helpForPage(ctx.actor.role, "/deposits/new")?.id} back={{ href: "/deposits", label: "Savings" }} />
       <form className="mb-4 flex gap-2" role="search">
         <input
           name="q"

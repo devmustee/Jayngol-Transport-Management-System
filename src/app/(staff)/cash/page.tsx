@@ -12,6 +12,7 @@ import { formatDate, formatDateTime, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { collectionsByCashier, myCollections } from "@/services/balance-periods";
 import { cashDay, recentCloses } from "@/services/finance";
 
@@ -86,6 +87,7 @@ export default async function CashPage({
           </>
         }
         back={{ href: "/money", label: "Money" }}
+        help={helpForPage(ctx.actor.role, "/cash")?.id}
       />
       <form className="mb-4 flex gap-2">
         <input type="date" name="date" max={today} defaultValue={date} aria-label="Date" className="min-h-11 rounded-lg border border-line bg-card px-3" />

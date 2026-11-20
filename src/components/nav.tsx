@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Award,
   BarChart3,
+  BookOpen,
   Bike,
   CalendarRange,
   CalendarDays,
@@ -43,6 +44,7 @@ export const ICONS = {
   awards: Award,
   reports: BarChart3,
   annual: CalendarRange,
+  guide: BookOpen,
 } as const;
 
 export type NavItem = {

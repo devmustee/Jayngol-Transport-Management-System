@@ -6,6 +6,7 @@ import { Badge, Card, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { moneySources } from "@/services/cash-book";
 import { listTransfers } from "@/services/transfers";
 
@@ -28,7 +29,7 @@ export default async function TransfersPage() {
 
   return (
     <>
-      <PageHeader title="Move money" subtitle="Banking cash, staff handovers and cash handed to the Owner" back={{ href: "/money", label: "Money" }} />
+      <PageHeader title="Move money" help={helpForPage(ctx.actor.role, "/transfers")?.id} subtitle="Banking cash, staff handovers and cash handed to the Owner" back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         {pending.length > 0 ? (
           <Card title="Handovers waiting">

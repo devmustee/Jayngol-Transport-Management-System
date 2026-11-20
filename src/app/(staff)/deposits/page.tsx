@@ -5,6 +5,7 @@ import { formatDate, formatDateTime, METHOD_LABELS, OPERATOR_STATUS_LABELS, quer
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { listDeposits } from "@/services/deposits";
 import { depositsToSettle, listSettlements, monthEnd, notSavingThisMonth } from "@/services/deposit-settlements";
 import { moneySources } from "@/services/cash-book";
@@ -36,6 +37,7 @@ export default async function DepositsPage({ searchParams }: { searchParams: Pro
     <>
       <PageHeader
         title="Operator savings"
+        help={helpForPage(ctx.actor.role, "/deposits")?.id}
         subtitle="Saved by operators through the month and given back at the month end. It is not income."
         back={{ href: "/money", label: "Money" }}
         action={can(ctx.actor.role, "payment.record") ? <LinkButton href="/deposits/new">Record saving</LinkButton> : undefined}

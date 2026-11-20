@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { PlaceMemory } from "@/components/back-link";
 import { BottomNav, SideNav, type NavItem } from "@/components/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
+import { topicsFor } from "@/guide";
 import { requireStaffCtx } from "@/lib/session";
 import { NotificationBell } from "@/components/notification-bell";
 import { UrgentBanner } from "@/components/urgent-banner";
@@ -74,6 +75,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   if (can(actor.role, "audit.view")) {
     items.push({ href: "/audit", label: "Audit log", icon: "audit", primary: false });
   }
+  if (topicsFor(actor.role).length > 0) items.push({ href: "/guide", label: "Guide", icon: "guide", primary: false });
   items.push({ href: "/account", label: "Account", icon: "account", primary: true });
 
   const roleLabel = ROLE_LABELS[actor.role] ?? actor.role;
