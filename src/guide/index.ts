@@ -2,13 +2,14 @@ import { can, type Role } from "@/lib/permissions";
 import { FIELD_TOPICS } from "./topics/field";
 import { FLEET_TOPICS } from "./topics/fleet";
 import { MONEY_TOPICS } from "./topics/money";
+import { OPERATOR_TOPICS } from "./topics/operator";
 import { REFUSALS } from "./refusals";
 import { TOURS, type Tour, type TourStep } from "./tours";
 import { GUIDE_AREAS, type GuideArea, type GuideTopic } from "./types";
 
 export { GUIDE_AREAS, TOURS, type GuideArea, type GuideTopic, type Tour, type TourStep };
 
-export const TOPICS: GuideTopic[] = [...MONEY_TOPICS, ...FLEET_TOPICS, ...FIELD_TOPICS];
+export const TOPICS: GuideTopic[] = [...MONEY_TOPICS, ...FLEET_TOPICS, ...FIELD_TOPICS, ...OPERATOR_TOPICS];
 
 const byId = new Map(TOPICS.map((topic) => [topic.id, topic]));
 

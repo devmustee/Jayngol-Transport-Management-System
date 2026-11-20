@@ -178,3 +178,27 @@ describe("refusals that link to the Guide", () => {
     expect(helpForRefusal("manager", ["Something else went wrong."])).toBeNull();
   });
 });
+
+describe("the operator's help", () => {
+  it("shows operators only their own topics, and staff never see them", () => {
+    const mine = topicsFor("operator");
+    expect(mine.length).toBeGreaterThan(0);
+    for (const topic of mine) expect(topic.area, topic.id).toBe("operator");
+    for (const role of ["owner", "manager", "assistant_manager", "supervisor"] as const) {
+      expect(topicsFor(role).some((topic) => topic.area === "operator"), role).toBe(false);
+    }
+    expect(topicFor("operator", "cash-close")).toBeNull();
+    expect(searchTopics("operator", "pin")[0]?.id).toBe("my-login");
+    expect(searchTopics("operator", "sticker")[0]?.id).toBe("my-fines");
+  });
+
+  it("links the operator's page only to operator topics", () => {
+    const page = readFileSync(join(APP, "me/page.tsx"), "utf8");
+    const ids = [
+      ...[...page.matchAll(/<HelpLink id="([^"]+)"/g)].map((match) => match[1]!),
+      ...[...page.matchAll(/ASKED_MOST = \[([^\]]+)\]/g)].flatMap((match) => [...match[1]!.matchAll(/"([^"]+)"/g)].map((id) => id[1]!)),
+    ];
+    expect(ids.length).toBeGreaterThan(3);
+    for (const id of ids) expect(topicFor("operator", id)?.id, id).toBe(id);
+  });
+});

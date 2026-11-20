@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { NotificationBell } from "@/components/notification-bell";
-import { Bell, BellRing, Bike, CalendarDays, LogOut } from "lucide-react";
+import { Bell, BellRing, Bike, CalendarDays, CircleHelp, LogOut } from "lucide-react";
 import { logoutAction, markNoticesReadAction } from "@/app/actions";
 import { ActionForm, SubmitButton } from "@/components/form";
 import { OperatorBalanceCard } from "@/components/balance-periods";
@@ -25,6 +25,22 @@ import { requireCtx } from "@/lib/session";
 import { myBalancePeriods } from "@/services/balance-periods";
 import { getMyRecords } from "@/services/portal";
 import { RULE_NAMES } from "@/services/violations";
+import { topicFor, topicsFor } from "@/guide";
+
+/** A small "How this works" link on a card, to one of the operator's help topics. */
+function HelpLink({ id }: { id: string }) {
+  return (
+    <Link
+      href={`/me/guide/${id}`}
+      className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-gold-deep"
+    >
+      <CircleHelp size={16} aria-hidden /> How this works
+    </Link>
+  );
+}
+
+/** The questions operators ask the office most, first on the Help card. */
+const ASKED_MOST = ["my-daily-balance", "my-fines", "my-login"];
 
 export const metadata: Metadata = { title: "Driver Portal" };
 
@@ -84,6 +100,14 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         </div>
 
         <div className="flex shrink-0 items-center gap-2">
+        <Link
+          href="/me/guide"
+          aria-label="Help"
+          title="Help"
+          className="inline-flex size-11 items-center justify-center rounded-full border border-line bg-card text-ink hover:bg-card-subtle"
+        >
+          <CircleHelp size={20} aria-hidden />
+        </Link>
         <NotificationBell href="/me/notifications" initial={{ unread: notices.unread, critical: notices.critical }} variant="light" />
         <form action={logoutAction}>
           <button
@@ -139,7 +163,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
 
         {/* Tricycle Assignment */}
         {current ? (
-          <Card title="Assigned Tricycle" subtitle="Active daily agreement">
+          <Card title="Assigned Tricycle" subtitle="Active daily agreement" action={<HelpLink id="my-service" />}>
             <div className="mb-3 flex items-center gap-3 rounded-xl bg-gold-wash/50 p-3 border border-gold-light/40">
               <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gold text-ink font-bold">
                 <Bike size={20} />
@@ -171,7 +195,11 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
 
         {/* Deposits */}
         {deposits.items.length > 0 ? (
-          <Card title="My savings" subtitle="Held for you by Jayngol and given back at the month end. It does not pay your daily balance.">
+          <Card
+            title="My savings"
+            subtitle="Held for you by Jayngol and given back at the month end. It does not pay your daily balance."
+            action={<HelpLink id="my-savings" />}
+          >
             <div className="mb-3 text-2xl font-semibold tabular-nums text-ink">{formatNaira(deposits.heldKobo)}</div>
             <ul className="divide-y divide-line/60">
               {deposits.items.map((deposit) => (
@@ -244,7 +272,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         ) : null}
 
         {/* Rule Offences */}
-        <Card title="Offences and fines" subtitle="Recorded rule findings">
+        <Card title="Offences and fines" subtitle="Recorded rule findings" action={<HelpLink id="my-fines" />}>
           {compliance.offences.length === 0 ? (
             <div className="py-2 text-center text-xs font-semibold text-ok">
               ✨ Excellent record! You have zero recorded rule violations.
@@ -324,6 +352,26 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
             </div>
           }
         />
+
+        {/* Help */}
+        {topicsFor(ctx.actor.role).length > 0 ? (
+          <Card title="Help" subtitle="Answers to what operators ask most">
+            <ul className="divide-y divide-line">
+              {ASKED_MOST.map((id) => topicFor(ctx.actor.role, id))
+                .filter((topic) => topic !== null)
+                .map((topic) => (
+                  <li key={topic.id}>
+                    <Link href={`/me/guide/${topic.id}`} className="flex min-h-12 items-center justify-between gap-3 py-2 font-semibold text-ink">
+                      {topic.title} <span aria-hidden className="text-gold-deep">→</span>
+                    </Link>
+                  </li>
+                ))}
+            </ul>
+            <Link href="/me/guide" className="mt-2 inline-flex min-h-11 items-center text-sm font-bold text-gold-deep">
+              All help
+            </Link>
+          </Card>
+        ) : null}
       </div>
     </main>
   );
