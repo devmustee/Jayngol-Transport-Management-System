@@ -38,6 +38,8 @@ const MATRIX = {
   "backentry.manage": ["manager"],
   /** Told of every payment reversal and backdate. */
   "payment.oversee": ["owner"],
+  /** Told when money reaches the Owner, leaves the bank or the Owner's money, or a move is reversed. */
+  "money.oversee": ["owner"],
   "finance.view": ["owner", "manager", "assistant_manager"],
   "cash.close": OFFICE,
   /** Told when a cash count does not match. The Owner only for ₦2,000 or more, or the Manager's own count. */

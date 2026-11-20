@@ -21,7 +21,7 @@ import { cashDay, closeCash, correctCashCount, recentCloses } from "@/services/f
 import { cancelLoan, grantLoan } from "@/services/loans";
 import { getMyNotices, markMyNoticesRead } from "@/services/notices";
 import { listPayments, recordPayment, reversePayment } from "@/services/payments";
-import { acceptTransfer, createTransfer, rejectTransfer, voidTransfer } from "@/services/transfers";
+import { acceptTransfer, createTransfer, listTransfers, MOVES_PER_PAGE, rejectTransfer, voidTransfer } from "@/services/transfers";
 import { makeOperator, makeUser, nextReference } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
@@ -775,5 +775,129 @@ describe("cash book fixes", () => {
     const owner = await cashBook(on(manager, date), { from: date, to: date, whose: "owner" });
     expect(owner.rows.every((row) => row.account === "owner")).toBe(true);
     expect(owner.owner.movedIn).toBeGreaterThanOrEqual(300_000);
+  });
+});
+
+describe("transfer guards", () => {
+  const tellerRow = (transferId: string) =>
+    sql`SELECT reference, confirmed_at, released_at FROM payment_references WHERE transfer_id = ${transferId}`;
+
+  it("saves a move once when Save is tapped twice, even at the same moment", async () => {
+    const person = on(await someone(), "2034-09-01");
+    await collect(person, "5,000");
+    const clientId = randomUUID();
+    const move = { from: person.actor.userId, to: "owner", amount: "1,000", clientId };
+    const [a, b] = await Promise.all([createTransfer(person, move), createTransfer(person, move)]);
+    expect(a.id).toBe(b.id);
+    const again = await createTransfer(person, move);
+    expect(again.id).toBe(a.id);
+    expect(again.message).toMatch(/already saved/);
+    expect(await expectedCash(db, person.actor.userId, "2034-09-01")).toBe(400_000);
+    // Someone else cannot read another person's move back with its id.
+    await expect(createTransfer(on(manager, "2034-09-01"), { ...move, from: manager.actor.userId })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("uses a teller number once, however it is typed, and frees it when reversed", async () => {
+    const person = on(await someone(), "2034-09-02");
+    await collect(person, "20,000");
+    const teller = `tl ${randomUUID().slice(0, 8)}`;
+    const deposit = await createTransfer(person, { from: person.actor.userId, to: "bank", amount: "5,000", reference: teller, photo: PHOTO });
+    expect(deposit.reference).toBe(teller.replace(/\s/g, "").toUpperCase());
+    expect(deposit.message).toMatch(/Bank check/);
+    const again = { from: person.actor.userId, to: "bank", amount: "5,000", photo: PHOTO };
+    await expect(createTransfer(person, { ...again, reference: teller.toUpperCase() })).rejects.toMatchObject({
+      fieldErrors: { reference: expect.stringMatching(/already been used/) },
+    });
+    // The same number on a transfer payment is refused too.
+    await expect(payBy(on(manager, "2034-09-02"), "transfer", deposit.reference!)).rejects.toMatchObject({
+      fieldErrors: { reference: expect.anything() },
+    });
+
+    await voidTransfer(on(manager, "2034-09-02"), deposit.id, { reason: "Wrong teller" });
+    const [row] = (await db.execute(tellerRow(deposit.id))) as unknown as { released_at: Date | null }[];
+    expect(row!.released_at).not.toBeNull();
+    await expect(createTransfer(person, { ...again, reference: teller })).resolves.toBeDefined();
+  });
+
+  it("refuses a teller number used before the Bank check listed teller deposits", async () => {
+    const person = on(await someone(), "2034-09-03");
+    await collect(person, "10,000");
+    const old = await createTransfer(person, { from: person.actor.userId, to: "bank", amount: "1,000", reference: `OLD-${randomUUID().slice(0, 6)}`, photo: PHOTO });
+    await db.execute(sql`DELETE FROM payment_references WHERE transfer_id = ${old.id}`);
+    await expect(
+      createTransfer(person, { from: person.actor.userId, to: "bank", amount: "1,000", reference: old.reference!.toLowerCase(), photo: PHOTO }),
+    ).rejects.toMatchObject({ fieldErrors: { reference: expect.stringMatching(/already been used/) } });
+  });
+
+  it("puts a teller deposit on the Bank check for someone else to confirm", async () => {
+    const person = on(await someone(), DAY);
+    await collect(person, "9,000");
+    const deposit = await createTransfer(person, { from: person.actor.userId, to: "bank", amount: "9,000", reference: `BC-${randomUUID().slice(0, 6)}`, photo: PHOTO });
+    const found = await bankPosition(on(manager, DAY), { q: deposit.reference! });
+    expect(found.toConfirm).toEqual([
+      expect.objectContaining({ id: deposit.id, kind: "transfer", amount: 900_000, operator: person.actor.name, method: "teller" }),
+    ]);
+    expect((await bankPosition(on(manager, DAY), { q: person.actor.name })).matchedCount).toBe(1);
+    await expect(confirmBankItems(person, { items: [`transfer:${deposit.id}`] })).rejects.toThrow(/which you recorded/);
+    expect(await confirmBankItems(on(manager, DAY), { items: [`transfer:${deposit.id}`] })).toEqual({ confirmed: 1 });
+    await undoBankConfirm(on(manager, DAY), { kind: "transfer", id: deposit.id });
+    const [row] = (await db.execute(tellerRow(deposit.id))) as unknown as { confirmed_at: Date | null }[];
+    expect(row!.confirmed_at).toBeNull();
+    const { unconfirmedKobo } = await bookAt(db, "infinity");
+    expect(unconfirmedKobo).toBeGreaterThanOrEqual(900_000);
+  });
+
+  it("waits for the receiver to accept cash from the Owner, and tells the Owner", async () => {
+    const date = "2034-09-04";
+    const giver = on(await someone(), date);
+    const taker = on(await someone(), date);
+    await collect(giver, "3,000");
+    const toOwner = await createTransfer(giver, { from: giver.actor.userId, to: "owner", amount: "3,000" });
+    expect((await toldAbout(owner.actor.userId, "owner_money", toOwner.id))[0]).toMatch(/handed to you/);
+
+    const back = await createTransfer(on(manager, date), { from: "owner", to: taker.actor.userId, amount: "2,000" });
+    expect(back.status).toBe("pending");
+    expect(await expectedCash(db, taker.actor.userId, date)).toBe(0);
+    expect((await toldAbout(taker.actor.userId, "handover_sent", back.id))[0]).toMatch(/from the Owner/);
+    await expect(acceptTransfer(on(manager, date), back.id)).rejects.toThrow(/receiving/);
+    await acceptTransfer(taker, back.id);
+    expect(await expectedCash(db, taker.actor.userId, date)).toBe(200_000);
+    expect(await toldAbout(owner.actor.userId, "owner_money", back.id)).toHaveLength(1);
+
+    // Cash the Manager takes for themselves needs no acceptance.
+    const own = await createTransfer(on(manager, date), { from: "owner", to: manager.actor.userId, amount: "500" });
+    expect(own.status).toBe("done");
+
+    await voidTransfer(on(manager, date), back.id, { reason: "Wrong person" });
+    expect((await toldAbout(owner.actor.userId, "owner_money", back.id)).join(" ")).toMatch(/reversed/);
+  });
+
+  it("does not trouble the Owner with handovers between staff", async () => {
+    const date = "2034-09-05";
+    const giver = on(await someone(), date);
+    const taker = on(await someone(), date);
+    await collect(giver, "1,000");
+    const handover = await createTransfer(giver, { from: giver.actor.userId, to: taker.actor.userId, amount: "1,000" });
+    await acceptTransfer(taker, handover.id);
+    expect(await toldAbout(owner.actor.userId, "owner_money", handover.id)).toHaveLength(0);
+  });
+
+  it("lists moves a page at a time and says who decided", async () => {
+    const date = "2034-09-06";
+    const giver = on(await someone(), date);
+    const taker = on(await someone(), date);
+    await collect(giver, "1,000");
+    const handover = await createTransfer(giver, { from: giver.actor.userId, to: taker.actor.userId, amount: "1,000" });
+    await acceptTransfer(taker, handover.id);
+    const first = await listTransfers(manager);
+    expect(first.page).toBe(1);
+    expect(first.recent.length).toBeLessThanOrEqual(MOVES_PER_PAGE);
+    expect(first.total).toBeGreaterThanOrEqual(first.recent.length);
+    const shown = first.recent.find((row) => row.id === handover.id);
+    if (shown) expect(shown.decidedByName).toBe(taker.actor.name);
+    const last = await listTransfers(manager, { page: first.pages + 1 });
+    expect(last.recent).toHaveLength(0);
+    expect(first.held).toMatchObject({ ownerKobo: expect.any(Number) });
+    expect((await listTransfers(giver)).held).toBeNull();
   });
 });

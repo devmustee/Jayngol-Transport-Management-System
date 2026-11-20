@@ -3,12 +3,13 @@ import { acceptTransferAction, rejectTransferAction, voidTransferAction } from "
 import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
 import { TransferForm } from "@/components/forms/transfer-form";
 import { Badge, Card, Disclosure, Empty, PageHeader } from "@/components/ui";
-import { formatDateTime } from "@/lib/format";
+import Link from "next/link";
+import { formatDateTime, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
 import { helpForPage } from "@/guide";
 import { moneySources } from "@/services/cash-book";
-import { listTransfers } from "@/services/transfers";
+import { listTransfers, MOVES_PER_PAGE } from "@/services/transfers";
 
 export const metadata: Metadata = { title: "Move money" };
 
@@ -19,12 +20,16 @@ const STATUS = {
   pending: { label: "Waiting", tone: "gold" },
 } as const;
 
-export default async function TransfersPage() {
+const DECIDED = { done: "Accepted", rejected: "Refused", voided: "Reversed", pending: "" } as const;
+
+export default async function TransfersPage({ searchParams }: { searchParams: Promise<Record<string, unknown>> }) {
   const ctx = await requirePage("finance.view");
-  const [{ pending, recent, userId, canMove, isManager }, people] = await Promise.all([
-    listTransfers(ctx),
+  const asked = Number(queryValue((await searchParams).page));
+  const [{ pending, recent, userId, canMove, isManager, page, pages, total, held }, people] = await Promise.all([
+    listTransfers(ctx, { page: Number.isFinite(asked) ? asked : 1 }),
     moneySources(ctx),
   ]);
+  const first = (page - 1) * MOVES_PER_PAGE + 1;
   const from = isManager ? people : people.filter((person) => person.id === userId);
 
   return (
@@ -67,14 +72,18 @@ export default async function TransfersPage() {
 
         {canMove ? (
           <Card title="Record a move">
-            <TransferForm from={from} people={people} isManager={isManager} />
+            <TransferForm from={from} people={people} isManager={isManager} me={userId} held={held} />
           </Card>
         ) : null}
 
         <Card title="Recent moves">
           {recent.length === 0 ? (
-            <Empty>No money has been moved yet.</Empty>
+            <Empty>{total > 0 ? "There are no moves on this page." : "No money has been moved yet."}</Empty>
           ) : (
+            <>
+            <p className="mb-3 text-sm text-muted">
+              Showing {first}–{first + recent.length - 1} of {total}, newest first.
+            </p>
             <ul className="divide-y divide-line">
               {recent.map((item) => (
                 <li key={item.id} id={`move-${item.id}`} className="scroll-mt-24 space-y-1.5 py-3 first:pt-0 last:pb-0">
@@ -88,6 +97,11 @@ export default async function TransfersPage() {
                     {item.reference ? ` · ${item.reference}` : ""}
                   </div>
                   {item.note ? <div className="text-sm">{item.note}</div> : null}
+                  {item.decidedByName && item.decidedAt ? (
+                    <div className="text-sm text-muted">
+                      {DECIDED[item.status]} by {item.decidedByName} · {formatDateTime(item.decidedAt)}
+                    </div>
+                  ) : null}
                   {item.reason ? <div className="text-sm text-muted">Reason: {item.reason}</div> : null}
                   {item.photoId ? (
                     <a href={`/api/photos/${item.photoId}`} target="_blank" rel="noopener noreferrer" className="text-sm text-gold-deep underline">View teller</a>
@@ -103,7 +117,23 @@ export default async function TransfersPage() {
                 </li>
               ))}
             </ul>
+            </>
           )}
+          {pages > 1 ? (
+            <nav aria-label="Pages of moves" className="mt-4 flex items-center justify-between gap-3 text-sm">
+              {page > 1 ? (
+                <Link href={page === 2 ? "/transfers" : `/transfers?page=${page - 1}`} className="min-h-11 content-center font-semibold text-gold-deep underline">
+                  Newer
+                </Link>
+              ) : <span />}
+              <span className="text-muted">Page {page} of {pages}</span>
+              {page < pages ? (
+                <Link href={`/transfers?page=${page + 1}`} className="min-h-11 content-center font-semibold text-gold-deep underline">
+                  Older
+                </Link>
+              ) : <span />}
+            </nav>
+          ) : null}
         </Card>
       </div>
     </>

@@ -106,6 +106,7 @@ type Handover = {
   toCustodian: string | null;
   createdBy: string;
   amountKobo: number;
+  fromPlace?: string;
 };
 
 /**
@@ -132,7 +133,9 @@ export async function tellHandoverSent(tx: Tx, ctx: Ctx, t: Handover) {
     userIds: [confirmer],
     body:
       confirmer === t.toCustodian
-        ? `${from} is handing you ${amount} in cash. Count it, then accept it.`
+        ? t.fromCustodian
+          ? `${from} is handing you ${amount} in cash. Count it, then accept it.`
+          : `${ctx.actor.name} is giving you ${amount} in cash from ${t.fromPlace === "bank" ? "the bank" : "the Owner"}. Count it, then accept it.`
         : `${ctx.actor.name} recorded that you gave ${to} ${amount} in cash. Confirm it if you did, or withdraw it.`,
     entity: { type: "money_transfer", id: t.id },
     dedupeKey: `transfer:${t.id}:sent`,
@@ -185,6 +188,34 @@ export async function tellCashMoved(
         : `${ctx.actor.name} reversed the move of ${amount} from ${how.fromLabel} to ${how.toLabel}. Reason: ${how.reason ?? ""}`,
     entity: { type: "money_transfer", id: t.id },
     dedupeKey: `transfer:${t.id}:${how.what}`,
+  });
+}
+
+/**
+ * The Owner is read-only, so cannot accept a handover: instead they are told
+ * when money is handed to them, when it leaves the bank or their money, and
+ * when any move is reversed.
+ */
+export async function tellOwnerOfMove(
+  tx: Tx,
+  ctx: Ctx,
+  t: Handover & { fromPlace: string; toPlace: string },
+  how: { what: "moved" | "reversed"; fromLabel: string; toLabel: string; reason?: string },
+) {
+  const matters = how.what === "reversed" || t.toPlace === "owner" || t.fromPlace !== "cash";
+  if (!matters) return;
+  const amount = formatNaira(t.amountKobo);
+  await notify(tx, {
+    kind: "owner_money",
+    ...by(ctx),
+    body:
+      how.what === "reversed"
+        ? `${ctx.actor.name} reversed the move of ${amount} from ${how.fromLabel} to ${how.toLabel}. Reason: ${how.reason ?? ""}`
+        : t.toPlace === "owner"
+          ? `${ctx.actor.name} recorded ${amount} handed to you from ${how.fromLabel}. Tell the Manager at once if you did not get it.`
+          : `${ctx.actor.name} moved ${amount} from ${how.fromLabel} to ${how.toLabel}.`,
+    entity: { type: "money_transfer", id: t.id },
+    dedupeKey: `transfer:${t.id}:owner:${how.what}`,
   });
 }
 

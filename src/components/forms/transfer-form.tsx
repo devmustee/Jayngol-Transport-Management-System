@@ -15,8 +15,26 @@ const isPerson = (value: string) => value !== "" && value !== "bank" && value !=
  * the To list leaves out the place chosen in From, and the cash left free
  * follows what is typed. The server checks everything again.
  */
-export function TransferForm({ from, people, isManager }: { from: Person[]; people: Person[]; isManager: boolean }) {
+export function TransferForm({
+  from,
+  people,
+  isManager,
+  me = null,
+  held = null,
+}: {
+  from: Person[];
+  people: Person[];
+  isManager: boolean;
+  /** The person recording, who needs no acceptance for cash they record for themselves. */
+  me?: string | null;
+  /** What the bank book and the Owner hold. The bank figure is null before an opening balance is set. */
+  held?: { bankKobo: number | null; ownerKobo: number } | null;
+}) {
   const [source, setSource] = useState("");
+  // A new one after each save, so a second tap of Save records the move only once.
+  // Made in the browser after it loads, so the page the server sent still matches.
+  const [clientId, setClientId] = useState("");
+  useEffect(() => setClientId(crypto.randomUUID()), []);
   const [target, setTarget] = useState("");
   const [amount, setAmount] = useState("");
   const anchor = useRef<HTMLDivElement>(null);
@@ -29,6 +47,7 @@ export function TransferForm({ from, people, isManager }: { from: Person[]; peop
       setSource("");
       setTarget("");
       setAmount("");
+      setClientId(crypto.randomUUID());
     };
     form.addEventListener("reset", clear);
     return () => form.removeEventListener("reset", clear);
@@ -43,6 +62,7 @@ export function TransferForm({ from, people, isManager }: { from: Person[]; peop
 
   return (
     <ActionForm action={createTransferAction}>
+      <input type="hidden" name="clientId" value={clientId} />
       <div ref={anchor} className="grid gap-4 sm:grid-cols-2">
         <SelectField name="from" label="From" value={source} onChange={(event) => setSource(event.target.value)}>
           <option value="" disabled>Choose…</option>
@@ -52,8 +72,12 @@ export function TransferForm({ from, people, isManager }: { from: Person[]; peop
               {person.waitingKobo > 0 ? ` free, ${formatNaira(person.waitingKobo)} waiting` : ""})
             </option>
           ))}
-          {isManager ? <option value="bank">Bank</option> : null}
-          {isManager ? <option value="owner">Owner</option> : null}
+          {isManager ? (
+            <option value="bank">Bank{held?.bankKobo != null ? ` (book shows ${formatNaira(held.bankKobo)})` : ""}</option>
+          ) : null}
+          {isManager ? (
+            <option value="owner">Owner{held ? ` (${formatNaira(Math.max(held.ownerKobo, 0))} handed over)` : ""}</option>
+          ) : null}
         </SelectField>
         <SelectField name="to" label="To" value={target} onChange={(event) => setTarget(event.target.value)}>
           <option value="" disabled>Choose…</option>
@@ -91,6 +115,12 @@ export function TransferForm({ from, people, isManager }: { from: Person[]; peop
           A handover waits until the other person confirms it. The cash stays with {giver?.name ?? "the giver"} until then.
         </p>
       ) : null}
+      {(source === "bank" || source === "owner") && isPerson(target) && target !== me ? (
+        <p className="text-sm text-muted">
+          {people.find((person) => person.id === target)?.name ?? "They"} must accept this cash before it counts as theirs.
+        </p>
+      ) : null}
+      {target === "owner" ? <p className="text-sm text-muted">The Owner is told of this move.</p> : null}
       {intoBank ? (
         <>
           <Field name="reference" label="Teller or slip number" autoComplete="off" />

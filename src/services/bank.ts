@@ -6,6 +6,7 @@ import {
   bankOpeningCorrections,
   bankReconciliationCorrections,
   bankReconciliations,
+  moneyTransfers,
   operatorDeposits,
   paymentReferences,
   payments,
@@ -43,24 +44,44 @@ export const BANK_BOOK = sql`(
   UNION ALL
   SELECT op.id, op.account, op.amount_kobo, op.as_of, op.source_type, op.source_id, op.at FROM ${OPENING} op)`;
 
-type Kind = "payment" | "deposit";
+/** A payment or saving by transfer or POS, or a teller deposit of cash into the bank. */
+type Kind = "payment" | "deposit" | "transfer";
 
-/** Confirms one transfer or POS against the statement. Returns false when it was already confirmed. */
-async function confirmOne(tx: Executor, ctx: Ctx, kind: Kind, id: string, now: Date) {
+const LINK = {
+  payment: paymentReferences.paymentId,
+  deposit: paymentReferences.depositId,
+  transfer: paymentReferences.transferId,
+} as const;
+const NOUN = { payment: "payment", deposit: "saving", transfer: "teller deposit" } as const;
+const ENTITY = { payment: "payment", deposit: "operator_deposit", transfer: "money_transfer" } as const;
+
+async function lockReference(tx: Executor, kind: Kind, id: string) {
+  const link = LINK[kind];
+  const state = { released: paymentReferences.releasedAt, confirmed: paymentReferences.confirmedAt };
+  if (kind === "transfer") {
+    const [row] = await tx
+      .select({ ...state, receivedBy: moneyTransfers.createdBy, receipt: sql<string>`'teller ' || ${paymentReferences.reference}` })
+      .from(paymentReferences)
+      .innerJoin(moneyTransfers, eq(moneyTransfers.id, link))
+      .where(eq(link, id))
+      .for("update", { of: paymentReferences });
+    return row;
+  }
   const owner = kind === "payment" ? payments : operatorDeposits;
-  const link = kind === "payment" ? paymentReferences.paymentId : paymentReferences.depositId;
   const [row] = await tx
-    .select({
-      receivedBy: owner.receivedBy,
-      receipt: owner.receiptNumber,
-      released: paymentReferences.releasedAt,
-      confirmed: paymentReferences.confirmedAt,
-    })
+    .select({ ...state, receivedBy: owner.receivedBy, receipt: owner.receiptNumber })
     .from(paymentReferences)
     .innerJoin(owner, eq(owner.id, link))
     .where(eq(link, id))
     .for("update", { of: paymentReferences });
-  const noun = kind === "payment" ? "payment" : "saving";
+  return row;
+}
+
+/** Confirms one transfer, POS or teller deposit against the statement. Returns false when it was already confirmed. */
+async function confirmOne(tx: Executor, ctx: Ctx, kind: Kind, id: string, now: Date) {
+  const link = LINK[kind];
+  const row = await lockReference(tx, kind, id);
+  const noun = NOUN[kind];
   if (!row || row.released) throw new DomainError(`This ${noun} is no longer on record.`);
   if (row.confirmed) return false;
   if (row.receivedBy === ctx.actor.userId) {
@@ -70,7 +91,7 @@ async function confirmOne(tx: Executor, ctx: Ctx, kind: Kind, id: string, now: D
     .update(paymentReferences)
     .set({ confirmedBy: ctx.actor.userId, confirmedAt: now })
     .where(and(eq(link, id), isNull(paymentReferences.confirmedAt)));
-  await auditFrom(ctx, tx, { action: "bank.confirm", entityType: kind === "payment" ? "payment" : "operator_deposit", entityId: id });
+  await auditFrom(ctx, tx, { action: "bank.confirm", entityType: ENTITY[kind], entityId: id });
   return true;
 }
 
@@ -80,7 +101,7 @@ async function confirmSingle(ctx: Ctx, kind: Kind, rawId: unknown) {
   const now = ctx.clock();
   await db.transaction(async (tx) => {
     if (!(await confirmOne(tx, ctx, kind, id, now))) {
-      throw new DomainError(`This ${kind === "payment" ? "payment" : "saving"} has already been confirmed.`);
+      throw new DomainError(`This ${NOUN[kind]} has already been confirmed.`);
     }
   });
 }
@@ -88,8 +109,9 @@ async function confirmSingle(ctx: Ctx, kind: Kind, rawId: unknown) {
 /** Only "the other person" can confirm money against the statement. */
 export const confirmBankPayment = (ctx: Ctx, rawId: unknown) => confirmSingle(ctx, "payment", rawId);
 export const confirmBankDeposit = (ctx: Ctx, rawId: unknown) => confirmSingle(ctx, "deposit", rawId);
+export const confirmBankTeller = (ctx: Ctx, rawId: unknown) => confirmSingle(ctx, "transfer", rawId);
 
-const ITEM = /^(payment|deposit):([0-9a-f-]{36})$/i;
+const ITEM = /^(payment|deposit|transfer):([0-9a-f-]{36})$/i;
 const itemsSchema = z.object({
   items: z
     .array(z.string().regex(ITEM, "Choose what was seen on the statement"), "Tick what was seen on the statement")
@@ -113,13 +135,13 @@ export async function confirmBankItems(ctx: Ctx, raw: unknown) {
   });
 }
 
-const undoSchema = z.object({ kind: z.enum(["payment", "deposit"], "Choose what to undo"), id: idField("item") });
+const undoSchema = z.object({ kind: z.enum(["payment", "deposit", "transfer"], "Choose what to undo"), id: idField("item") });
 
 /** Undoes a confirmation made by mistake, by the same person, the same day. */
 export async function undoBankConfirm(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "bank.reconcile");
   const { kind, id } = parseInput(undoSchema, raw);
-  const link = kind === "payment" ? paymentReferences.paymentId : paymentReferences.depositId;
+  const link = LINK[kind];
   const today = businessDate(ctx.clock());
   await db.transaction(async (tx) => {
     const [row] = await tx
@@ -134,7 +156,7 @@ export async function undoBankConfirm(ctx: Ctx, raw: unknown) {
     await tx.update(paymentReferences).set({ confirmedBy: null, confirmedAt: null }).where(eq(link, id));
     await auditFrom(ctx, tx, {
       action: "bank.unconfirm",
-      entityType: kind === "payment" ? "payment" : "operator_deposit",
+      entityType: ENTITY[kind],
       entityId: id,
     });
   });
@@ -230,20 +252,40 @@ export async function correctOpeningBalance(ctx: Ctx, raw: unknown) {
   });
 }
 
+/** What each bank reference belongs to: a payment, a saving, or a teller deposit from staff cash. */
+const REFERENCE_OWNERS = sql`
+  LEFT JOIN payments p ON p.id = r.payment_id
+  LEFT JOIN operator_deposits d ON d.id = r.deposit_id
+  LEFT JOIN money_transfers t ON t.id = r.transfer_id
+  LEFT JOIN operators o ON o.id = COALESCE(p.operator_id, d.operator_id)
+  LEFT JOIN users tu ON tu.id = t.created_by`;
+const REF_AMOUNT = sql`COALESCE(p.amount_kobo, d.amount_kobo, t.amount_kobo)`;
+const REF_DATE = sql`COALESCE(p.business_date, d.business_date, (t.created_at AT TIME ZONE 'Africa/Lagos')::date)`;
+/** For a teller deposit, the person who paid it in stands where the operator would. */
+const REF_WHO = sql`COALESCE(o.name, tu.name)`;
+
 /** The bank book before a date: the balance, and how much of it the statement has not yet shown. */
 export async function bookAt(exec: Executor, before: string) {
   const rows = (await exec.execute(sql`
     SELECT
       (SELECT COALESCE(SUM(amount_kobo), 0)::float8 FROM ${BANK_BOOK} b
         WHERE account = 'bank' AND business_date < ${before}::date) AS book,
-      (SELECT COALESCE(SUM(COALESCE(p.amount_kobo, d.amount_kobo)), 0)::float8 FROM payment_references r
-        LEFT JOIN payments p ON p.id = r.payment_id
-        LEFT JOIN operator_deposits d ON d.id = r.deposit_id
+      (SELECT COALESCE(SUM(${REF_AMOUNT}), 0)::float8 FROM payment_references r ${REFERENCE_OWNERS}
         WHERE r.released_at IS NULL AND r.confirmed_at IS NULL
-          AND COALESCE(p.business_date, d.business_date) >= ${BOOK_STARTS}
-          AND COALESCE(p.business_date, d.business_date) < ${before}::date) AS unconfirmed
+          AND ${REF_DATE} >= ${BOOK_STARTS}
+          AND ${REF_DATE} < ${before}::date) AS unconfirmed
   `)) as unknown as { book: number; unconfirmed: number }[];
   return { bookKobo: rows[0]?.book ?? 0, unconfirmedKobo: rows[0]?.unconfirmed ?? 0 };
+}
+
+/** What the bank book and the Owner hold now, for the move form. The bank figure is null until an opening balance is set. */
+export async function bankAndOwnerHeld(exec: Executor) {
+  const [opening, { bookKobo }, rows] = await Promise.all([
+    openingNow(exec),
+    bookAt(exec, "infinity"),
+    exec.execute(sql`SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS held FROM ${BANK_BOOK} b WHERE account = 'owner'`),
+  ]);
+  return { bankKobo: opening ? bookKobo : null, ownerKobo: (rows as unknown as { held: number }[])[0]?.held ?? 0 };
 }
 
 /**
@@ -373,17 +415,15 @@ export type ToConfirm = {
 const TO_CONFIRM_LIMIT = 60;
 
 const ITEMS = sql`
-  SELECT COALESCE(p.id, d.id) AS id, CASE WHEN r.deposit_id IS NULL THEN 'payment' ELSE 'deposit' END AS kind,
-         COALESCE(p.receipt_number, d.receipt_number) AS receipt,
-         COALESCE(p.amount_kobo, d.amount_kobo)::float8 AS amount,
-         COALESCE(p.method, d.method)::text AS method,
-         COALESCE(p.business_date, d.business_date)::text AS date,
-         COALESCE(p.received_by, d.received_by) AS received_by, r.reference, o.name AS operator,
+  SELECT COALESCE(p.id, d.id, t.id) AS id,
+         CASE WHEN r.payment_id IS NOT NULL THEN 'payment' WHEN r.deposit_id IS NOT NULL THEN 'deposit' ELSE 'transfer' END AS kind,
+         COALESCE(p.receipt_number, d.receipt_number, 'Teller') AS receipt,
+         ${REF_AMOUNT}::float8 AS amount,
+         COALESCE(p.method::text, d.method::text, 'teller') AS method,
+         ${REF_DATE}::text AS date,
+         COALESCE(p.received_by, d.received_by, t.created_by) AS received_by, r.reference, ${REF_WHO} AS operator,
          r.confirmed_by, cu.name AS confirmed_by_name
-  FROM payment_references r
-  LEFT JOIN payments p ON p.id = r.payment_id
-  LEFT JOIN operator_deposits d ON d.id = r.deposit_id
-  JOIN operators o ON o.id = COALESCE(p.operator_id, d.operator_id)
+  FROM payment_references r ${REFERENCE_OWNERS}
   LEFT JOIN users cu ON cu.id = r.confirmed_by
   WHERE r.released_at IS NULL`;
 
@@ -394,18 +434,15 @@ export async function bankPosition(ctx: Ctx, options: { q?: string | null } = {}
   const qKobo = q ? parseNairaToKobo(q) : null;
   const like = q ? `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%` : null;
   const match = like
-    ? sql`AND (r.reference ILIKE ${like} OR COALESCE(p.receipt_number, d.receipt_number) ILIKE ${like} OR o.name ILIKE ${like}
-          ${qKobo !== null ? sql`OR COALESCE(p.amount_kobo, d.amount_kobo) = ${qKobo}` : sql``})`
+    ? sql`AND (r.reference ILIKE ${like} OR COALESCE(p.receipt_number, d.receipt_number) ILIKE ${like} OR ${REF_WHO} ILIKE ${like}
+          ${qKobo !== null ? sql`OR ${REF_AMOUNT} = ${qKobo}` : sql``})`
     : sql``;
   const [toConfirm, waiting, confirmedToday, opening, openingFirst, openingCorrections, history, months, position] = await Promise.all([
     db.execute(sql`${ITEMS} AND r.confirmed_at IS NULL ${match} ORDER BY date, receipt LIMIT ${TO_CONFIRM_LIMIT}`),
     db.execute(sql`
-      SELECT COUNT(*)::int AS count, COALESCE(SUM(COALESCE(p.amount_kobo, d.amount_kobo)), 0)::float8 AS amount,
+      SELECT COUNT(*)::int AS count, COALESCE(SUM(${REF_AMOUNT}), 0)::float8 AS amount,
              COUNT(*) FILTER (WHERE true ${match})::int AS matched
-      FROM payment_references r
-      LEFT JOIN payments p ON p.id = r.payment_id
-      LEFT JOIN operator_deposits d ON d.id = r.deposit_id
-      JOIN operators o ON o.id = COALESCE(p.operator_id, d.operator_id)
+      FROM payment_references r ${REFERENCE_OWNERS}
       WHERE r.released_at IS NULL AND r.confirmed_at IS NULL
     `),
     db.execute(sql`${ITEMS} AND r.confirmed_at IS NOT NULL

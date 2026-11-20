@@ -28,10 +28,17 @@ function ItemText({ item }: { item: ToConfirm }) {
   return (
     <div className="min-w-0">
       <div className="font-semibold">{item.operator}</div>
-      <div className="break-words text-sm text-muted">
-        {item.kind === "deposit" ? "Saving · " : ""}
-        {METHOD_LABELS[item.method as keyof typeof METHOD_LABELS]} · {item.reference} · {item.receipt} · {formatDate(item.date)}
-      </div>
+      {item.kind === "transfer" ? (
+        <div className="break-words text-sm text-muted">
+          Cash paid in by teller · {item.reference} · {formatDate(item.date)} ·{" "}
+          <a href={`/transfers#move-${item.id}`} className="text-gold-deep underline">See the move</a>
+        </div>
+      ) : (
+        <div className="break-words text-sm text-muted">
+          {item.kind === "deposit" ? "Saving · " : ""}
+          {METHOD_LABELS[item.method as keyof typeof METHOD_LABELS]} · {item.reference} · {item.receipt} · {formatDate(item.date)}
+        </div>
+      )}
     </div>
   );
 }
@@ -122,7 +129,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
         <Card
           tour="bank-waiting"
-          title="Transfers and POS to confirm"
+          title="Transfers, POS and tellers to confirm"
           subtitle={bank.waitingCount > 0 ? `${bank.waitingCount} waiting, ${formatNaira(bank.waitingKobo)}` : undefined}
         >
           {bank.waitingCount > 0 ? (

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   bigint,
   bigserial,
   boolean,
@@ -1332,6 +1333,10 @@ export const paymentReferences = pgTable(
     depositId: uuid("deposit_id")
       .unique()
       .references(() => operatorDeposits.id),
+    /** A teller deposit of cash into the bank: its teller number, confirmed on the Bank check like a transfer. */
+    transferId: uuid("transfer_id")
+      .unique()
+      .references((): AnyPgColumn => moneyTransfers.id),
     reference: text("reference").notNull(),
     releasedAt: timestamp("released_at", tz),
     confirmedBy: uuid("confirmed_by").references(() => users.id),
@@ -1339,7 +1344,7 @@ export const paymentReferences = pgTable(
   },
   (t) => [
     uniqueIndex("one_live_reference").on(t.reference).where(sql`released_at IS NULL`),
-    check("reference_has_one_owner", sql`num_nonnulls(payment_id, deposit_id) = 1`),
+    check("reference_has_one_owner", sql`num_nonnulls(payment_id, deposit_id, transfer_id) = 1`),
   ],
 );
 
@@ -1367,6 +1372,8 @@ export const moneyTransfers = pgTable(
     decidedBy: uuid("decided_by").references(() => users.id),
     decidedAt: timestamp("decided_at", tz),
     reason: text("reason"),
+    /** Made by the form when it opens, so a second tap of Save records the move once. */
+    clientId: uuid("client_id").unique("money_transfers_client_unique"),
   },
   (t) => [
     index("money_transfers_status_idx").on(t.status, t.createdAt),

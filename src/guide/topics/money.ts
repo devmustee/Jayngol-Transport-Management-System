@@ -129,8 +129,11 @@ export const MONEY_TOPICS: GuideTopic[] = [
     ],
     goodToKnow: [
       "A handover between two people waits until the other person accepts it. The cash stays with the giver until then.",
+      "Cash the Manager takes from the bank or the Owner for someone else also waits until that person accepts it.",
       "The person who must agree can refuse a handover; the person who recorded it can withdraw it.",
       "Only the Manager can move money out of the bank or the Owner's money.",
+      "Each teller or slip number can be used once. The deposit then waits on the Bank check until someone else sees it on the statement.",
+      "The Owner is told when cash is handed to them, when money leaves the bank or the Owner's money, and when a move is reversed.",
       "A move done by mistake can be reversed by the Manager while the cash is still where it went.",
     ],
     links: [{ href: "/transfers", label: "Move money" }],
@@ -143,7 +146,7 @@ export const MONEY_TOPICS: GuideTopic[] = [
     area: "money",
     title: "How do I confirm transfers and POS on the bank statement?",
     summary:
-      "Each transfer and POS payment waits on the Bank check until someone sees it on the bank statement. It must be someone other than the person who recorded it.",
+      "Each transfer and POS payment, and each teller deposit of cash, waits on the Bank check until someone sees it on the bank statement. It must be someone other than the person who recorded it.",
     permission: "bank.reconcile",
     pages: ["/bank"],
     steps: [
@@ -153,14 +156,15 @@ export const MONEY_TOPICS: GuideTopic[] = [
       "Tap Confirm ticked.",
     ],
     goodToKnow: [
-      "You cannot confirm money you recorded yourself.",
+      "You cannot confirm money you recorded yourself, or a teller deposit you paid in.",
+      "A reversed teller deposit leaves the Bank check.",
       "Ticked items are confirmed all together, or none if one cannot be.",
       "Confirmed one by mistake? Undo it from Confirmed today, the same day.",
       "The list shows the oldest 60. Confirm those, or search, to see the rest.",
     ],
     links: [{ href: "/bank", label: "Bank check" }],
     related: ["bank-reconcile", "record-payment"],
-    keywords: ["statement", "confirm", "reference", "pos", "transfer", "seen", "undo"],
+    keywords: ["statement", "confirm", "reference", "pos", "transfer", "teller", "seen", "undo"],
     about: ["src/services/bank.ts confirmBankItems"],
   },
   {

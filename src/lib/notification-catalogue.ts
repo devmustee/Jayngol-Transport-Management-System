@@ -107,6 +107,7 @@ export const CATALOGUE = {
   handover_sent: staffNotice("action", "Cash handover to accept", "/transfers", "money.transfer"),
   handover_rejected: staffNotice("action", "Cash handover refused", "/transfers", "money.transfer"),
   cash_moved: staffNotice("info", "Your cash was moved", "/transfers", "money.transfer"),
+  owner_money: staffNotice("action", "Company money moved", "/transfers", "money.oversee"),
   cash_difference: staffNotice("critical", "Cash count does not match", "/cash", "cash.oversee"),
   cash_count_corrected: staffNotice("action", "Cash count corrected", "/cash", "cash.oversee"),
   cash_counted: staffNotice("info", "Your cash was counted", "/cash", "cash.close"),

@@ -15,6 +15,7 @@ export const REFUSALS: { says: string; topic: string }[] = [
   { says: "You can only close your own cash.", topic: "cash-close" },
   // Payments and the bank
   { says: "This reference has already been used on another payment or deposit", topic: "record-payment" },
+  { says: "This teller or slip number has already been used", topic: "move-money" },
   { says: "which you recorded.", topic: "bank-confirm" },
   { says: "Only the person who confirmed it can undo it.", topic: "bank-confirm" },
   { says: "Only a confirmation made today can be undone.", topic: "bank-confirm" },
