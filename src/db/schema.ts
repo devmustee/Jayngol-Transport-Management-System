@@ -1383,6 +1383,22 @@ export const cashCloseChecks = pgTable("cash_close_checks", {
   checkedAt: timestamp("checked_at", tz).notNull(),
 });
 
+/**
+ * A mistyped count, put right with a reason. One per close, append-only
+ * (drizzle/0035). The corrected figure replaces the count from then on.
+ */
+export const cashCloseCorrections = pgTable("cash_close_corrections", {
+  closeId: uuid("close_id")
+    .primaryKey()
+    .references(() => cashCloses.id),
+  countedKobo: bigint("counted_kobo", { mode: "number" }).notNull(),
+  reason: text("reason").notNull(),
+  correctedBy: uuid("corrected_by")
+    .notNull()
+    .references(() => users.id),
+  correctedAt: timestamp("corrected_at", tz).notNull(),
+});
+
 // Append-only (drizzle/0014).
 export const bankReconciliations = pgTable("bank_reconciliations", {
   id: uuid("id").primaryKey().defaultRandom(),

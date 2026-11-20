@@ -27,8 +27,9 @@ const CLEARED = [
   "charges", "charge_voids", "payments", "payment_allocations", "payment_reversals", "payment_references",
   "late_evaluations", "balance_waivers", "balance_waiver_lines", "balance_waiver_reversals", "loans",
   "operator_deposits", "operator_deposit_reversals", "contribution_rates", "contribution_weeks",
+  "deposit_settlements", "deposit_settlement_items", "loan_requests", "back_entry_windows",
   // Cash and bank
-  "cash_movements", "cash_closes", "cash_close_checks", "money_transfers", "bank_movements",
+  "cash_movements", "cash_closes", "cash_close_checks", "cash_close_corrections", "money_transfers", "bank_movements",
   "bank_reconciliations", "expense_advances", "expense_lines", "expense_line_voids",
   // Who holds what
   "assignments", "balance_rates", "off_road_periods",

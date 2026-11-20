@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { closeCashAction } from "@/app/actions";
+import { correctCashCountAction } from "@/app/actions";
 import { CashierTakingsCard, MyCollectionsCard } from "@/components/balance-periods";
 import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
-import { Badge, Card, Details, PageHeader } from "@/components/ui";
+import { CashCloseForm } from "@/components/forms/cash-close-form";
+import { Badge, Card, Details, Disclosure, PageHeader } from "@/components/ui";
 import { coverageDates, coverageLabel, weekOf } from "@/lib/cash-rhythm";
 import { addDays, businessDate } from "@/lib/clock";
 import { formatDate, queryValue } from "@/lib/format";
@@ -87,14 +88,28 @@ export default async function CashPage({
         <CashierTakingsCard rows={byCashier} />
         {people.map((person) => {
           const weekly = person.rhythm === "week";
+          const isManager = ctx.actor.role === "manager";
+          const left = !person.active;
           const canClose =
             !person.close &&
             can(ctx.actor.role, "cash.close") &&
-            (person.id === ctx.actor.userId || ctx.actor.role === "manager");
-          const difference = person.close ? person.close.countedKobo - person.close.expectedKobo : 0;
+            (left ? isManager && date === today : person.id === ctx.actor.userId || isManager);
+          const canCorrect =
+            person.close !== null &&
+            person.correction === null &&
+            person.isLatestClose &&
+            can(ctx.actor.role, "cash.close") &&
+            (person.id === ctx.actor.userId || isManager);
+          const difference = person.close ? person.countedKobo! - person.close.expectedKobo : 0;
           const week = weekOf(date);
-          const title = weekly ? `${person.name}: this week's cash` : `${person.name}: ${date === today ? "today's" : "the day's"} cash`;
-          const closeLabel = weekly
+          const title = left
+            ? `${person.name} (has left): cash to take over`
+            : weekly
+              ? `${person.name}: this week's cash`
+              : `${person.name}: ${date === today ? "today's" : "the day's"} cash`;
+          const closeLabel = left
+            ? "Count and take over"
+            : weekly
             ? date === week.to
               ? "Close this week"
               : `Close the week early, up to ${formatDate(date)}`
@@ -110,7 +125,11 @@ export default async function CashPage({
               subtitle={
                 person.close
                   ? undefined
-                  : weekly
+                  : left
+                    ? isManager
+                      ? "Count the cash they handed over. It moves into your cash."
+                      : "The Manager counts this cash and takes it over."
+                    : weekly
                     ? `Week of ${formatDate(week.from)} to ${formatDate(week.to)}. Closes on Sunday, or earlier before travelling.`
                     : "Closes every day."
               }
@@ -120,7 +139,15 @@ export default async function CashPage({
                   rows={[
                     ["Covers", coverageLabel(person.covers.from, date, person.rhythm)],
                     ["Expected", formatNaira(person.close.expectedKobo)],
-                    ["Counted", formatNaira(person.close.countedKobo)],
+                    ["Counted", formatNaira(person.countedKobo!)],
+                    ...(person.correction
+                      ? ([
+                          [
+                            "Corrected",
+                            `From ${formatNaira(person.close.countedKobo)} by ${person.correction.byName}: ${person.correction.reason}`,
+                          ],
+                        ] as [string, string][])
+                      : []),
                     [
                       "Result",
                       difference === 0 ? (
@@ -159,20 +186,34 @@ export default async function CashPage({
                   Close last week instead, up to Sunday {formatDate(addDays(today, -1))}
                 </Link>
               ) : null}
+              {canCorrect && person.close ? (
+                <div className="mt-3">
+                  <Disclosure label="Correct this count">
+                    <ActionForm action={correctCashCountAction.bind(null, person.close.id)}>
+                      <Field
+                        name="counted"
+                        label={`Correct count for ${formatDate(date)} (₦)`}
+                        inputMode="decimal"
+                        autoComplete="off"
+                        hint="The figure that should have been saved. A count can be corrected once, until the next count."
+                      />
+                      <TextareaField name="reason" label="Reason" />
+                      <SubmitButton tone="plain">Save correction</SubmitButton>
+                    </ActionForm>
+                  </Disclosure>
+                </div>
+              ) : null}
               {canClose ? (
-                <ActionForm action={closeCashAction} className="mt-3 space-y-4">
-                  <input type="hidden" name="custodianId" value={person.id} />
-                  <input type="hidden" name="businessDate" value={date} />
-                  <Field
-                    name="counted"
-                    label="Cash counted (₦)"
-                    inputMode="decimal"
-                    autoComplete="off"
-                    hint={`This count covers ${coverageDates(person.covers.from, date)}.`}
-                  />
-                  <TextareaField name="explanation" label="Explanation" hint="Required if the count does not match." />
-                  <SubmitButton>{closeLabel}</SubmitButton>
-                </ActionForm>
+                <CashCloseForm
+                  custodianId={person.id}
+                  date={date}
+                  dateLabel={formatDate(date)}
+                  coverage={coverageDates(person.covers.from, date)}
+                  expectedKobo={person.expectedKobo}
+                  laterKobo={person.laterKobo}
+                  label={closeLabel}
+                  takeOver={left ? `What you count moves from ${person.name}'s cash into yours.` : null}
+                />
               ) : null}
             </Card>
           );

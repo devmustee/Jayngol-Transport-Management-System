@@ -216,6 +216,61 @@ export async function tellCashDifference(
   });
 }
 
+const resultText = (countedKobo: number, expectedKobo: number) => {
+  const difference = countedKobo - expectedKobo;
+  if (difference === 0) return "it matches";
+  return `${difference < 0 ? "short" : "over"} by ${formatNaira(Math.abs(difference))}`;
+};
+
+/** Someone else counted a person's cash, or corrected their count: that person is told. */
+export async function tellCashCounted(
+  tx: Tx,
+  ctx: Ctx,
+  c: { id: string; custodianId: string; businessDate: string; expectedKobo: number; countedKobo: number },
+  corrected?: { fromKobo: number; reason: string },
+) {
+  if (c.custodianId === ctx.actor.userId) return;
+  await notify(tx, {
+    kind: "cash_counted",
+    ...by(ctx),
+    userIds: [c.custodianId],
+    body: corrected
+      ? `${ctx.actor.name} corrected your cash count for ${formatDate(c.businessDate)} from ${formatNaira(corrected.fromKobo)} to ${formatNaira(c.countedKobo)}: ${resultText(c.countedKobo, c.expectedKobo)}. Reason: ${corrected.reason}`
+      : `${ctx.actor.name} counted your cash for ${formatDate(c.businessDate)}: ${formatNaira(c.countedKobo)}, ${resultText(c.countedKobo, c.expectedKobo)}.`,
+    link: `/cash?date=${c.businessDate}`,
+    entity: { type: "cash_close", id: c.id },
+    dedupeKey: `cash_close:${c.id}:${corrected ? "corrected" : "counted"}:holder`,
+  });
+}
+
+/**
+ * A count was corrected. The Manager is always told; the Owner too for a change
+ * of the same size that would reach them as a difference, or any change to the
+ * Manager's own count.
+ */
+export async function tellCashCorrected(
+  tx: Tx,
+  ctx: Ctx,
+  c: { id: string; custodianId: string; businessDate: string; expectedKobo: number; fromKobo: number; toKobo: number; reason: string },
+) {
+  const [custodian] = await tx.select({ name: users.name, role: users.role }).from(users).where(eq(users.id, c.custodianId));
+  const toOwner = Math.abs(c.toKobo - c.fromKobo) >= OWNER_CASH_DIFFERENCE_KOBO || custodian?.role === "manager";
+  const people = await tx
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.status, "active"), inArray(users.role, toOwner ? ["manager", "owner"] : ["manager"])));
+  await notify(tx, {
+    kind: "cash_count_corrected",
+    ...by(ctx),
+    userIds: people.map((p) => p.id),
+    body: `${ctx.actor.name} corrected ${custodian?.name ? `${custodian.name}'s` : "a"} count for ${formatDate(c.businessDate)} from ${formatNaira(c.fromKobo)} to ${formatNaira(c.toKobo)}: ${resultText(c.toKobo, c.expectedKobo)}. Reason: ${c.reason}`,
+    link: `/cash?date=${c.businessDate}`,
+    entity: { type: "cash_close", id: c.id },
+    dedupeKey: `cash_close:${c.id}:corrected`,
+  });
+  await tellCashCounted(tx, ctx, { ...c, countedKobo: c.toKobo }, { fromKobo: c.fromKobo, reason: c.reason });
+}
+
 type Advance = { id: string; purpose: string; amountKobo: number; collectedBy: string };
 
 /** Each send for countersigning is its own event, since a sent-back record comes again. */

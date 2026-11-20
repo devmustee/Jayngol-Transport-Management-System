@@ -171,7 +171,7 @@ describe("where deposits count", () => {
     expect(row).toMatchObject({ expectedKobo: 2_000_000 });
     await expect(
       closeCash(collector, { custodianId: collector.actor.userId, businessDate: date, counted: "20,000" }),
-    ).resolves.toBeUndefined();
+    ).resolves.toMatchObject({ countedKobo: 2_000_000, expectedKobo: 2_000_000 });
   });
 
   it("is named in the cash book", async () => {

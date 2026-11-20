@@ -18,7 +18,7 @@ import { clearSackingAlert, confirmSacking, reinstateOperator } from "@/services
 import { confirmBankDeposit, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
 import { recordDeposit, reverseDeposit } from "@/services/deposits";
 import { refundAllDue, settleDeposit, undoSettlement } from "@/services/deposit-settlements";
-import { addNonCollectionDay, closeCash, removeNonCollectionDay } from "@/services/finance";
+import { addNonCollectionDay, closeCash, correctCashCount, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
 import { markAllRead, openNotification } from "@/services/notifications";
 import { isStaff } from "@/lib/permissions";
@@ -291,7 +291,19 @@ export async function undoSettlementAction(id: string, _: FormState) {
 }
 
 export async function closeCashAction(_: FormState, data: FormData) {
-  return perform((ctx) => closeCash(ctx, values(data)), "Cash closed.");
+  return perform(
+    (ctx) => closeCash(ctx, values(data)),
+    (r) => {
+      const difference = r.countedKobo - r.expectedKobo;
+      const result = difference === 0 ? "It matches" : `${difference < 0 ? "Short" : "Over"} by ${formatNaira(Math.abs(difference))}`;
+      const taken = r.takenOverKobo > 0 ? ` ${formatNaira(r.takenOverKobo)} is now in your cash.` : "";
+      return `Cash closed: ${formatNaira(r.countedKobo)} counted. ${result}.${taken}`;
+    },
+  );
+}
+
+export async function correctCashCountAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => correctCashCount(ctx, id, values(data)), "Count corrected.");
 }
 
 export async function confirmViolationAction(id: string, _: FormState) {

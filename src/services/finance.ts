@@ -3,9 +3,11 @@ import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
   cashCloseChecks,
+  cashCloseCorrections,
   cashCloses,
   cashMovements,
   dismissals,
+  moneyTransfers,
   nonCollectionDays,
   operators,
   users,
@@ -15,18 +17,20 @@ import { closeRhythm, coverageLabel } from "@/lib/cash-rhythm";
 import { addDays, businessDate } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import { dateField, idField, nairaField, optionalText, requiredText } from "@/lib/fields";
+import { formatDate } from "@/lib/format";
+import { formatNaira } from "@/lib/money";
 import type { DateRange } from "@/lib/periods";
 import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 import { awardsToDecide } from "./awards";
-import { cashAlerts, cashPosition, cashSinceLastClose, givenOutOn } from "./cash-book";
+import { cashAlerts, cashPosition, cashSinceLastClose, givenOutOn, recordMovement } from "./cash-book";
 import { advanceCounts } from "./expenses";
 import { contributionCredit } from "./contributions";
 import { openCharges, unallocatedPayments } from "./ledger";
 import { lastJobDate } from "./daily-job";
 import { loansToCollect } from "./loans";
-import { tellCashDifference } from "./staff-events";
+import { tellCashCorrected, tellCashCounted, tellCashDifference } from "./staff-events";
 
 /* ---------- Statements ---------- */
 
@@ -192,61 +196,115 @@ export async function listArrears(ctx: Ctx, range?: DateRange) {
 // Closing is one step: the person who holds the cash counts it and closes.
 // cash_close_checks holds the second checks made before that, kept as history.
 
+/**
+ * Cash that reached (or left) a person after a date. A count is always of the
+ * cash in hand now, so a count for an earlier day must leave this out, or that
+ * cash is counted on the earlier day and again on the next.
+ */
+async function cashAfter(exec: Executor, custodianId: string, date: string) {
+  const [row] = (await exec.execute(sql`
+    SELECT COALESCE(SUM(amount_kobo), 0)::float8 AS kobo FROM cash_movements
+    WHERE custodian_id = ${custodianId} AND business_date > ${date}::date
+  `)) as unknown as { kobo: number }[];
+  return row?.kobo ?? 0;
+}
+
 export async function cashDay(ctx: Ctx, date: string) {
   requirePermission(ctx, "finance.view");
-  const [custodians, closes, checks] = await Promise.all([
+  const [custodians, closes, checks, corrections, latest] = await Promise.all([
     db
-      .select({ id: users.id, name: users.name, role: users.role })
+      .select({ id: users.id, name: users.name, role: users.role, status: users.status })
       .from(users)
-      .where(sql`${users.role} IN ('manager', 'assistant_manager') AND ${users.status} = 'active'`)
+      .where(sql`${users.role} IN ('manager', 'assistant_manager')`)
       .orderBy(asc(users.name)),
     db.select().from(cashCloses).where(eq(cashCloses.businessDate, date)),
     db
-      .select({ check: cashCloseChecks, closeDate: cashCloses.businessDate })
+      .select({ check: cashCloseChecks })
       .from(cashCloseChecks)
       .innerJoin(cashCloses, eq(cashCloses.id, cashCloseChecks.closeId))
       .where(eq(cashCloses.businessDate, date)),
+    db
+      .select({ correction: cashCloseCorrections, byName: users.name })
+      .from(cashCloseCorrections)
+      .innerJoin(cashCloses, eq(cashCloses.id, cashCloseCorrections.closeId))
+      .innerJoin(users, eq(users.id, cashCloseCorrections.correctedBy))
+      .where(eq(cashCloses.businessDate, date)),
+    db
+      .select({ custodianId: cashCloses.custodianId, date: sql<string>`MAX(${cashCloses.businessDate})::text` })
+      .from(cashCloses)
+      .groupBy(cashCloses.custodianId),
   ]);
-  return Promise.all(
+  const people = await Promise.all(
     custodians.map(async (person) => {
-      const [{ openingKobo, movedKobo }, covers] = await Promise.all([
+      const [{ openingKobo, movedKobo }, covers, laterKobo] = await Promise.all([
         cashPosition(db, person.id, date),
         cashSinceLastClose(db, person.id, date),
+        cashAfter(db, person.id, date),
       ]);
       const close = closes.find((c) => c.custodianId === person.id) ?? null;
+      const fix = close ? (corrections.find((row) => row.correction.closeId === close.id) ?? null) : null;
       return {
-        ...person,
+        id: person.id,
+        name: person.name,
+        role: person.role,
+        /** Disabled people stay listed while they hold cash, so it can be counted and taken over. */
+        active: person.status === "active",
         rhythm: closeRhythm(person.role),
         /** The days a count on this date covers, from the last count. */
         covers,
         openingKobo,
         movedKobo,
         expectedKobo: openingKobo + movedKobo,
+        /** Cash in or out after this date, which a count now includes and this day must not. */
+        laterKobo,
         close,
+        /** The count that stands: the correction if there is one. */
+        countedKobo: close ? (fix?.correction.countedKobo ?? close.countedKobo) : null,
+        correction: fix ? { ...fix.correction, byName: fix.byName } : null,
+        /** Only a person's latest close can be corrected; a later one was built on it. */
+        isLatestClose: close !== null && latest.find((row) => row.custodianId === person.id)?.date === date,
         check: close ? (checks.find((row) => row.check.closeId === close.id)?.check ?? null) : null,
       };
     }),
   );
+  return people.filter((person) => person.active || person.close !== null || person.expectedKobo + person.laterKobo !== 0);
 }
 
 const closeSchema = z.object({
   custodianId: idField("person"),
   businessDate: dateField("Date"),
-  counted: nairaField("Cash counted"),
+  counted: nairaField("Cash in hand"),
   explanation: optionalText(),
 });
 
+/**
+ * Records a count. `counted` is the cash in hand now; for an earlier day the
+ * cash that came in after it is taken off. Closing the cash of someone who has
+ * left also hands it to the Manager doing the count, so it can be moved on.
+ */
 export async function closeCash(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "cash.close");
   const input = parseInput(closeSchema, raw);
   if (input.custodianId !== ctx.actor.userId && ctx.actor.role !== "manager") {
     throw new DomainError("You can only close your own cash.");
   }
-  if (input.businessDate > businessDate(ctx.clock())) {
+  const today = businessDate(ctx.clock());
+  if (input.businessDate > today) {
     throw fieldError("businessDate", "You cannot close a future date");
   }
   try {
-    await db.transaction(async (tx) => {
+    return await db.transaction(async (tx) => {
+      // Holds back payments and moves for this person until the count is saved.
+      const [holder] = await tx
+        .select({ name: users.name, status: users.status })
+        .from(users)
+        .where(eq(users.id, input.custodianId))
+        .for("update");
+      if (!holder) throw new DomainError("This person was not found.");
+      const leaving = holder.status !== "active";
+      if (leaving && input.businessDate !== today) {
+        throw fieldError("businessDate", `${holder.name} has left. Count their cash today to take it over.`);
+      }
       const [later] = await tx
         .select({ id: cashCloses.id })
         .from(cashCloses)
@@ -255,39 +313,132 @@ export async function closeCash(ctx: Ctx, raw: unknown) {
       if (later) throw new DomainError("A later day is already closed, so this day is covered by that count.");
       const { openingKobo, movedKobo } = await cashPosition(tx, input.custodianId, input.businessDate);
       const expectedKobo = openingKobo + movedKobo;
-      if (input.counted !== expectedKobo && !input.explanation) {
+      const laterKobo = await cashAfter(tx, input.custodianId, input.businessDate);
+      const countedKobo = input.counted - laterKobo;
+      if (countedKobo < 0) {
+        throw fieldError(
+          "counted",
+          `${formatNaira(laterKobo)} came in after ${formatDate(input.businessDate)}, so the cash in hand cannot be less than that`,
+        );
+      }
+      if (countedKobo !== expectedKobo && !input.explanation) {
         throw fieldError("explanation", "Explain why the cash does not match");
       }
+      const at = ctx.clock();
       const [row] = await tx
         .insert(cashCloses)
         .values({
           custodianId: input.custodianId,
           businessDate: input.businessDate,
           expectedKobo,
-          countedKobo: input.counted,
+          countedKobo,
           explanation: input.explanation ?? null,
           closedBy: ctx.actor.userId,
-          closedAt: ctx.clock(),
+          closedAt: at,
         })
         .returning({ id: cashCloses.id });
-      await tellCashDifference(tx, ctx, {
-        id: row!.id,
-        custodianId: input.custodianId,
-        businessDate: input.businessDate,
-        expectedKobo,
-        countedKobo: input.counted,
-        explanation: input.explanation ?? null,
-      });
+      const event = { id: row!.id, custodianId: input.custodianId, businessDate: input.businessDate, expectedKobo, countedKobo };
+      await tellCashDifference(tx, ctx, { ...event, explanation: input.explanation ?? null });
+      if (!leaving) await tellCashCounted(tx, ctx, event);
       await auditFrom(ctx, tx, {
         action: "cash.close",
         entityType: "cash_close",
         entityId: row!.id,
-        after: { expectedKobo, countedKobo: input.counted },
+        after: { expectedKobo, countedKobo, inHandKobo: input.counted, laterKobo },
         reason: input.explanation,
       });
+
+      let takenOverKobo = 0;
+      if (leaving && countedKobo > 0) {
+        if (ctx.actor.role !== "manager" || input.custodianId === ctx.actor.userId) {
+          throw new DomainError("Only the Manager can take over the cash of someone who has left.");
+        }
+        const [transfer] = await tx
+          .insert(moneyTransfers)
+          .values({
+            fromPlace: "cash",
+            fromCustodian: input.custodianId,
+            toPlace: "cash",
+            toCustodian: ctx.actor.userId,
+            amountKobo: countedKobo,
+            note: `Taken over from ${holder.name}, who has left`,
+            status: "done",
+            createdBy: ctx.actor.userId,
+            createdAt: at,
+            decidedBy: ctx.actor.userId,
+            decidedAt: at,
+          })
+          .returning({ id: moneyTransfers.id });
+        const base = { amountKobo: countedKobo, sourceId: transfer!.id, at };
+        await recordMovement(tx, { ...base, amountKobo: -countedKobo, custodianId: input.custodianId, sourceType: "transfer_out" });
+        await recordMovement(tx, { ...base, custodianId: ctx.actor.userId, sourceType: "transfer_in" });
+        takenOverKobo = countedKobo;
+      }
+      return { countedKobo, expectedKobo, laterKobo, takenOverKobo, name: holder.name };
     });
   } catch (error) {
     rethrowConstraint(error, { one_cash_close: new DomainError("This day has already been closed.") });
+  }
+}
+
+const correctionSchema = z.object({
+  counted: nairaField("Correct count"),
+  reason: requiredText("Reason", 500),
+});
+
+/**
+ * Puts right a mistyped count, once, with a reason. The original stays on
+ * record. Only a person's latest close can be corrected, since a later count
+ * started from this one. The Manager can correct anyone's; others their own.
+ */
+export async function correctCashCount(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "cash.close");
+  const id = parseInput(idField("count"), rawId);
+  const input = parseInput(correctionSchema, raw);
+  try {
+    await db.transaction(async (tx) => {
+      const [close] = await tx.select().from(cashCloses).where(eq(cashCloses.id, id));
+      if (!close) throw new DomainError("This count was not found.");
+      if (close.custodianId !== ctx.actor.userId && ctx.actor.role !== "manager") {
+        throw new DomainError("You can only correct your own count.");
+      }
+      await tx.select({ id: users.id }).from(users).where(eq(users.id, close.custodianId)).for("update");
+      const [later] = await tx
+        .select({ id: cashCloses.id })
+        .from(cashCloses)
+        .where(and(eq(cashCloses.custodianId, close.custodianId), gt(cashCloses.businessDate, close.businessDate)))
+        .limit(1);
+      if (later) throw new DomainError("A later count has been made since, so this one can no longer be corrected.");
+      if (input.counted === close.countedKobo) throw fieldError("counted", "This is the same as the count already saved");
+      await tx.insert(cashCloseCorrections).values({
+        closeId: close.id,
+        countedKobo: input.counted,
+        reason: input.reason,
+        correctedBy: ctx.actor.userId,
+        correctedAt: ctx.clock(),
+      });
+      await tellCashCorrected(tx, ctx, {
+        id: close.id,
+        custodianId: close.custodianId,
+        businessDate: close.businessDate,
+        expectedKobo: close.expectedKobo,
+        fromKobo: close.countedKobo,
+        toKobo: input.counted,
+        reason: input.reason,
+      });
+      await auditFrom(ctx, tx, {
+        action: "cash.correct",
+        entityType: "cash_close",
+        entityId: close.id,
+        before: { countedKobo: close.countedKobo },
+        after: { countedKobo: input.counted },
+        reason: input.reason,
+      });
+    });
+  } catch (error) {
+    rethrowConstraint(error, {
+      cash_close_corrections_pkey: new DomainError("This count has already been corrected once."),
+    });
   }
 }
 

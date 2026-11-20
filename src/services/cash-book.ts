@@ -27,8 +27,9 @@ export async function cashDate(exec: Executor, custodianId: string, today: strin
 export async function cashPosition(exec: Executor, custodianId: string, date: string) {
   const rows = (await exec.execute(sql`
     WITH last AS (
-      SELECT c.business_date, COALESCE(k.recounted_kobo, c.counted_kobo) AS held
+      SELECT c.business_date, COALESCE(x.counted_kobo, k.recounted_kobo, c.counted_kobo) AS held
       FROM cash_closes c LEFT JOIN cash_close_checks k ON k.close_id = c.id
+        LEFT JOIN cash_close_corrections x ON x.close_id = c.id
       WHERE c.custodian_id = ${custodianId} AND c.business_date < ${date}::date
       ORDER BY c.business_date DESC LIMIT 1
     )
@@ -141,8 +142,9 @@ export async function takeMoneyOut(tx: Tx, movement: Movement, field = "source")
 export async function cashSinceLastClose(exec: Executor, custodianId: string, date: string) {
   const [lastRows, dayRows] = await Promise.all([
     exec.execute(sql`
-      SELECT c.business_date::text AS date, COALESCE(k.recounted_kobo, c.counted_kobo)::float8 AS held
+      SELECT c.business_date::text AS date, COALESCE(x.counted_kobo, k.recounted_kobo, c.counted_kobo)::float8 AS held
       FROM cash_closes c LEFT JOIN cash_close_checks k ON k.close_id = c.id
+        LEFT JOIN cash_close_corrections x ON x.close_id = c.id
       WHERE c.custodian_id = ${custodianId} AND c.business_date < ${date}::date
       ORDER BY c.business_date DESC LIMIT 1
     `),
@@ -176,12 +178,12 @@ export async function cashSinceLastClose(exec: Executor, custodianId: string, da
 export async function cashAlerts(exec: Executor, today: string) {
   const [unclosed, counts] = await Promise.all([
     exec.execute(sql`
-      SELECT u.id, u.name, u.role::text AS role, MIN(m.business_date)::text AS since
+      SELECT u.id, u.name, u.role::text AS role, MIN(m.business_date)::text AS since, u.status::text AS status
       FROM cash_movements m JOIN users u ON u.id = m.custodian_id
       WHERE m.business_date < ${today}::date
         AND m.business_date > COALESCE(
           (SELECT MAX(c.business_date) FROM cash_closes c WHERE c.custodian_id = m.custodian_id), '-infinity'::date)
-      GROUP BY u.id, u.name, u.role ORDER BY u.name
+      GROUP BY u.id, u.name, u.role, u.status ORDER BY u.name
     `),
     exec.execute(sql`
       SELECT
@@ -193,7 +195,15 @@ export async function cashAlerts(exec: Executor, today: string) {
   const row = (counts as unknown as { handovers: number; bank: number }[])[0];
   // The Assistant Manager is late the morning after a day not closed. The Manager
   // closes weekly and is late from Tuesday if last week is not closed.
-  const cashNotClosed = (unclosed as unknown as { id: string; name: string; role: string; since: string }[])
+  // Someone who has left drops off once their cash has been taken over.
+  const rows = unclosed as unknown as { id: string; name: string; role: string; since: string; status: string }[];
+  const holding = await Promise.all(
+    rows.map(async (person) =>
+      person.status === "active" || (await expectedCash(exec, person.id, await cashDate(exec, person.id, today))) !== 0,
+    ),
+  );
+  const cashNotClosed = rows
+    .filter((_, index) => holding[index])
     .map((person) => ({ ...person, rhythm: closeRhythm(person.role) }))
     .filter((person) => person.since <= closeDueBy(person.rhythm, today))
     .map(({ id, name, since, rhythm }) => ({ id, name, since, rhythm, week: rhythm === "week" ? weekOf(since) : null }));

@@ -246,6 +246,13 @@
       "when": 1795133472953,
       "tag": "0034_deposit_damage",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1795164358010,
+      "tag": "0035_cash_close_corrections",
+      "breakpoints": true
     }
   ]
 }

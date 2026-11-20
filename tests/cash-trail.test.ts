@@ -7,7 +7,7 @@ import { ForbiddenError } from "@/lib/errors";
 import { bankPosition, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
 import { cashAlerts, cashBook, cashPosition, expectedCash, moneySources } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
-import { cashDay, closeCash } from "@/services/finance";
+import { cashDay, closeCash, correctCashCount } from "@/services/finance";
 import { cancelLoan, grantLoan } from "@/services/loans";
 import { getMyNotices, markMyNoticesRead } from "@/services/notices";
 import { recordPayment, reversePayment } from "@/services/payments";
@@ -389,5 +389,110 @@ describe("the bank book", () => {
     await expect(createTransfer(boss, { from: "bank", to: "owner", amount: tooMuch })).rejects.toMatchObject({
       fieldErrors: { amount: expect.stringMatching(/The bank book shows only/) },
     });
+  });
+});
+
+describe("cash close fixes", () => {
+  const closeOf = async (ctx: Ctx, person: Ctx, date: string) =>
+    (await cashDay(ctx, date)).find((row) => row.id === person.actor.userId)!;
+
+  it("takes later cash off when an earlier day is closed, so nothing is counted twice", async () => {
+    const boss = (await makeUser("manager")).ctx;
+    await collect(on(boss, "2036-03-08"), "10,000"); // Sunday
+    await collect(on(boss, "2036-03-10", "09:00"), "4,000"); // Monday morning
+    const result = await closeCash(on(boss, "2036-03-10", "10:00"), {
+      custodianId: boss.actor.userId,
+      businessDate: "2036-03-09",
+      counted: "14,000",
+    });
+    expect(result).toMatchObject({ countedKobo: 1_000_000, expectedKobo: 1_000_000, laterKobo: 400_000 });
+    expect(await expectedCash(db, boss.actor.userId, "2036-03-10")).toBe(1_400_000);
+    await expect(
+      closeCash(on(boss, "2036-03-10", "10:00"), { custodianId: boss.actor.userId, businessDate: "2036-03-09", counted: "14,000" }),
+    ).rejects.toThrow(/already been closed/);
+  });
+
+  it("refuses cash in hand below what came in after the day", async () => {
+    const person = await someone();
+    await collect(on(person, "2036-03-20"), "1,000");
+    await collect(on(person, "2036-03-21"), "5,000");
+    await expect(
+      closeCash(on(person, "2036-03-21"), { custodianId: person.actor.userId, businessDate: "2036-03-20", counted: "3,000", explanation: "x" }),
+    ).rejects.toMatchObject({ fieldErrors: { counted: expect.stringMatching(/came in after/) } });
+  });
+
+  it("corrects a mistyped count once, and the next day starts from the correction", async () => {
+    const date = "2036-04-01";
+    const person = on(await someone(), date, "18:00");
+    await collect(person, "50,000");
+    await closeCash(person, { custodianId: person.actor.userId, businessDate: date, counted: "5,000", explanation: "typo" });
+    expect(await expectedCash(db, person.actor.userId, "2036-04-02")).toBe(500_000);
+
+    const before = await closeOf(on(manager, date), person, date);
+    expect(before).toMatchObject({ isLatestClose: true, correction: null });
+    const stranger = on(await someone(), date);
+    await expect(correctCashCount(stranger, before.close!.id, { counted: "50,000", reason: "x" })).rejects.toThrow(/own count/);
+    await expect(correctCashCount(person, before.close!.id, { counted: "50,000", reason: "" })).rejects.toMatchObject({
+      fieldErrors: { reason: expect.anything() },
+    });
+    await correctCashCount(person, before.close!.id, { counted: "50,000", reason: "Typed one zero too few" });
+
+    const after = await closeOf(on(manager, date), person, date);
+    expect(after.countedKobo).toBe(5_000_000);
+    expect(after.correction).toMatchObject({ reason: "Typed one zero too few", countedKobo: 5_000_000 });
+    expect(await expectedCash(db, person.actor.userId, "2036-04-02")).toBe(5_000_000);
+    expect((await toldAbout(manager.actor.userId, "cash_count_corrected", before.close!.id))[0]).toContain("from ₦5,000 to ₦50,000");
+    await expect(correctCashCount(on(manager, date), before.close!.id, { counted: "49,000", reason: "again" })).rejects.toThrow(
+      /already been corrected/,
+    );
+  });
+
+  it("cannot correct a count once a later count was made", async () => {
+    const person = await someone();
+    await collect(on(person, "2036-04-10"), "1,000");
+    await closeCash(on(person, "2036-04-10", "18:00"), { custodianId: person.actor.userId, businessDate: "2036-04-10", counted: "1,000" });
+    await closeCash(on(person, "2036-04-11", "18:00"), { custodianId: person.actor.userId, businessDate: "2036-04-11", counted: "1,000" });
+    const first = await closeOf(on(manager, "2036-04-11"), person, "2036-04-10");
+    expect(first.isLatestClose).toBe(false);
+    await expect(correctCashCount(on(manager, "2036-04-11"), first.close!.id, { counted: "900", reason: "x" })).rejects.toThrow(
+      /later count/,
+    );
+  });
+
+  it("tells the holder when someone else counts their cash", async () => {
+    const date = "2036-05-01";
+    const person = on(await someone(), date);
+    await collect(person, "2,000");
+    await closeCash(on(manager, date, "18:00"), {
+      custodianId: person.actor.userId,
+      businessDate: date,
+      counted: "1,500",
+      explanation: "Counted while away",
+    });
+    const row = await closeOf(on(manager, date), person, date);
+    expect((await toldAbout(person.actor.userId, "cash_counted", row.close!.id))[0]).toMatch(/counted your cash .*short by ₦500/);
+  });
+
+  it("keeps someone who has left on the page until the Manager counts and takes over their cash", async () => {
+    const date = "2036-06-03";
+    const boss = on((await makeUser("manager")).ctx, date, "18:00");
+    const person = on(await someone(), "2036-06-01");
+    await collect(person, "7,000");
+    await disable(person);
+    expect((await cashAlerts(db, date)).cashNotClosed.some((row) => row.id === person.actor.userId)).toBe(true);
+    const card = await closeOf(boss, person, date);
+    expect(card).toMatchObject({ active: false, expectedKobo: 700_000 });
+
+    await expect(
+      closeCash(boss, { custodianId: person.actor.userId, businessDate: "2036-06-02", counted: "7,000" }),
+    ).rejects.toMatchObject({ fieldErrors: { businessDate: expect.stringMatching(/has left/) } });
+    const result = await closeCash(boss, { custodianId: person.actor.userId, businessDate: date, counted: "7,000" });
+    expect(result.takenOverKobo).toBe(700_000);
+    expect(await expectedCash(db, boss.actor.userId, "2036-06-04")).toBe(700_000);
+    expect(await expectedCash(db, person.actor.userId, "2036-06-04")).toBe(0);
+
+    const later = on(boss, "2036-06-05");
+    expect((await cashDay(later, "2036-06-05")).some((row) => row.id === person.actor.userId)).toBe(false);
+    expect((await cashAlerts(db, "2036-06-05")).cashNotClosed.some((row) => row.id === person.actor.userId)).toBe(false);
   });
 });
