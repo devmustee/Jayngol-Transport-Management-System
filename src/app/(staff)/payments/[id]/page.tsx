@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { reversePaymentAction } from "@/app/actions";
 import { ReversePaymentForm } from "@/components/forms/reverse-payment-form";
 import { ReceiptActions } from "@/components/receipt-actions";
 import { Badge, Card, Details, Disclosure, PageHeader } from "@/components/ui";
@@ -95,7 +96,7 @@ export default async function ReceiptPage({
         {canReverse ? (
           <Disclosure label="Reverse this payment">
             <ReversePaymentForm
-              paymentId={payment.id}
+              action={reversePaymentAction.bind(null, payment.id)}
               amountKobo={payment.amountKobo}
               cash={payment.method === "cash"}
               collector={sources.find((person) => person.id === payment.receivedBy) ?? null}

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { refundAllAction } from "@/app/actions";
 import { ActionForm, FieldError, SelectField, SubmitButton } from "@/components/form";
 import { formatNaira } from "@/lib/money";
@@ -37,6 +37,16 @@ export function RefundAllForm({
   const held = chosen.reduce((s, row) => s + row.heldKobo, 0);
   const cleared = chosen.reduce((s, row) => s + Math.min(row.heldKobo, row.owedKobo), 0);
   const given = held - cleared;
+  const [source, setSource] = useState("");
+  const giver = sources.find((person) => person.id === source) ?? null;
+  const anchor = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const form = anchor.current?.closest("form");
+    if (!form) return;
+    const clear = () => setSource("");
+    form.addEventListener("reset", clear);
+    return () => form.removeEventListener("reset", clear);
+  }, []);
   const toggle = (id: string) => {
     const next = new Set(on);
     if (next.has(id)) next.delete(id);
@@ -46,6 +56,7 @@ export function RefundAllForm({
 
   return (
     <ActionForm action={refundAllAction}>
+      <div ref={anchor} hidden />
       <ul className="divide-y divide-line rounded-xl border border-line">
         {rows.map((row) => {
           const clears = Math.min(row.heldKobo, row.owedKobo);
@@ -83,7 +94,7 @@ export function RefundAllForm({
         })}
       </ul>
       <FieldError name="operatorIds" />
-      <SelectField name="source" label="Given back from" defaultValue="">
+      <SelectField name="source" label="Given back from" value={source} onChange={(event) => setSource(event.target.value)}>
         <option value="" disabled>Choose…</option>
         {sources.map((person) => (
           <option key={person.id} value={person.id}>
@@ -96,7 +107,19 @@ export function RefundAllForm({
         {chosen.length} operator{chosen.length === 1 ? "" : "s"} · {formatNaira(held)} saved · {formatNaira(cleared)} clears debts ·{" "}
         <span className="font-semibold">{formatNaira(given)} to give back</span>
       </p>
-      <SubmitButton disabled={chosen.length === 0}>{label}</SubmitButton>
+      {giver && given > 0 ? (
+        giver.availableKobo >= given ? (
+          <p className="text-sm text-muted" aria-live="polite">
+            {giver.name}&apos;s cash will drop to {formatNaira(giver.availableKobo - given)}.
+          </p>
+        ) : (
+          <p className="text-sm font-semibold text-danger" aria-live="polite">
+            {giver.name} has only {formatNaira(Math.max(giver.availableKobo, 0))} free, {formatNaira(given - giver.availableKobo)} short.
+            Untick some operators or choose another source.
+          </p>
+        )
+      ) : null}
+      <SubmitButton disabled={chosen.length === 0 || (giver !== null && given > 0 && giver.availableKobo < given)}>{label}</SubmitButton>
     </ActionForm>
   );
 }

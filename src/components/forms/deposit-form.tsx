@@ -11,7 +11,7 @@ export function DepositForm({ operatorId, clientId }: { operatorId: string; clie
     <ActionForm action={recordDepositAction}>
       <input type="hidden" name="operatorId" value={operatorId} />
       <input type="hidden" name="clientId" value={clientId} />
-      <Field name="amount" label="Deposit received (₦)" inputMode="decimal" autoComplete="off" />
+      <Field name="amount" label="Saving received (₦)" inputMode="decimal" autoComplete="off" />
       <fieldset>
         <legend className="text-sm font-semibold">How was it received?</legend>
         <div className="mt-1 flex gap-2">

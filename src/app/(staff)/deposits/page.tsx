@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Badge, Card, Empty, LinkButton, PageHeader } from "@/components/ui";
-import { formatDate, formatDateTime, METHOD_LABELS, OPERATOR_STATUS_LABELS } from "@/lib/format";
+import { formatDate, formatDateTime, METHOD_LABELS, OPERATOR_STATUS_LABELS, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
@@ -13,12 +13,17 @@ import { businessDate } from "@/lib/clock";
 
 export const metadata: Metadata = { title: "Operator savings" };
 
-export default async function DepositsPage() {
+const METHOD_ORDER = ["cash", "pos", "transfer"];
+
+export default async function DepositsPage({ searchParams }: { searchParams: Promise<Record<string, unknown>> }) {
   const ctx = await requirePage("finance.view");
   const today = businessDate(ctx.clock());
+  const requested = queryValue((await searchParams).date);
+  const date = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today ? requested : today;
+  const dayLabel = date === today ? "today" : formatDate(date);
   const canSettle = can(ctx.actor.role, "deposit.settle");
-  const [{ items, truncated, heldKobo }, toSettle, settled, notSaving, sources] = await Promise.all([
-    listDeposits(ctx),
+  const [day, toSettle, settled, notSaving, sources] = await Promise.all([
+    listDeposits(ctx, date),
     depositsToSettle(undefined, today),
     listSettlements(ctx),
     notSavingThisMonth(undefined, today),
@@ -38,7 +43,7 @@ export default async function DepositsPage() {
       <div className="space-y-4">
         <Card>
           <p className="text-sm font-semibold text-muted">Total held</p>
-          <p className="mt-1 text-3xl font-bold tabular-nums">{formatNaira(heldKobo)}</p>
+          <p className="mt-1 text-3xl font-bold tabular-nums">{formatNaira(day.heldKobo)}</p>
           <p className="mt-1 text-sm text-muted">Savings not yet given back.</p>
         </Card>
         {toSettle.length > 0 ? (
@@ -81,7 +86,7 @@ export default async function DepositsPage() {
           <p className="text-sm text-muted">Savings are given back on {formatDate(monthEnd(today))}.</p>
         )}
         {notSaving.length > 0 ? (
-          <Card title={`Not saving this month (${notSaving.length})`} subtitle="Working operators with nothing saved since the 1st. A reminder goes out on the 5th.">
+          <Card title={`Not saving this month (${notSaving.length})`} subtitle={`Working operators with nothing saved since the 1st. A reminder ${Number(today.slice(8)) >= 5 ? "went out" : "goes out"} on the 5th.`}>
             <p className="text-sm [overflow-wrap:anywhere]">
               {notSaving.map((row, i) => (
                 <span key={row.operator_id}>
@@ -117,33 +122,77 @@ export default async function DepositsPage() {
             </ul>
           </Card>
         ) : null}
-        {truncated ? <p className="text-sm text-muted">Showing the latest 200 deposits. The total covers everything.</p> : null}
-        {items.length === 0 ? (
-          <Empty>No deposits recorded yet.</Empty>
-        ) : (
-          <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
-            {items.map((deposit) => (
-              <li key={deposit.id}>
-                <Link href={`/deposits/${deposit.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-gold-wash">
-                  <div className="min-w-0">
-                    <div className="font-bold leading-snug [overflow-wrap:anywhere]">{deposit.operatorName}</div>
-                    <div className="text-sm text-muted">
-                      {deposit.receiptNumber} · {METHOD_LABELS[deposit.method]} · {formatDateTime(deposit.receivedAt)}
+        <section aria-labelledby="saved-day" className="space-y-3">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <h2 id="saved-day" className="text-lg font-bold">
+              Saved {dayLabel}
+            </h2>
+            <form className="flex gap-2">
+              <input
+                type="date"
+                name="date"
+                max={today}
+                defaultValue={date}
+                aria-label="Date"
+                className="min-h-11 rounded-lg border border-line bg-card px-3"
+              />
+              <button className="min-h-11 rounded-lg border border-line bg-card px-4 font-semibold">Show</button>
+            </form>
+          </div>
+          <Card subtitle="Savings taken on this day, as they reach the cash and the bank. Reversed savings are left out.">
+            <dl className="divide-y divide-line">
+              {METHOD_ORDER.map((method) => (
+                <div key={method} className="flex justify-between gap-3 py-2 text-sm">
+                  <dt>{METHOD_LABELS[method]}</dt>
+                  <dd className="tabular-nums">{formatNaira(day.byMethod[method] ?? 0)}</dd>
+                </div>
+              ))}
+              <div className="flex justify-between gap-3 py-2 font-bold">
+                <dt>
+                  Total · {day.takenCount} saving{day.takenCount === 1 ? "" : "s"}
+                </dt>
+                <dd className="tabular-nums">{formatNaira(day.takenKobo)}</dd>
+              </div>
+              {day.reversedCount > 0 ? (
+                <div className="flex justify-between gap-3 py-2 text-sm text-danger">
+                  <dt>
+                    Reversed · {day.reversedCount} saving{day.reversedCount === 1 ? "" : "s"}
+                  </dt>
+                  <dd className="tabular-nums">{formatNaira(day.reversedKobo)}</dd>
+                </div>
+              ) : null}
+            </dl>
+          </Card>
+          {day.truncated ? <p className="text-sm text-muted">Showing the latest 200 savings of this day. The totals cover those shown.</p> : null}
+          {day.items.length === 0 ? (
+            <Empty>No savings recorded {dayLabel}.</Empty>
+          ) : (
+            <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
+              {day.items.map((deposit) => (
+                <li key={deposit.id}>
+                  <Link href={`/deposits/${deposit.id}`} className="flex min-h-14 items-center justify-between gap-3 px-4 py-3 transition-colors hover:bg-gold-wash">
+                    <div className="min-w-0">
+                      <div className="font-bold leading-snug [overflow-wrap:anywhere]">{deposit.operatorName}</div>
+                      <div className="text-sm text-muted">
+                        {deposit.receiptNumber} · {METHOD_LABELS[deposit.method]} · {formatDateTime(deposit.receivedAt)}
+                      </div>
                     </div>
-                  </div>
-                  {deposit.reversedAt ? (
-                    <Badge tone="bad">Reversed</Badge>
-                  ) : (
-                    <span className="flex shrink-0 items-center gap-2">
-                      {deposit.settlementId ? <Badge tone="plain">Given back</Badge> : null}
-                      <span className="font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
-                    </span>
-                  )}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        )}
+                    <div className="shrink-0 text-right">
+                      <div className={`font-bold tabular-nums ${deposit.reversedAt ? "text-muted line-through" : ""}`}>
+                        {formatNaira(deposit.amountKobo)}
+                      </div>
+                      {deposit.reversedAt ? (
+                        <Badge tone="bad">Reversed</Badge>
+                      ) : deposit.settlementId ? (
+                        <Badge tone="plain">Given back</Badge>
+                      ) : null}
+                    </div>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       </div>
     </>
   );

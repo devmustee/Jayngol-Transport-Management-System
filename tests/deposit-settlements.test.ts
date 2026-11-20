@@ -252,7 +252,7 @@ describe("undoing a settlement", () => {
     const [receipt] = await db.select().from(payments).where(eq(payments.operatorId, operator.id));
     await expect(reversePayment(manager, receipt!.id, { reason: "Mistake" })).rejects.toThrow(/deposit settlement/);
     const [deposit] = (await operatorDepositsFor(manager, operator.id)).items;
-    await expect(reverseDeposit(manager, deposit!.id, { reason: "Mistake" })).rejects.toThrow(/settled/);
+    await expect(reverseDeposit(manager, deposit!.id, { reason: "Mistake" })).rejects.toThrow(/given back/);
 
     await expect(undoSettlement(on(manager, "2038-03-11"), id)).rejects.toThrow(/day it was saved/);
     await undoSettlement(manager, id);

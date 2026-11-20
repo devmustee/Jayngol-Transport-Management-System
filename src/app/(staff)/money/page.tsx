@@ -55,8 +55,8 @@ const FINANCE_SECTIONS: { title: string; items: FinanceLink[] }[] = [
       },
       {
         href: "/deposits",
-        label: "Deposits",
-        desc: "Money held for operators, kept apart from collections",
+        label: "Savings",
+        desc: "Saved by operators and given back at the month end",
         icon: Wallet,
       },
       {

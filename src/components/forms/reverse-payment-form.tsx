@@ -1,25 +1,28 @@
 "use client";
 
 import { useState } from "react";
-import { reversePaymentAction } from "@/app/actions";
 import { ActionForm, SelectField, SubmitButton, TextareaField } from "@/components/form";
+import type { FormAction } from "@/lib/form-state";
 import { formatNaira } from "@/lib/money";
 
 type Source = { id: string; name: string; availableKobo: number };
 
 /**
- * Reverses a payment. Cash comes back out of the cash of whoever took it,
+ * Reverses a payment or a saving. Cash comes back out of the cash of whoever took it,
  * unless that cash has moved on: then another source is chosen. The result
  * is shown before anything is saved.
  */
 export function ReversePaymentForm({
-  paymentId,
+  action,
+  label = "Reverse payment",
   amountKobo,
   cash,
   collector,
   sources,
 }: {
-  paymentId: string;
+  /** The reversal, already bound to what is reversed. */
+  action: FormAction;
+  label?: string;
   amountKobo: number;
   cash: boolean;
   /** The person who took the payment, with the cash they hold free now; null when they can no longer hold cash. */
@@ -33,7 +36,7 @@ export function ReversePaymentForm({
     source === "" ? collector : (sources.find((person) => person.id === source) ?? null);
 
   return (
-    <ActionForm action={reversePaymentAction.bind(null, paymentId)}>
+    <ActionForm action={action}>
       {cash ? (
         <>
           <SelectField
@@ -78,7 +81,7 @@ export function ReversePaymentForm({
         </>
       ) : null}
       <TextareaField name="reason" label="Reason" hint="The receipt stays on record, marked as reversed." />
-      <SubmitButton disabled={cash && source === "choose"}>Reverse payment</SubmitButton>
+      <SubmitButton disabled={cash && source === "choose"}>{label}</SubmitButton>
     </ActionForm>
   );
 }

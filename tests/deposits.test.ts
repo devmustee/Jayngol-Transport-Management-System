@@ -9,7 +9,10 @@ import { cashBook, expectedCash } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
 import { getDeposit, getMyDeposits, listDeposits, operatorDepositsFor, recordDeposit, reverseDeposit } from "@/services/deposits";
 import { cashDay, closeCash, collectionsFor, getStatement } from "@/services/finance";
+import { getMyNotices } from "@/services/notices";
 import { recordPayment } from "@/services/payments";
+import { settleDeposit } from "@/services/deposit-settlements";
+import { createTransfer } from "@/services/transfers";
 import { makeOperator, makeUser, nextReference } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
@@ -234,5 +237,62 @@ describe("who can do what", () => {
     expect(seen.items.map((item) => item.operatorId)).toEqual([mine.id]);
     await expect(listDeposits(operatorCtx(mine.id))).rejects.toBeInstanceOf(ForbiddenError);
     await expect(recordDeposit(operatorCtx(mine.id), form(mine.id, "cash"))).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("savings fixes", () => {
+  it("will not reverse cash the collector no longer holds, unless another source is chosen", async () => {
+    const date = "2036-07-08";
+    const collector = on((await makeUser("assistant_manager")).ctx, date);
+    const operator = await makeOperator(manager);
+    const { id } = await recordDeposit(collector, form(operator.id, "cash", undefined, "5,000"));
+    await createTransfer(collector, { from: collector.actor.userId, to: "owner", amount: "5,000" });
+    const boss = on(manager, date);
+    await expect(reverseDeposit(boss, id, { reason: "Wrong operator" })).rejects.toMatchObject({
+      fieldErrors: { source: expect.stringMatching(/Only ₦0/) },
+    });
+    await reverseDeposit(boss, id, { reason: "Wrong operator", source: "owner" });
+    expect(await expectedCash(db, collector.actor.userId, date)).toBe(0);
+    const receipt = await getDeposit(boss, id);
+    expect(receipt!.takenBackFrom).toBe("Owner");
+  });
+
+  it("tells the operator a saving was reversed", async () => {
+    const operator = await makeOperator(manager);
+    const { id } = await recordDeposit(manager, form(operator.id, "cash", undefined, "1,500"));
+    await reverseDeposit(manager, id, { reason: "Entered twice", source: "" });
+    const { items } = await getMyNotices(operatorCtx(operator.id));
+    expect(items.some((item) => /was reversed: Entered twice/.test(item.body))).toBe(true);
+  });
+
+  it("shows on the receipt that a saving was given back", async () => {
+    const date = "2036-07-31";
+    const boss = on(manager, date);
+    const operator = await makeOperator(manager);
+    const { id } = await recordDeposit(boss, form(operator.id, "cash", undefined, "2,000"));
+    await settleDeposit(boss, { operatorId: operator.id, clear: [], source: boss.actor.userId });
+    const receipt = await getDeposit(boss, id);
+    expect(receipt!.settledOn).toBe(date);
+    expect(receipt!.settlementGivenBackKobo).toBe(200_000);
+    await expect(reverseDeposit(boss, id, { reason: "x" })).rejects.toThrow(/given back/);
+  });
+
+  it("totals a day by method and keeps reversed savings apart", async () => {
+    const date = "2036-08-04";
+    const boss = on(manager, date);
+    const operator = await makeOperator(manager);
+    const cash = await recordDeposit(boss, form(operator.id, "cash", undefined, "3,000"));
+    const pos = await recordDeposit(boss, form(operator.id, "pos", nextReference(), "4,000"));
+    const gone = await recordDeposit(boss, form(operator.id, "cash", undefined, "1,000"));
+    await reverseDeposit(boss, gone.id, { reason: "Mistake" });
+    const other = await recordDeposit(on(manager, "2036-08-05"), form(operator.id, "cash", undefined, "9,000"));
+
+    const day = await listDeposits(boss, date);
+    const ids = day.items.map((row) => row.id);
+    expect(ids).toEqual(expect.arrayContaining([cash.id, pos.id, gone.id]));
+    expect(ids).not.toContain(other.id);
+    expect(day.byMethod.pos).toBeGreaterThanOrEqual(400_000);
+    expect(day.reversedKobo).toBeGreaterThanOrEqual(100_000);
+    expect(day.takenKobo).toBeGreaterThanOrEqual(700_000);
   });
 });

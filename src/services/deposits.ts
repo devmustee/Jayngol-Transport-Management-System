@@ -1,10 +1,11 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
   depositSettlementItems,
   bankMovements,
   cashMovements,
+  depositSettlements,
   operatorDepositReversals,
   operatorDeposits,
   operators,
@@ -17,7 +18,7 @@ import { idField, positiveNairaField, requiredText } from "@/lib/fields";
 import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { auditFrom } from "./audit";
-import { cashDate } from "./cash-book";
+import { cashDate, moneySourceField, takeMoneyOut } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { notifyOperators } from "./notices";
 import { bankReferenceField } from "./payments";
@@ -128,11 +129,21 @@ export async function recordDeposit(ctx: Ctx, raw: unknown) {
   }
 }
 
-/** The receipt stays on record. The money comes back out of the trail it went into. */
+const reversalSchema = z.object({
+  reason: requiredText("Reason", 500),
+  /** Where cash taken back comes from. Empty means the person who received it. */
+  source: z.preprocess((value) => (value === "" ? undefined : value), moneySourceField.optional()),
+});
+
+/**
+ * The receipt stays on record. The money comes back out of the trail it went
+ * into: for cash, out of the cash of whoever took it, or of the source chosen
+ * when that cash has moved on. Nobody's cash can go below what they hold.
+ */
 export async function reverseDeposit(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "payment.reverse");
   const id = parseInput(idField("deposit"), rawId);
-  const { reason } = parseInput(z.object({ reason: requiredText("Reason", 500) }), raw);
+  const { reason, source } = parseInput(reversalSchema, raw);
   const now = ctx.clock();
   const today = businessDate(now);
 
@@ -150,7 +161,7 @@ export async function reverseDeposit(ctx: Ctx, rawId: unknown, raw: unknown) {
       .select({ id: depositSettlementItems.settlementId })
       .from(depositSettlementItems)
       .where(eq(depositSettlementItems.depositId, id));
-    if (settled) throw new DomainError("This deposit has been settled. Undo the settlement first.");
+    if (settled) throw new DomainError("This deposit has been given back. Undo the refund first.");
 
     await tx.insert(operatorDepositReversals).values({
       depositId: id,
@@ -160,14 +171,12 @@ export async function reverseDeposit(ctx: Ctx, rawId: unknown, raw: unknown) {
     });
 
     if (found.method === "cash") {
-      await tx.insert(cashMovements).values({
-        custodianId: found.receivedBy,
-        amountKobo: -found.amountKobo,
-        businessDate: await cashDate(tx, found.receivedBy, today),
-        sourceType: "deposit_reversal",
-        sourceId: id,
-        at: now,
-      });
+      const from = source ?? { custodianId: found.receivedBy, account: "bank" as const };
+      await takeMoneyOut(
+        tx,
+        { ...from, amountKobo: found.amountKobo, sourceType: "deposit_reversal", sourceId: id, at: now },
+        "source",
+      );
     } else {
       await tx.update(paymentReferences).set({ releasedAt: now }).where(eq(paymentReferences.depositId, id));
       await tx.insert(bankMovements).values({
@@ -179,11 +188,19 @@ export async function reverseDeposit(ctx: Ctx, rawId: unknown, raw: unknown) {
       });
     }
 
+    await notifyOperators(tx, now, [
+      {
+        operatorId: found.operatorId,
+        kind: "receipt",
+        body: `Saving ${found.receiptNumber} of ${formatNaira(found.amountKobo)} from ${formatDate(found.businessDate)} was reversed: ${reason}`,
+      },
+    ]);
     await auditFrom(ctx, tx, {
       action: "deposit.reverse",
       entityType: "operator_deposit",
       entityId: id,
       before: { amountKobo: found.amountKobo, receiptNumber: found.receiptNumber },
+      after: source ? { takenFrom: source.custodianId ?? source.account } : undefined,
       reason,
     });
   });
@@ -236,13 +253,45 @@ async function depositsOf(exec: Executor, operatorId: string) {
   return { items, heldKobo: held };
 }
 
-export async function listDeposits(ctx: Ctx) {
+/**
+ * The savings taken on one day, with the day's totals by method and what was
+ * reversed, and the total held across every day.
+ */
+export async function listDeposits(ctx: Ctx, date = businessDate(ctx.clock())) {
   requirePermission(ctx, "finance.view");
   const [rows, held] = await Promise.all([
-    depositRows(db).orderBy(desc(operatorDeposits.receivedAt)).limit(LIST_LIMIT + 1),
+    depositRows(db)
+      .where(eq(operatorDeposits.businessDate, date))
+      .orderBy(desc(operatorDeposits.receivedAt))
+      .limit(LIST_LIMIT + 1),
     heldKobo(db),
   ]);
-  return { items: rows.slice(0, LIST_LIMIT), truncated: rows.length > LIST_LIMIT, heldKobo: held };
+  const items = rows.slice(0, LIST_LIMIT);
+  const byMethod: Record<string, number> = { cash: 0, transfer: 0, pos: 0 };
+  let takenKobo = 0;
+  let takenCount = 0;
+  let reversedKobo = 0;
+  let reversedCount = 0;
+  for (const row of items) {
+    if (row.reversedAt) {
+      reversedKobo += row.amountKobo;
+      reversedCount += 1;
+      continue;
+    }
+    takenKobo += row.amountKobo;
+    takenCount += 1;
+    byMethod[row.method] = (byMethod[row.method] ?? 0) + row.amountKobo;
+  }
+  return {
+    items,
+    truncated: rows.length > LIST_LIMIT,
+    heldKobo: held,
+    takenKobo,
+    takenCount,
+    byMethod,
+    reversedKobo,
+    reversedCount,
+  };
 }
 
 export async function operatorDepositsFor(ctx: Ctx, operatorId: string) {
@@ -268,13 +317,38 @@ export async function getDeposit(ctx: Ctx, id: string) {
       reversedAt: operatorDepositReversals.reversedAt,
       reference: paymentReferences.reference,
       confirmedAt: paymentReferences.confirmedAt,
+      settledOn: depositSettlements.businessDate,
+      settlementHeldKobo: depositSettlements.heldKobo,
+      settlementClearedKobo: depositSettlements.clearedKobo,
+      settlementGivenBackKobo: depositSettlements.givenBackKobo,
+      settlementKeptKobo: depositSettlements.keptKobo,
     })
     .from(operatorDeposits)
     .innerJoin(operators, eq(operators.id, operatorDeposits.operatorId))
     .innerJoin(users, eq(users.id, operatorDeposits.receivedBy))
     .leftJoin(operatorDepositReversals, eq(operatorDepositReversals.depositId, operatorDeposits.id))
     .leftJoin(paymentReferences, eq(paymentReferences.depositId, operatorDeposits.id))
+    .leftJoin(depositSettlementItems, eq(depositSettlementItems.depositId, operatorDeposits.id))
+    .leftJoin(depositSettlements, eq(depositSettlements.id, depositSettlementItems.settlementId))
     .where(eq(operatorDeposits.id, id))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+
+  // Where the cash of a reversed cash deposit was taken back from.
+  let takenBackFrom: string | null = null;
+  if (row.reversedAt && row.deposit.method === "cash") {
+    const [cash] = await db
+      .select({ name: users.name })
+      .from(cashMovements)
+      .innerJoin(users, eq(users.id, cashMovements.custodianId))
+      .where(and(eq(cashMovements.sourceType, "deposit_reversal"), eq(cashMovements.sourceId, id)));
+    const [bank] = cash
+      ? []
+      : await db
+          .select({ account: bankMovements.account })
+          .from(bankMovements)
+          .where(and(eq(bankMovements.sourceType, "deposit_reversal"), eq(bankMovements.sourceId, id)));
+    takenBackFrom = cash ? `Cash held by ${cash.name}` : bank ? (bank.account === "owner" ? "Owner" : "Bank") : null;
+  }
+  return { ...row, takenBackFrom };
 }

@@ -11,7 +11,7 @@ import { requirePage } from "@/lib/session";
 import { listOperators } from "@/services/operators";
 import { paymentContext } from "@/services/payments";
 
-export const metadata: Metadata = { title: "Record deposit" };
+export const metadata: Metadata = { title: "Record saving" };
 
 export default async function RecordDepositPage({ searchParams }: { searchParams: Promise<Record<string, unknown>> }) {
   const ctx = await requirePage("payment.record");
@@ -34,7 +34,7 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
               : { href: "/deposits/new", label: "Choose another operator" }
           }
         />
-        <Card title="Record deposit" subtitle="Held for the operator. It does not pay any balance.">
+        <Card title="Record saving" subtitle="Held for the operator and given back at the month end. It does not pay any balance.">
           <DepositForm operatorId={data.operator.id} clientId={randomUUID()} />
         </Card>
       </>
@@ -44,7 +44,7 @@ export default async function RecordDepositPage({ searchParams }: { searchParams
   const results = q?.trim() ? (await listOperators(ctx, { q })).slice(0, 20) : [];
   return (
     <>
-      <PageHeader title="Record deposit" back={{ href: "/deposits", label: "Deposits" }} />
+      <PageHeader title="Record saving" back={{ href: "/deposits", label: "Savings" }} />
       <form className="mb-4 flex gap-2" role="search">
         <input
           name="q"

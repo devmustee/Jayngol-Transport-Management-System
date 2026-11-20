@@ -267,7 +267,7 @@ export async function recordDepositAction(_: FormState, data: FormData): Promise
 }
 
 export async function reverseDepositAction(id: string, _: FormState, data: FormData) {
-  return perform((ctx) => reverseDeposit(ctx, id, values(data)), "Deposit reversed.");
+  return perform((ctx) => reverseDeposit(ctx, id, values(data)), "Saving reversed.");
 }
 
 export async function settleDepositAction(_: FormState, data: FormData) {
