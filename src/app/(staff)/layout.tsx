@@ -87,6 +87,8 @@ export default async function StaffLayout({ children }: { children: React.ReactN
     items.push({ href: "/audit", label: "Audit log", icon: "audit", primary: false });
   }
   if (hasGuide) items.push({ href: "/guide", label: "Guide", icon: "guide", primary: false });
+  // The Owner has no topics of their own, but sees who has taken the tours.
+  else if (can(actor.role, "guide.progress")) items.push({ href: "/guide/progress", label: "Tours taken", icon: "guide", primary: false });
   items.push({ href: "/account", label: "Account", icon: "account", primary: true });
 
   const roleLabel = ROLE_LABELS[actor.role] ?? actor.role;

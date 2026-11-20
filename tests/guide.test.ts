@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { helpForPage, helpForRefusal, searchTopics, topicFor, topicsFor, TOPICS, tourFor, tourForPage, tourForTopic, toursFor, TOURS } from "@/guide";
 import { rolesWith } from "@/lib/permissions";
 import { REFUSALS } from "@/guide/refusals";
-import { saveTourProgress, tourProgress } from "@/services/guide-progress";
+import { saveTourProgress, tourProgress, tourReport } from "@/services/guide-progress";
 import { makeUser } from "./helpers";
 
 const APP = join(process.cwd(), "src/app");
@@ -200,5 +200,33 @@ describe("the operator's help", () => {
     ];
     expect(ids.length).toBeGreaterThan(3);
     for (const id of ids) expect(topicFor("operator", id)?.id, id).toBe(id);
+  });
+});
+
+describe("who has taken the tours", () => {
+  it("shows the Owner and Manager each person's tours, finished, skipped or not yet", async () => {
+    const { ctx: owner } = await makeUser("owner");
+    const { ctx: assistant, user: a } = await makeUser("assistant_manager");
+    const { user: s } = await makeUser("supervisor");
+    await saveTourProgress(assistant, "welcome", "done");
+    await saveTourProgress(assistant, "cash-close", "skipped");
+
+    const { staff, tours } = await tourReport(owner);
+    const states = (id: string) => Object.fromEntries(staff.find((p) => p.id === id)!.tours.map((t) => [t.id, t.status]));
+    expect(states(a.id)).toMatchObject({ welcome: "done", "cash-close": "skipped", "bank-check": "not_yet", "take-payment": "not_yet" });
+    expect(states(s.id)).toEqual({ welcome: "not_yet" });
+    expect(staff.find((p) => p.id === a.id)!.tours.find((t) => t.id === "welcome")!.at).toBeInstanceOf(Date);
+    expect(staff.some((p) => p.role === "operator")).toBe(false);
+
+    const welcome = tours.find((t) => t.id === "welcome")!;
+    expect(welcome.offered).toBe(staff.length);
+    expect(welcome.done).toBeGreaterThanOrEqual(1);
+  });
+
+  it("is only for the Owner and Manager", async () => {
+    const { ctx: manager } = await makeUser("manager");
+    const { ctx: assistant } = await makeUser("assistant_manager");
+    await expect(tourReport(manager)).resolves.toBeTruthy();
+    await expect(tourReport(assistant)).rejects.toThrow();
   });
 });

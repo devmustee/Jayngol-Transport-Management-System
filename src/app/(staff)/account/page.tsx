@@ -27,6 +27,7 @@ export default async function AccountPage() {
     ...(can(actor.role, "user.manage") ? [{ href: "/users", label: "Staff logins" }] : []),
     ...(can(actor.role, "audit.view") ? [{ href: "/audit", label: "Audit log" }] : []),
     ...(topicsFor(actor.role).length > 0 ? [{ href: "/guide", label: "Guide: how things work" }] : []),
+    ...(can(actor.role, "guide.progress") ? [{ href: "/guide/progress", label: "Tours taken" }] : []),
   ];
   return (
     <>

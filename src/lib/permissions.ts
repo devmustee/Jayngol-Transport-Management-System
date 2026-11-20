@@ -28,6 +28,8 @@ const MATRIX = {
   "rate.change": ["manager"],
   "user.manage": ["manager"],
   "audit.view": ["owner", "manager"],
+  /** See which staff have finished or skipped each Guide tour. */
+  "guide.progress": ["owner", "manager"],
   "portal.viewOwn": ["operator"],
   "payment.record": OFFICE,
   "payment.reverse": ["manager"],

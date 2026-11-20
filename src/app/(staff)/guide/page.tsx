@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { Card, Empty, PageHeader } from "@/components/ui";
 import { queryValue } from "@/lib/format";
+import { can } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
 import { GUIDE_AREAS, searchTopics, type GuideArea } from "@/guide";
 
@@ -17,7 +18,17 @@ export default async function GuidePage({ searchParams }: { searchParams: Promis
 
   return (
     <>
-      <PageHeader title="Guide" subtitle="How to do your work in Jayngol, step by step" />
+      <PageHeader
+        title="Guide"
+        subtitle="How to do your work in Jayngol, step by step"
+        action={
+          can(actor.role, "guide.progress") ? (
+            <Link href="/guide/progress" className="text-sm font-semibold text-gold-deep underline">
+              Tours taken
+            </Link>
+          ) : undefined
+        }
+      />
       <form className="mb-4 flex gap-2" role="search">
         <input
           type="search"
