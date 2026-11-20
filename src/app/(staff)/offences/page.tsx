@@ -11,6 +11,7 @@ import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { operatorsOwingFines } from "@/services/payments";
 import { listViolations, RULE_NAMES } from "@/services/violations";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Offences" };
 
@@ -56,6 +57,7 @@ export default async function OffencesPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/offences")?.id}
         title="Offences"
         action={can(ctx.actor.role, "violation.raise") ? <LinkButton href="/offences/late-work">Record late work</LinkButton> : undefined}
       />
@@ -111,7 +113,7 @@ export default async function OffencesPage({
         </p>
       ) : null}
       {rows.length === 0 ? (
-        q ? null : <Empty>No offences here.</Empty>
+        q ? null : <Empty help={helpForPage(ctx.actor.role, "/offences")?.id}>No offences here.</Empty>
       ) : (
         <div className="space-y-3">
           {rows.map((v) => (

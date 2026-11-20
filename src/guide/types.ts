@@ -2,6 +2,9 @@ import type { Permission } from "@/lib/permissions";
 
 export const GUIDE_AREAS = {
   money: "Money",
+  fleet: "Tricycles and operators",
+  field: "Field work",
+  admin: "Staff",
 } as const;
 
 export type GuideArea = keyof typeof GUIDE_AREAS;

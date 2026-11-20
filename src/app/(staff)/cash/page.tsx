@@ -258,7 +258,9 @@ export default async function CashPage({
           }
         >
           {recent.length === 0 ? (
-            <Empty>{differencesOnly ? "Every count has matched." : "No cash has been counted yet."}</Empty>
+            <Empty help={differencesOnly ? null : helpForPage(ctx.actor.role, "/cash")?.id}>
+              {differencesOnly ? "Every count has matched." : "No cash has been counted yet."}
+            </Empty>
           ) : (
             <ul className="divide-y divide-line">
               {recent.map((row) => {

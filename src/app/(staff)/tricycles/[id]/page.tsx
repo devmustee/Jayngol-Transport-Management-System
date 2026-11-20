@@ -34,6 +34,7 @@ import { lastJobDate } from "@/services/daily-job";
 import { listAvailableOperators } from "@/services/operators";
 import { getTricycle } from "@/services/tricycles";
 import { tricycleWorkHistory } from "@/services/workshop";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Tricycle" };
 
@@ -123,6 +124,7 @@ export default async function TricyclePage({ params }: { params: Promise<{ id: s
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/tricycles/[id]")?.id}
         title={tricycle.codeNumber}
         subtitle={tricycle.registrationNumber}
         back={{ href: "/tricycles", label: "Tricycles" }}

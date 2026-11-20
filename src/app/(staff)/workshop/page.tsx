@@ -8,6 +8,7 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listWorkshop } from "@/services/workshop";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Workshop" };
 
@@ -82,6 +83,7 @@ export default async function WorkshopPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/workshop")?.id}
         title="Workshop"
         subtitle="Services run 8:00 to 10:00 am"
         action={

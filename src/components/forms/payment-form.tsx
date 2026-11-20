@@ -70,22 +70,24 @@ export function PaymentForm({
       <input type="hidden" name="purpose" value={purpose} />
       {backdated ? <input type="hidden" name="backdateTo" value={date} /> : null}
 
-      <Field
-        name="amount"
-        label="Amount received (₦)"
-        inputMode="decimal"
-        autoComplete="off"
-        value={amount}
-        onChange={(event) => setAmount(event.target.value)}
-        hint={tooMuch ? undefined : `Up to ${formatNaira(leftKobo)}, ${UP_TO[purpose]}.`}
-      />
+      <div data-tour="pay-amount">
+        <Field
+          name="amount"
+          label="Amount received (₦)"
+          inputMode="decimal"
+          autoComplete="off"
+          value={amount}
+          onChange={(event) => setAmount(event.target.value)}
+          hint={tooMuch ? undefined : `Up to ${formatNaira(leftKobo)}, ${UP_TO[purpose]}.`}
+        />
+      </div>
       {tooMuch ? (
         <p role="alert" className="-mt-2 text-sm font-medium text-danger">
           Only {formatNaira(leftKobo)} {TOO_MUCH[purpose]}.
         </p>
       ) : null}
 
-      <fieldset>
+      <fieldset data-tour="pay-method">
         <legend className="text-sm font-medium">How was it paid?</legend>
         <div className="mt-1 flex gap-2">
           {METHODS.map((m) => (
@@ -108,7 +110,7 @@ export function PaymentForm({
       ) : null}
 
       {askTricycle ? (
-        <fieldset>
+        <fieldset data-tour="pay-tricycle">
           <legend className="text-sm font-medium">Did the operator bring the tricycle?</legend>
           <div className="mt-1 flex gap-2">
             <label className={CHOICE}>
@@ -126,9 +128,11 @@ export function PaymentForm({
 
       {backdated ? <TextareaField name="backdateReason" label="Why is this entered late?" defaultValue={backdateReason} /> : null}
 
-      <SubmitButton>
-        {amountKobo && amountKobo > 0 && !tooMuch ? `Take ${formatNaira(amountKobo)}` : "Save and issue receipt"}
-      </SubmitButton>
+      <div data-tour="pay-save">
+        <SubmitButton>
+          {amountKobo && amountKobo > 0 && !tooMuch ? `Take ${formatNaira(amountKobo)}` : "Save and issue receipt"}
+        </SubmitButton>
+      </div>
     </ActionForm>
   );
 }

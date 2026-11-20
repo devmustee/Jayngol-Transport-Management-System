@@ -8,6 +8,7 @@ import { formatNaira } from "@/lib/money";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { waiverForm } from "@/services/waivers";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Waive balance" };
 
@@ -23,6 +24,7 @@ export default async function NewWaiverPage({ searchParams }: { searchParams: Pr
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/waivers/new")?.id}
         title={`Waive balance: ${operator.name}`}
         subtitle={`${formatPhone(operator.phone)} · ${days.length} unpaid day${days.length === 1 ? "" : "s"}, ${formatNaira(owed)}`}
         back={{ href: "/arrears", label: "Unpaid balances" }}

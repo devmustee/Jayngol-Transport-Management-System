@@ -241,15 +241,26 @@ export function Details({ rows }: { rows: [string, ReactNode][] }) {
 export function Empty({
   children,
   action,
+  help,
 }: {
   children: ReactNode;
   action?: ReactNode;
+  /** A Guide topic id: links to how this works, for when the list is empty because nothing has been done yet. */
+  help?: string | null;
 }) {
   return (
     <div className="flex flex-col items-center justify-center rounded-2xl border border-line bg-card px-5 py-10 text-center">
       <Inbox size={22} className="mb-2 text-muted/70" aria-hidden />
       <p className="max-w-md text-sm text-muted">{children}</p>
       {action ? <div className="mt-4">{action}</div> : null}
+      {help ? (
+        <Link
+          href={`/guide/${help}`}
+          className="mt-3 inline-flex min-h-9 items-center gap-1.5 text-sm font-semibold text-gold-deep underline underline-offset-2"
+        >
+          <CircleHelp size={16} aria-hidden /> How this works
+        </Link>
+      ) : null}
     </div>
   );
 }

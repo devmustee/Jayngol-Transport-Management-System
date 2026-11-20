@@ -5,6 +5,7 @@ import { formatDate, METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
 import { repeatPaymentDays, unusedCredit, type ReviewPayment } from "@/services/payment-review";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Payments to review" };
 
@@ -51,6 +52,7 @@ export default async function PaymentReviewPage() {
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/payments/review")?.id}
         title="Payments to review"
         subtitle="Payments that may have been taken twice"
         back={{ href: "/money", label: "Money" }}

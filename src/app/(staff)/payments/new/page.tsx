@@ -11,7 +11,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
-import { helpForPage } from "@/guide";
+import { helpForPage, tourForPage } from "@/guide";
 import { backEntryReason } from "@/services/back-entries";
 import { operatorsOwingLoans } from "@/services/loans";
 import { listOperators } from "@/services/operators";
@@ -220,11 +220,13 @@ export default async function TakePaymentPage({
           title={operator.name}
           subtitle={status.tricycleCode ? `Tricycle ${status.tricycleCode}` : "No tricycle"}
           help={helpForPage(ctx.actor.role, "/payments/new")?.id}
+          tour={tourForPage(ctx.actor.role, "/payments/new")?.id}
           back={fromOperator ? { href: `/operators/${operator.id}`, label: operator.name } : { href: "/payments/new", label: "Choose another operator" }}
           action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
         />
         <div className="space-y-4">
           <Card
+            tour="pay-balance"
             title={date === today ? "Today's balance" : `Balance for ${formatDate(date)}`}
             action={state ? <Badge tone={state.tone}>{state.label}</Badge> : undefined}
           >
@@ -308,7 +310,7 @@ export default async function TakePaymentPage({
             </Link>
           ) : null}
 
-          <Card title="Other payments">
+          <Card title="Other payments" tour="pay-other">
             <ul className="divide-y divide-line">
               <li>
                 <Link
@@ -438,10 +440,11 @@ export default async function TakePaymentPage({
       <PageHeader
         title={forContribution ? "Take contribution" : "Take payment"}
         help={forContribution ? null : helpForPage(ctx.actor.role, "/payments/new")?.id}
+        tour={forContribution ? null : tourForPage(ctx.actor.role, "/payments/new")?.id}
         subtitle={forContribution ? "Find the operator paying their weekly contribution" : undefined}
         back={forContribution ? { href: "/contributions", label: "Contributions" } : { href: "/money", label: "Money" }}
       />
-      <form className="mb-4 flex gap-2" role="search">
+      <form className="mb-4 flex gap-2" role="search" data-tour="pay-find">
         {forContribution ? <input type="hidden" name="for" value="contribution" /> : null}
         <input
           name="q"

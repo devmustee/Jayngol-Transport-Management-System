@@ -6,6 +6,7 @@ import { WORK_TYPE_LABELS } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { openJobsForParts, partsToIssue } from "@/services/store";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Take out items" };
 
@@ -37,6 +38,7 @@ export default async function TakeOutPage({ searchParams }: { searchParams: Prom
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/store/take")?.id}
         title="Take out items"
         subtitle="From the store to a tricycle in the workshop"
         back={{ href: "/store", label: "Store" }}

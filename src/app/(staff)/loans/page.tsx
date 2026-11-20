@@ -13,6 +13,7 @@ import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { moneySources } from "@/services/cash-book";
 import { listLoans, operatorsForLoan } from "@/services/loans";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Loans" };
 
@@ -127,7 +128,8 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   ]);
   return (
     <>
-      <PageHeader title="Loans" subtitle="No interest or fee: operators pay back what they were given." back={{ href: "/money", label: "Money" }} />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/loans")?.id} title="Loans" subtitle="No interest or fee: operators pay back what they were given." back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         {data.canApprove ? (
           <Disclosure label="Give a loan" open={give}>
@@ -178,7 +180,9 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
         ) : null}
         <Card title={`Loans to collect (${active.length})`} subtitle="The loan with no repayment for longest is first">
           {active.length === 0 ? (
-            <Empty>{q ? "No loan to collect matches." : "No operator has a loan to clear."}</Empty>
+            <Empty help={q ? null : helpForPage(ctx.actor.role, "/loans")?.id}>
+              {q ? "No loan to collect matches." : "No operator has a loan to clear."}
+            </Empty>
           ) : (
             <ActiveLoans rows={active} canCollect={data.canCollect} />
           )}

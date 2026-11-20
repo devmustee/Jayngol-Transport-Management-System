@@ -7,6 +7,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { listRules } from "@/services/rules";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Rules and fines" };
 
@@ -15,7 +16,8 @@ export default async function RulesPage() {
   const rules = await listRules(ctx);
   return (
     <>
-      <PageHeader title="Rules and fines" />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/rules")?.id} title="Rules and fines" />
       <div className="space-y-4">
         <Card>
           <ul className="divide-y divide-line">

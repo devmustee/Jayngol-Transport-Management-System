@@ -11,6 +11,7 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listWaivers, WAIVER_REASON_LABELS, type WaiverReason } from "@/services/waivers";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Waivers" };
 
@@ -59,6 +60,7 @@ export default async function WaiversPage({ searchParams }: { searchParams: Prom
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/waivers")?.id}
         title="Waivers"
         subtitle="Daily balances forgiven by the Manager"
         back={{ href: "/money", label: "Money" }}

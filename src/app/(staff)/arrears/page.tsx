@@ -10,6 +10,7 @@ import { parseRange } from "@/lib/periods";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listArrears } from "@/services/finance";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Unpaid balances" };
 
@@ -201,6 +202,7 @@ export default async function ArrearsPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/arrears")?.id}
         title="Unpaid balances"
         subtitle={range ? `${total} for ${formatDate(range.from)} to ${formatDate(range.to)}` : `Total ${total}`}
         back={{ href: "/money", label: "Money" }}

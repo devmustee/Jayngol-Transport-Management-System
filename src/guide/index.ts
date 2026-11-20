@@ -1,11 +1,14 @@
 import { can, type Role } from "@/lib/permissions";
+import { FIELD_TOPICS } from "./topics/field";
+import { FLEET_TOPICS } from "./topics/fleet";
 import { MONEY_TOPICS } from "./topics/money";
+import { REFUSALS } from "./refusals";
 import { TOURS, type Tour, type TourStep } from "./tours";
 import { GUIDE_AREAS, type GuideArea, type GuideTopic } from "./types";
 
 export { GUIDE_AREAS, TOURS, type GuideArea, type GuideTopic, type Tour, type TourStep };
 
-export const TOPICS: GuideTopic[] = [...MONEY_TOPICS];
+export const TOPICS: GuideTopic[] = [...MONEY_TOPICS, ...FLEET_TOPICS, ...FIELD_TOPICS];
 
 const byId = new Map(TOPICS.map((topic) => [topic.id, topic]));
 
@@ -65,3 +68,9 @@ export const tourForPage = (role: Role, path: string) => toursFor(role).find((to
 
 /** The tour that shows a topic on its page. */
 export const tourForTopic = (role: Role, topicId: string) => toursFor(role).find((tour) => tour.topic === topicId) ?? null;
+
+/** The topic that explains why a save was refused, from the words of the refusal and its field messages. */
+export function helpForRefusal(role: Role, texts: string[]) {
+  const refusal = REFUSALS.find((one) => texts.some((text) => text.includes(one.says)));
+  return refusal ? topicFor(role, refusal.topic) : null;
+}

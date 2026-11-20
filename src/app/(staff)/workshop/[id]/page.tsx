@@ -21,6 +21,7 @@ import { formatStock } from "@/lib/quantity";
 import { requirePage } from "@/lib/session";
 import { partsToIssue } from "@/services/store";
 import { getWorkOrder } from "@/services/workshop";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Work order" };
 
@@ -51,6 +52,7 @@ export default async function WorkOrderPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/workshop/[id]")?.id}
         title={`${code} ${WORK_TYPE_LABELS[order.type].toLowerCase()}`}
         back={from === "tricycle" ? { href: `/tricycles/${order.tricycleId}`, label: code } : { href: "/workshop", label: "Workshop" }}
         action={<Badge tone={TONE[order.status]}>{WORK_STATUS_LABELS[order.status]}</Badge>}

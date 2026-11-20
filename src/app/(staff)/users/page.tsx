@@ -7,6 +7,7 @@ import { ROLE_LABELS } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listStaff } from "@/services/users";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Staff" };
 
@@ -16,7 +17,8 @@ export default async function StaffPage() {
 
   return (
     <>
-      <PageHeader title="Staff logins" />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/users")?.id} title="Staff logins" />
       <div className="space-y-4">
         <Disclosure label="Add staff login">
           <ActionForm action={createStaffAction}>

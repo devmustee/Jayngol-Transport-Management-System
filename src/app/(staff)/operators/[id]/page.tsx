@@ -25,6 +25,7 @@ import { moneySources } from "@/services/cash-book";
 import { activeLoanFor } from "@/services/loans";
 import { getOperator } from "@/services/operators";
 import { listInStockTricycles } from "@/services/tricycles";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Operator" };
 
@@ -79,6 +80,7 @@ export default async function OperatorPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/operators/[id]")?.id}
         title={operator.name}
         subtitle={formatPhone(operator.phone)}
         back={{ href: "/operators", label: "Operators" }}

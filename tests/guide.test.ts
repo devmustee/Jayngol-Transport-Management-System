@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
-import { helpForPage, searchTopics, topicFor, topicsFor, TOPICS, tourFor, tourForPage, tourForTopic, toursFor, TOURS } from "@/guide";
+import { helpForPage, helpForRefusal, searchTopics, topicFor, topicsFor, TOPICS, tourFor, tourForPage, tourForTopic, toursFor, TOURS } from "@/guide";
 import { rolesWith } from "@/lib/permissions";
+import { REFUSALS } from "@/guide/refusals";
 import { saveTourProgress, tourProgress } from "@/services/guide-progress";
 import { makeUser } from "./helpers";
 
@@ -67,7 +68,8 @@ describe("who sees what", () => {
     const ids = (role: Parameters<typeof topicsFor>[0]) => topicsFor(role).map((topic) => topic.id);
     expect(ids("assistant_manager")).toEqual(expect.arrayContaining(["record-payment", "cash-close", "bank-confirm"]));
     expect(ids("owner")).not.toContain("record-payment");
-    expect(ids("supervisor")).toEqual([]);
+    expect(ids("supervisor")).toEqual(expect.arrayContaining(["inspect-tricycles", "offences", "workshop", "meetings"]));
+    expect(ids("supervisor")).not.toContain("record-payment");
     expect(topicFor("owner", "cash-close")).toBeNull();
     expect(topicFor("manager", "cash-close")?.id).toBe("cash-close");
     expect(topicFor("manager", "no-such-topic")).toBeNull();
@@ -76,7 +78,8 @@ describe("who sees what", () => {
   it("links a page to its topic only for someone who can see it", () => {
     expect(helpForPage("manager", "/bank")?.id).toBe("bank-confirm");
     expect(helpForPage("owner", "/bank")).toBeNull();
-    expect(helpForPage("manager", "/tricycles")).toBeNull();
+    expect(helpForPage("manager", "/tricycles")?.id).toBe("add-tricycle");
+    expect(helpForPage("manager", "/reports")).toBeNull();
   });
 });
 
@@ -155,5 +158,23 @@ describe("remembering tours", () => {
     await expect(saveTourProgress(owner, "cash-close", "done")).rejects.toThrow("not one of yours");
     await expect(saveTourProgress(owner, "welcome", "finished" as never)).rejects.toThrow("Unknown tour status");
     expect(await tourProgress(owner)).toEqual({});
+  });
+});
+
+describe("refusals that link to the Guide", () => {
+  const services = sources(join(process.cwd(), "src/services")).map((file) => readFileSync(file, "utf8")).join("\n");
+
+  it("match words the services still use, and point at real topics", () => {
+    for (const refusal of REFUSALS) {
+      expect(services.includes(refusal.says), `no longer said: ${refusal.says}`).toBe(true);
+      expect(TOPICS.some((topic) => topic.id === refusal.topic), refusal.topic).toBe(true);
+    }
+  });
+
+  it("find the topic from the message or a field message, for those who can see it", () => {
+    expect(helpForRefusal("assistant_manager", ["Please check the highlighted field.", "This reference has already been used on another payment or deposit"])?.id).toBe("record-payment");
+    expect(helpForRefusal("manager", ["A different person must confirm R-12, which you recorded."])?.id).toBe("bank-confirm");
+    expect(helpForRefusal("owner", ["This count has already been corrected once."])).toBeNull();
+    expect(helpForRefusal("manager", ["Something else went wrong."])).toBeNull();
   });
 });

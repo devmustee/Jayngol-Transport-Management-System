@@ -5,6 +5,7 @@ import { PhotoInput } from "@/components/photo-input";
 import { Card, PageHeader } from "@/components/ui";
 import { requirePage } from "@/lib/session";
 import { inspectionToday } from "@/services/inspections";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Record late work" };
 
@@ -14,6 +15,7 @@ export default async function LateWorkPage() {
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/offences/late-work")?.id}
         title="Record late work"
         subtitle="Working after 10:00 pm, from the tracker"
         back={{ href: "/offences", label: "Offences" }}

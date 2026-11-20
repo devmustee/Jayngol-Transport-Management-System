@@ -13,6 +13,7 @@ import { IssueDateField } from "@/components/forms/issue-date-field";
 import { lastJobDate } from "@/services/daily-job";
 import { listDismissals } from "@/services/dismissals";
 import { listInStockTricycles } from "@/services/tricycles";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Sacking alerts" };
 
@@ -26,9 +27,10 @@ export default async function SackingPage() {
 
   return (
     <>
-      <PageHeader title="Sacking alerts and appeals" back={{ href: "/money", label: "Money" }} />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/sacking")?.id} title="Sacking alerts and appeals" back={{ href: "/money", label: "Money" }} />
       {rows.length === 0 ? (
-        <Empty>No operator is at 5 unpaid days.</Empty>
+        <Empty help={helpForPage(ctx.actor.role, "/sacking")?.id}>No operator is at 5 unpaid days.</Empty>
       ) : (
         <div className="space-y-4">
           {rows.map((row) => {

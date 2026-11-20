@@ -7,6 +7,7 @@ import { formatDateTime, MEETING_STATUS_LABELS } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { listMeetings } from "@/services/meetings";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Meetings" };
 
@@ -17,7 +18,8 @@ export default async function MeetingsPage() {
   const meetings = await listMeetings(ctx);
   return (
     <>
-      <PageHeader title="General meetings" />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/meetings")?.id} title="General meetings" />
       <div className="space-y-4">
         {can(ctx.actor.role, "meeting.schedule") ? (
           <Disclosure label="Schedule a meeting">
@@ -29,7 +31,7 @@ export default async function MeetingsPage() {
           </Disclosure>
         ) : null}
         {meetings.length === 0 ? (
-          <Empty>No meetings yet.</Empty>
+          <Empty help={helpForPage(ctx.actor.role, "/meetings")?.id}>No meetings yet.</Empty>
         ) : (
           <ul className="space-y-3">
             {meetings.map((meeting) => (

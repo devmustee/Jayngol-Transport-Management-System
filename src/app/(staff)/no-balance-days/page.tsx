@@ -7,6 +7,7 @@ import { formatDate } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { listNonCollectionDays } from "@/services/finance";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "No-balance days" };
 
@@ -19,7 +20,8 @@ export default async function NoBalanceDaysPage() {
 
   return (
     <>
-      <PageHeader title="No-balance days" subtitle="No daily balance is charged on these dates." back={{ href: "/money", label: "Money" }} />
+      <PageHeader
+        help={helpForPage(ctx.actor.role, "/no-balance-days")?.id} title="No-balance days" subtitle="No daily balance is charged on these dates." back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         {canManage ? (
           <Card title="Add a date">
@@ -48,7 +50,7 @@ export default async function NoBalanceDaysPage() {
           </Disclosure>
         ) : null}
         {days.length === 0 ? (
-          <Empty>No dates marked.</Empty>
+          <Empty help={helpForPage(ctx.actor.role, "/no-balance-days")?.id}>No dates marked.</Empty>
         ) : (
           <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
             {days.map((day) => (

@@ -11,6 +11,7 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listContributions, weekEnding } from "@/services/contributions";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Contributions" };
 
@@ -87,6 +88,7 @@ export default async function ContributionsPage({ searchParams }: { searchParams
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/contributions")?.id}
         title="Contributions"
         subtitle={
           data.started && data.rateKobo !== null

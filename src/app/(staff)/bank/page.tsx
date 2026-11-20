@@ -12,7 +12,7 @@ import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/component
 import { formatDate, formatDateTime, METHOD_LABELS, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
-import { helpForPage } from "@/guide";
+import { helpForPage, tourForPage } from "@/guide";
 import { bankPosition, type ToConfirm } from "@/services/bank";
 
 export const metadata: Metadata = { title: "Bank check" };
@@ -44,9 +44,9 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
 
   return (
     <>
-      <PageHeader title="Bank check" help={helpForPage(ctx.actor.role, "/bank")?.id} subtitle="Match the books to the bank statement" back={{ href: "/money", label: "Money" }} />
+      <PageHeader title="Bank check" help={helpForPage(ctx.actor.role, "/bank")?.id} tour={tourForPage(ctx.actor.role, "/bank")?.id} subtitle="Match the books to the bank statement" back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
-        <Card title="Bank position">
+        <Card title="Bank position" tour="bank-position">
           <Details
             rows={[
               ["Balance in the books", signed(bank.bookKobo)],
@@ -121,11 +121,12 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         ) : null}
 
         <Card
+          tour="bank-waiting"
           title="Transfers and POS to confirm"
           subtitle={bank.waitingCount > 0 ? `${bank.waitingCount} waiting, ${formatNaira(bank.waitingKobo)}` : undefined}
         >
           {bank.waitingCount > 0 ? (
-            <form className="mb-3 flex gap-2" role="search">
+            <form className="mb-3 flex gap-2" role="search" data-tour="bank-search">
               <input
                 type="search"
                 name="q"
@@ -175,13 +176,17 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
                   Showing the oldest {shown} of {bank.matchedCount}. Confirm these, or search, to see the rest.
                 </p>
               ) : null}
-              {bank.canReconcile ? <SubmitButton>Confirm ticked: seen on the statement</SubmitButton> : null}
+              {bank.canReconcile ? (
+                <div data-tour="bank-confirm-button">
+                  <SubmitButton>Confirm ticked: seen on the statement</SubmitButton>
+                </div>
+              ) : null}
             </ActionForm>
           )}
         </Card>
 
         {bank.confirmedToday.length > 0 ? (
-          <Card title="Confirmed today" subtitle="A confirmation made by mistake can be undone today by whoever made it.">
+          <Card tour="bank-confirmed-today" title="Confirmed today" subtitle="A confirmation made by mistake can be undone today by whoever made it.">
             <ul className="divide-y divide-line">
               {bank.confirmedToday.map((item) => (
                 <li key={item.id} className="space-y-2 py-3 first:pt-0 last:pb-0">
@@ -202,7 +207,7 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
         ) : null}
 
         {bank.canReconcile ? (
-          <Card title="Reconcile a month">
+          <Card title="Reconcile a month" tour="bank-reconcile">
             {!bank.hasOpening ? (
               <p className="text-sm text-muted">The opening bank balance must be set first, so the books have somewhere to start.</p>
             ) : !bank.nextMonth ? (
@@ -233,9 +238,9 @@ export default async function BankPage({ searchParams }: { searchParams: Promise
           </Card>
         ) : null}
 
-        <Card title="Past reconciliations">
+        <Card title="Past reconciliations" tour="bank-history">
           {bank.history.length === 0 ? (
-            <Empty>No month has been reconciled yet.</Empty>
+            <Empty help={helpForPage(ctx.actor.role, "/bank") ? "bank-reconcile" : null}>No month has been reconciled yet.</Empty>
           ) : (
             <ul className="divide-y divide-line">
               {bank.history.map((row) => {

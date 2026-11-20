@@ -7,6 +7,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { LIST_LIMIT, listTricycles } from "@/services/tricycles";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Tricycles" };
 
@@ -24,6 +25,7 @@ export default async function TricyclesPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/tricycles")?.id}
         title="Tricycles"
         subtitle="Every tricycle, who has it and what it pays"
         action={

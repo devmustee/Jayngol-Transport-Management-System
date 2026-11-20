@@ -7,6 +7,7 @@ import { can } from "@/lib/permissions";
 import { formatPhone } from "@/lib/phone";
 import { requirePage } from "@/lib/session";
 import { listOperators, NO_LOGIN } from "@/services/operators";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Operators" };
 
@@ -25,6 +26,7 @@ export default async function OperatorsPage({
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/operators")?.id}
         title="Operators"
         subtitle="Everyone who rides a Jayngol tricycle"
         action={

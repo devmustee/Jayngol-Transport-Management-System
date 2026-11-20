@@ -4,6 +4,7 @@ import { ActionForm, SelectField, SubmitButton, TextareaField } from "@/componen
 import { Card, PageHeader } from "@/components/ui";
 import { requirePage } from "@/lib/session";
 import { listTricycles } from "@/services/tricycles";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Take in for repair" };
 
@@ -14,6 +15,7 @@ export default async function NewRepairPage() {
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/workshop/new")?.id}
         title="Take in for repair"
         subtitle="The tricycle goes off the road until the repair is completed."
         back={{ href: "/workshop", label: "Workshop" }}

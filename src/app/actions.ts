@@ -31,6 +31,7 @@ import { refundAllDue, settleDeposit, undoSettlement } from "@/services/deposit-
 import { addNonCollectionDay, closeCash, correctCashCount, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
 import { saveTourProgress } from "@/services/guide-progress";
+import { helpForRefusal } from "@/guide";
 import { markAllRead, openNotification } from "@/services/notifications";
 import { isStaff } from "@/lib/permissions";
 import { isAppLink } from "@/lib/notification-catalogue";
@@ -89,9 +90,10 @@ import {
 
 const values = (data: FormData) => Object.fromEntries(data);
 
-const toState = (error: unknown): FormState => {
+const toState = (error: unknown, ctx?: Ctx): FormState => {
   if (error instanceof DomainError) {
-    return { error: error.message, fieldErrors: error.fieldErrors };
+    const topic = ctx ? helpForRefusal(ctx.actor.role, [error.message, ...Object.values(error.fieldErrors ?? {})]) : null;
+    return { error: error.message, fieldErrors: error.fieldErrors, ...(topic ? { help: { id: topic.id, title: topic.title } } : {}) };
   }
   throw error;
 };
@@ -103,7 +105,7 @@ async function perform<T>(work: (ctx: Ctx) => Promise<T>, message: string | ((re
   try {
     result = await work(ctx);
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   return { ok: true, message: typeof message === "string" ? message : message(result) };
@@ -149,7 +151,7 @@ export async function createTricycleAction(_: FormState, data: FormData): Promis
   try {
     id = (await createTricycle(ctx, values(data)))!.id;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/tricycles/${id}`);
@@ -160,7 +162,7 @@ export async function updateTricycleAction(id: string, _: FormState, data: FormD
   try {
     await updateTricycle(ctx, id, values(data));
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/tricycles/${id}`);
@@ -180,7 +182,7 @@ export async function createOperatorAction(_: FormState, data: FormData): Promis
   try {
     id = (await createOperator(ctx, values(data)))!.id;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/operators/${id}`);
@@ -191,7 +193,7 @@ export async function updateOperatorAction(id: string, _: FormState, data: FormD
   try {
     await updateOperator(ctx, id, values(data));
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/operators/${id}`);
@@ -255,7 +257,7 @@ export async function recordPaymentAction(_: FormState, data: FormData): Promise
   try {
     id = (await recordPayment(ctx, values(data))).id;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/payments/${id}`);
@@ -271,7 +273,7 @@ export async function recordDepositAction(_: FormState, data: FormData): Promise
   try {
     id = (await recordDeposit(ctx, values(data))).id;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/deposits/${id}`);
@@ -362,7 +364,7 @@ export async function waiveBalancesAction(operatorId: string, _: FormState, data
       })
     ).id;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/waivers?show=${id}`);
@@ -471,7 +473,7 @@ export async function takeOutItemsAction(_: FormState, data: FormData): Promise<
   try {
     workOrderId = (await takeOutItems(ctx, values(data))).workOrderId;
   } catch (error) {
-    return toState(error);
+    return toState(error, ctx);
   }
   revalidatePath("/", "layout");
   redirect(`/workshop/${workOrderId}?taken=1`);

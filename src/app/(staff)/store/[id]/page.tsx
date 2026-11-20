@@ -15,6 +15,7 @@ import { can } from "@/lib/permissions";
 import { formatQuantity, formatStock } from "@/lib/quantity";
 import { requirePage } from "@/lib/session";
 import { getStockItem, isLow } from "@/services/store";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Store item" };
 
@@ -31,6 +32,7 @@ export default async function StoreItemPage({ params }: { params: Promise<{ id: 
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/store/[id]")?.id}
         title={item.name}
         back={{ href: "/store", label: "Store" }}
         action={isLow(item) ? <Badge tone="bad">Low, reorder</Badge> : undefined}

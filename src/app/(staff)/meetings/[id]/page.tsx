@@ -13,6 +13,7 @@ import { ATTENDANCE_LABELS, formatDateTime, MEETING_STATUS_LABELS } from "@/lib/
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { getMeeting } from "@/services/meetings";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Meeting" };
 
@@ -34,6 +35,7 @@ export default async function MeetingPage({ params }: { params: Promise<{ id: st
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/meetings/[id]")?.id}
         title={meeting.title}
         subtitle={`${formatDateTime(meeting.scheduledFor)} · ${MEETING_STATUS_LABELS[meeting.status]}`}
         back={{ href: "/meetings", label: "Meetings" }}

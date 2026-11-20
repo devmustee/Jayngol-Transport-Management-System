@@ -8,6 +8,7 @@ import { can } from "@/lib/permissions";
 import { formatStock } from "@/lib/quantity";
 import { requirePage } from "@/lib/session";
 import { isLow, listStock } from "@/services/store";
+import { helpForPage } from "@/guide";
 
 export const metadata: Metadata = { title: "Store" };
 
@@ -19,6 +20,7 @@ export default async function StorePage() {
   return (
     <>
       <PageHeader
+        help={helpForPage(ctx.actor.role, "/store")?.id}
         title="Store"
         subtitle={`Stock value ${formatNaira(value)}`}
         action={
@@ -32,7 +34,7 @@ export default async function StorePage() {
       />
       <div className="space-y-4">
         {items.length === 0 ? (
-          <Empty>No items yet.</Empty>
+          <Empty help={helpForPage(ctx.actor.role, "/store")?.id}>No items yet.</Empty>
         ) : (
           <ul className="space-y-3">
             {items.map((item) => (

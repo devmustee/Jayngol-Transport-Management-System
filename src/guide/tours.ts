@@ -112,4 +112,104 @@ export const TOURS: Tour[] = [
     ],
     about: ["src/app/(staff)/cash/page.tsx", "src/components/forms/cash-close-form.tsx"],
   },
+  {
+    id: "bank-check",
+    title: "The Bank check",
+    permission: "bank.reconcile",
+    page: "/bank",
+    topic: "bank-confirm",
+    steps: [
+      {
+        target: "bank-position",
+        title: "Bank position",
+        body: "What the books say is in the bank, and how much is still waiting to be seen on the statement.",
+      },
+      {
+        target: "bank-search",
+        title: "Find an item",
+        body: "With the bank statement open beside you, search by reference, receipt, name or amount.",
+      },
+      {
+        target: "bank-waiting",
+        title: "Tick what you can see",
+        body: "Tick each transfer or POS payment you can see on the statement. You cannot confirm money you recorded yourself.",
+      },
+      {
+        target: "bank-confirm-button",
+        title: "Confirm them together",
+        body: "The ticked items are confirmed all together, or none if one of them cannot be.",
+      },
+      {
+        target: "bank-confirmed-today",
+        title: "Undo a mistake",
+        body: "Confirmed one that is not on the statement? Undo it here, the same day.",
+      },
+      {
+        target: "bank-reconcile",
+        title: "At each month end",
+        body: "Type the closing balance on the statement. The app compares it with the books; say why if they differ.",
+      },
+      {
+        target: "bank-history",
+        title: "Past months",
+        body: "Each month's result stays here. A statement figure can be corrected once, with a reason.",
+      },
+      {
+        target: "help",
+        title: "More in the Guide",
+        body: "The ? opens the Guide on confirming and reconciling.",
+      },
+    ],
+    about: ["src/app/(staff)/bank/page.tsx"],
+  },
+  {
+    id: "take-payment",
+    title: "Taking a payment",
+    permission: "payment.record",
+    page: "/payments/new",
+    topic: "record-payment",
+    steps: [
+      {
+        target: "pay-find",
+        title: "Find the operator",
+        body: "Type the tricycle code, or the operator's name or phone, tap Find and choose them. Their page has its own Show me how.",
+      },
+      {
+        target: "pay-balance",
+        title: "What is owed",
+        body: "The day's balance and what has already been paid on it.",
+      },
+      {
+        target: "pay-amount",
+        title: "The amount",
+        body: "Type exactly what the operator gave you.",
+      },
+      {
+        target: "pay-method",
+        title: "How it was paid",
+        body: "Cash goes into your cash in hand. For a transfer or POS, copy the reference exactly; it waits on the Bank check.",
+      },
+      {
+        target: "pay-tricycle",
+        title: "The tricycle",
+        body: "Say whether the operator brought the tricycle. Coming to pay without it is reported as an offence.",
+      },
+      {
+        target: "pay-save",
+        title: "Save",
+        body: "Tap once. The operator gets a receipt to print or share. A second tap records nothing more.",
+      },
+      {
+        target: "pay-other",
+        title: "Other payments",
+        body: "Older days, fines, the weekly contribution and loan repayments are taken from here.",
+      },
+      {
+        target: "help",
+        title: "More in the Guide",
+        body: "The ? opens the Guide on taking payments.",
+      },
+    ],
+    about: ["src/app/(staff)/payments/new/page.tsx", "src/components/forms/payment-form.tsx"],
+  },
 ];

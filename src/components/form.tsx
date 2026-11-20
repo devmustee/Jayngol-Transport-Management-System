@@ -12,7 +12,8 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { AlertCircle, CheckCircle2, Loader2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, CircleHelp, Loader2 } from "lucide-react";
+import Link from "next/link";
 import { unstable_isUnrecognizedActionError, unstable_rethrow } from "next/navigation";
 import type { FormAction, FormState } from "@/lib/form-state";
 import { showToast } from "./toaster";
@@ -90,10 +91,20 @@ export function ActionForm({
         {state.error ? (
           <div
             role="alert"
-            className="flex items-center gap-2 rounded-xl border border-danger-border bg-danger-wash px-4 py-3 text-sm font-medium text-danger"
+            className="rounded-xl border border-danger-border bg-danger-wash px-4 py-3 text-sm font-medium text-danger"
           >
-            <AlertCircle size={18} className="shrink-0" />
-            <span>{state.error}</span>
+            <div className="flex items-center gap-2">
+              <AlertCircle size={18} className="shrink-0" />
+              <span>{state.error}</span>
+            </div>
+            {state.help ? (
+              <Link
+                href={`/guide/${state.help.id}`}
+                className="mt-2 -mb-1 ml-[26px] inline-flex min-h-9 items-center gap-1.5 font-semibold text-ink underline decoration-danger/40 underline-offset-2"
+              >
+                <CircleHelp size={16} aria-hidden /> Why? {state.help.title}
+              </Link>
+            ) : null}
           </div>
         ) : null}
         {state.message ? (
