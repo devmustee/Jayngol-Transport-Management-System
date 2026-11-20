@@ -33,6 +33,7 @@ import {
   createAdvance,
   finishAdvance,
   recordExpense,
+  rejectExpense,
   removeExpense,
   sendBackAdvance,
   submitAdvance,
@@ -511,6 +512,10 @@ export async function correctExpenseAction(id: string, _: FormState, data: FormD
 
 export async function removeExpenseAction(id: string, _: FormState, data: FormData) {
   return perform((ctx) => removeExpense(ctx, id, values(data)), "Removed and the money put back on the balance.");
+}
+
+export async function rejectExpenseAction(id: string, _: FormState, data: FormData) {
+  return perform((ctx) => rejectExpense(ctx, id, values(data)), "Rejected. The money is back on the balance.");
 }
 
 export async function addExpenseLineAction(id: string, _: FormState, data: FormData) {

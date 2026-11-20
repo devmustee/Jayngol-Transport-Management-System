@@ -85,6 +85,12 @@ export const CATALOGUE = {
     link: "/deposits",
     audience: { permission: "deposit.oversee" },
   },
+  expense_backdated: {
+    severity: "info",
+    title: "Expense recorded late",
+    link: "/expenses",
+    audience: { permission: "expense.oversee" },
+  },
   large_expense: {
     severity: "info",
     title: "Large expense by the Manager",
@@ -107,6 +113,7 @@ export const CATALOGUE = {
   expense_submitted: staffNotice("action", "Expenses to countersign", "/expenses", "expense.countersign"),
   expense_sent_back: staffNotice("action", "Expenses sent back", "/expenses", "expense.record"),
   expense_countersigned: staffNotice("info", "Expenses countersigned", "/expenses", "expense.record"),
+  expense_rejected: staffNotice("action", "Expense rejected", "/expenses", "expense.record"),
   awards_proposed: staffNotice("action", "Awards to decide", "/awards", "award.approve"),
   stock_low: staffNotice("action", "Stock below reorder level", "/store", "stock.move"),
   tricycle_unretired: staffNotice("info", "Tricycle back in use", "/tricycles", "tricycle.oversee"),

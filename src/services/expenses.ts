@@ -2,18 +2,22 @@ import { and, asc, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Tx } from "@/db";
 import { expenseAdvances, expenseLines, expenseLineVoids, expenseCategory, users } from "@/db/schema";
-import { businessDate } from "@/lib/clock";
-import { DomainError, fieldError, parseInput } from "@/lib/errors";
-import { dateField, idField, positiveNairaField, requiredText } from "@/lib/fields";
+import { addDays, businessDate } from "@/lib/clock";
+import { asPgError, DomainError, fieldError, parseInput } from "@/lib/errors";
+import { dateField, idField, optionalText, positiveNairaField, requiredText } from "@/lib/fields";
+import { formatDate } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { photoField } from "@/lib/photo";
 import { auditFrom } from "./audit";
 import { notifyMany } from "./notifications";
-import { moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
+import { lockCashHolder, moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { savePhoto } from "./violations";
 import { tellExpenseDecided, tellExpenseSubmitted } from "./staff-events";
+
+/** Spent within this many days of recording needs no reason; older needs one, and the owner is told. */
+export const EXPENSE_FREE_DAYS = 7;
 
 // Written out in full: Drizzle drops the table name on single-table selects, and
 // a bare column here would bind to the inner query instead.
@@ -38,6 +42,33 @@ async function accountedFor(tx: Tx, id: string) {
     .from(expenseAdvances)
     .where(eq(expenseAdvances.id, id));
   return row?.total ?? 0;
+}
+
+const sourceField = z.preprocess((value) => (value === "" ? undefined : value), moneySourceField.optional());
+
+/**
+ * Where money handed back on an older record goes: to whoever gave the funds,
+ * unless they no longer hold cash, when the person saving says where it is now.
+ */
+async function returnPlace(
+  tx: Tx,
+  advance: { custodianId: string | null; account: "bank" | "owner" },
+  source: { custodianId: string | null; account: "bank" | "owner" } | undefined,
+) {
+  if (source) {
+    if (source.custodianId) await lockCashHolder(tx, source.custodianId, "source");
+    return source;
+  }
+  if (advance.custodianId) {
+    const [holder] = await tx
+      .select({ name: users.name, status: users.status })
+      .from(users)
+      .where(eq(users.id, advance.custodianId));
+    if (holder?.status !== "active") {
+      throw fieldError("source", `${holder?.name ?? "The person who gave the funds"} no longer holds cash. Choose where the money is now`);
+    }
+  }
+  return { custodianId: advance.custodianId, account: advance.account };
 }
 
 const advanceSchema = z.object({
@@ -86,9 +117,13 @@ const expenseSchema = z.object({
   amount: positiveNairaField("Amount"),
   spentOn: dateField("Date spent"),
   photo: photoField("Receipt"),
+  /** Needed when spent more than a week ago. */
+  backdateReason: optionalText(300),
+  /** The form's own id: the same save sent twice records one expense. */
+  clientId: z.preprocess((value) => (value === "" ? undefined : value), z.uuid().optional()),
 });
 
-const correctionSchema = expenseSchema.omit({ photo: true });
+const correctionSchema = expenseSchema.omit({ photo: true, clientId: true });
 
 /** A Manager's expense over this is reported to the owner, since nobody approves it. */
 export const LARGE_EXPENSE_KOBO = 5_000_000;
@@ -99,65 +134,116 @@ const finalOnSaving = (ctx: Ctx) => ctx.actor.role === "manager";
 /** Expenses come straight off the company balance, never out of a person's cash in hand. */
 const BALANCE = { custodianId: null, account: "bank" as const };
 
-function refuseFuture(spentOn: string, now: Date) {
-  if (spentOn > businessDate(now)) throw fieldError("spentOn", "This date cannot be in the future");
+/**
+ * No future date. A date more than a week back needs a reason, since the
+ * expense then counts in a month already seen. Returns whether it is backdated.
+ */
+function checkSpentOn(spentOn: string, now: Date, reason: string | null | undefined) {
+  const today = businessDate(now);
+  if (spentOn > today) throw fieldError("spentOn", "This date cannot be in the future");
+  const backdated = spentOn < addDays(today, -EXPENSE_FREE_DAYS);
+  if (backdated && !reason) {
+    throw fieldError("backdateReason", `Spent more than ${EXPENSE_FREE_DAYS} days ago: say why it is recorded late`);
+  }
+  return backdated;
+}
+
+async function tellBackdated(tx: Tx, ctx: Ctx, id: string, description: string, amountKobo: number, spentOn: string, reason: string) {
+  await notifyMany(tx, [
+    {
+      kind: "expense_backdated",
+      body: `${ctx.actor.name}: ${description}, ${formatNaira(amountKobo)}, spent ${formatDate(spentOn)}. ${reason}`,
+      at: ctx.clock(),
+      link: `/expenses/${id}`,
+      entity: { type: "expense_advance", id },
+      dedupeKey: `expense_backdated:${id}:${spentOn}`,
+      exceptUserId: ctx.actor.userId,
+      createdBy: ctx.actor.userId,
+    },
+  ]);
 }
 
 /**
  * An expense is money spent, recorded once: it comes off the company balance now
- * and waits for the Assistant Manager's approval. It is never paid back.
+ * and waits for the Manager's approval (the Manager's own needs none). It is
+ * never paid back.
  */
 export async function recordExpense(ctx: Ctx, raw: unknown) {
   requirePermission(ctx, "expense.record");
   const input = parseInput(expenseSchema, raw);
   const now = ctx.clock();
-  refuseFuture(input.spentOn, now);
-  return db.transaction(async (tx) => {
-    const [advance] = await tx
-      .insert(expenseAdvances)
-      .values({
-        purpose: input.description,
-        amountKobo: input.amount,
+  const backdated = checkSpentOn(input.spentOn, now, input.backdateReason);
+  const clientId = input.clientId ?? null;
+  const already = async () => {
+    if (!clientId) return null;
+    const [found] = await db
+      .select({ id: expenseAdvances.id })
+      .from(expenseAdvances)
+      .where(eq(expenseAdvances.clientId, clientId));
+    return found ?? null;
+  };
+  // Sent again after a dropped connection: the first save is the answer.
+  const first = await already();
+  if (first) return first;
+  try {
+    return await db.transaction(async (tx) => {
+      const [advance] = await tx
+        .insert(expenseAdvances)
+        .values({
+          purpose: input.description,
+          amountKobo: input.amount,
+          ...BALANCE,
+          status: finalOnSaving(ctx) ? "countersigned" : "submitted",
+          collectedOn: input.spentOn,
+          collectedBy: ctx.actor.userId,
+          createdAt: now,
+          submittedAt: now,
+          countersignedAt: finalOnSaving(ctx) ? now : null,
+          oneStep: true,
+          clientId,
+          backdateReason: backdated ? input.backdateReason! : null,
+        })
+        .returning({ id: expenseAdvances.id });
+      const id = advance!.id;
+      await takeMoneyOut(tx, {
         ...BALANCE,
-        status: finalOnSaving(ctx) ? "countersigned" : "submitted",
-        collectedOn: input.spentOn,
-        collectedBy: ctx.actor.userId,
+        amountKobo: input.amount,
+        sourceType: "expense_advance",
+        sourceId: id,
+        at: now,
+      });
+      const photoId = input.photo ? await savePhoto(tx, ctx, input.photo) : null;
+      await tx.insert(expenseLines).values({
+        advanceId: id,
+        kind: "spent",
+        category: input.category,
+        description: input.description,
+        amountKobo: input.amount,
+        spentOn: input.spentOn,
+        photoId,
+        createdBy: ctx.actor.userId,
         createdAt: now,
-        submittedAt: now,
-        countersignedAt: finalOnSaving(ctx) ? now : null,
-        oneStep: true,
-      })
-      .returning({ id: expenseAdvances.id });
-    const id = advance!.id;
-    await takeMoneyOut(tx, {
-      ...BALANCE,
-      amountKobo: input.amount,
-      sourceType: "expense_advance",
-      sourceId: id,
-      at: now,
+      });
+      await auditFrom(ctx, tx, {
+        action: "expense.record",
+        entityType: "expense_advance",
+        entityId: id,
+        after: { amountKobo: input.amount, category: input.category, spentOn: input.spentOn },
+        reason: backdated ? input.backdateReason : undefined,
+      });
+      if (finalOnSaving(ctx)) await tellOwner(tx, id, input.description, input.amount, now, ctx);
+      else await tellExpenseSubmitted(tx, ctx, { id, purpose: input.description, amountKobo: input.amount, collectedBy: ctx.actor.userId });
+      if (backdated) await tellBackdated(tx, ctx, id, input.description, input.amount, input.spentOn, input.backdateReason!);
+      return advance!;
     });
-    const photoId = input.photo ? await savePhoto(tx, ctx, input.photo) : null;
-    await tx.insert(expenseLines).values({
-      advanceId: id,
-      kind: "spent",
-      category: input.category,
-      description: input.description,
-      amountKobo: input.amount,
-      spentOn: input.spentOn,
-      photoId,
-      createdBy: ctx.actor.userId,
-      createdAt: now,
-    });
-    await auditFrom(ctx, tx, {
-      action: "expense.record",
-      entityType: "expense_advance",
-      entityId: id,
-      after: { amountKobo: input.amount, category: input.category, spentOn: input.spentOn },
-    });
-    if (finalOnSaving(ctx)) await tellOwner(tx, id, input.description, input.amount, now, ctx);
-    else await tellExpenseSubmitted(tx, ctx, { id, purpose: input.description, amountKobo: input.amount, collectedBy: ctx.actor.userId });
-    return advance!;
-  });
+  } catch (error) {
+    // Two copies of the same save raced: the one that won is the answer.
+    if (asPgError(error)?.constraint_name === "expense_advances_client_unique") {
+      const winner = await already();
+      if (winner) return winner;
+    }
+    throw error;
+  }
 }
 
 async function tellOwner(tx: Tx, id: string, description: string, amountKobo: number, at: Date, ctx: Ctx) {
@@ -229,7 +315,7 @@ export async function correctExpense(ctx: Ctx, rawId: unknown, raw: unknown) {
   const id = parseInput(idField("expense"), rawId);
   const input = parseInput(correctionSchema, raw);
   const now = ctx.clock();
-  refuseFuture(input.spentOn, now);
+  const backdated = checkSpentOn(input.spentOn, now, input.backdateReason);
   await db.transaction(async (tx) => {
     const advance = await lockAdvance(tx, id);
     const how = requireCorrectable(ctx, advance);
@@ -260,11 +346,15 @@ export async function correctExpense(ctx: Ctx, rawId: unknown, raw: unknown) {
         purpose: input.description,
         amountKobo: input.amount,
         collectedOn: input.spentOn,
+        backdateReason: backdated ? input.backdateReason! : null,
         // Sent back: it goes for approval again. The Manager's own stays final.
         ...(how === "sent_back" ? { status: "submitted" as const, submittedAt: now, returnNote: null } : {}),
       })
       .where(eq(expenseAdvances.id, id));
     if (how === "same_day") await tellOwner(tx, id, input.description, input.amount, now, ctx);
+    if (backdated && input.spentOn !== line.spentOn) {
+      await tellBackdated(tx, ctx, id, input.description, input.amount, input.spentOn, input.backdateReason!);
+    }
     await auditFrom(ctx, tx, {
       action: "expense.correct",
       entityType: "expense_advance",
@@ -315,7 +405,7 @@ const lineSchema = z.discriminatedUnion("kind", [
     spentOn: dateField("Date"),
     photo: photoField("Receipt"),
   }),
-  z.object({ kind: z.literal("change"), amount: positiveNairaField("Amount") }),
+  z.object({ kind: z.literal("change"), amount: positiveNairaField("Amount"), source: sourceField }),
 ]);
 
 /** What was spent, or change handed back. The two together must come to the advance. */
@@ -352,9 +442,9 @@ export async function addExpenseLine(ctx: Ctx, rawId: unknown, raw: unknown) {
       })
       .returning({ id: expenseLines.id });
     if (input.kind === "change") {
+      const place = await returnPlace(tx, advance, input.source);
       await recordMovement(tx, {
-        custodianId: advance.custodianId,
-        account: advance.account,
+        ...place,
         amountKobo: input.amount,
         sourceType: "expense_change",
         sourceId: line!.id,
@@ -522,20 +612,56 @@ export async function sendBackAdvance(ctx: Ctx, rawId: unknown, raw: unknown) {
   });
 }
 
+/**
+ * The Manager refuses an expense waiting for approval or sent back: the money
+ * goes back on the balance and the record stays, marked rejected. It works
+ * whether or not the person who recorded it still works here.
+ */
+export async function rejectExpense(ctx: Ctx, rawId: unknown, raw: unknown) {
+  requirePermission(ctx, "expense.countersign");
+  const id = parseInput(idField("expense"), rawId);
+  const { reason } = parseInput(reasonSchema, raw);
+  const now = ctx.clock();
+  await db.transaction(async (tx) => {
+    const advance = await lockAdvance(tx, id);
+    if (advance.status !== "submitted" && advance.status !== "open") {
+      throw new DomainError("Only an expense waiting for approval or sent back can be rejected.");
+    }
+    if (advance.collectedBy === ctx.actor.userId) throw new DomainError("Remove your own expense instead.");
+    const line = await singleLine(tx, advance);
+    if (!line) throw new DomainError("This older record is finished or cancelled line by line.");
+    await tx.insert(expenseLineVoids).values({ lineId: line.id, voidedBy: ctx.actor.userId, reason: `Rejected: ${reason}`, voidedAt: now });
+    await tx
+      .update(expenseAdvances)
+      .set({ status: "cancelled", cancelReason: reason, rejectedBy: ctx.actor.userId, rejectedAt: now })
+      .where(eq(expenseAdvances.id, id));
+    await recordMovement(tx, {
+      custodianId: advance.custodianId,
+      account: advance.account,
+      amountKobo: advance.amountKobo,
+      sourceType: "expense_advance_cancel",
+      sourceId: id,
+      at: now,
+    });
+    await auditFrom(ctx, tx, { action: "expense.reject", entityType: "expense_advance", entityId: id, reason });
+    await tellExpenseDecided(tx, ctx, advance, "rejected", reason);
+  });
+}
+
 /** For funds recorded by mistake. Anything already accounted for must be removed first. */
 export async function cancelAdvance(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "expense.record");
   const id = parseInput(idField("expense record"), rawId);
-  const { reason } = parseInput(reasonSchema, raw);
+  const { reason, source } = parseInput(reasonSchema.extend({ source: sourceField }), raw);
   const now = ctx.clock();
   await db.transaction(async (tx) => {
     const advance = await lockAdvance(tx, id);
     requireOpen(advance);
     if ((await accountedFor(tx, id)) > 0) throw new DomainError("Remove the entries on this record first.");
+    const place = await returnPlace(tx, advance, source);
     await tx.update(expenseAdvances).set({ status: "cancelled", cancelReason: reason }).where(eq(expenseAdvances.id, id));
     await recordMovement(tx, {
-      custodianId: advance.custodianId,
-      account: advance.account,
+      ...place,
       amountKobo: advance.amountKobo,
       sourceType: "expense_advance_cancel",
       sourceId: id,
@@ -563,10 +689,17 @@ export async function advanceCounts(ctx: Ctx) {
   return { toApprove: toApprove[0]?.value ?? 0, sentBack: sentBack[0]?.value ?? 0 };
 }
 
-export async function listAdvances(ctx: Ctx) {
+/**
+ * Everything waiting on someone, always; and for one month, what was approved,
+ * what was removed or rejected, and what was spent by category.
+ */
+export async function listAdvances(ctx: Ctx, month?: string) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
-  const monthStart = `${today.slice(0, 7)}-01`;
+  const chosen = month && /^\d{4}-\d{2}$/.test(month) && month <= today.slice(0, 7) ? month : today.slice(0, 7);
+  const monthStart = `${chosen}-01`;
+  const monthEnd = addDays(`${addMonthText(chosen)}-01`, -1);
+  const inMonth = sql`${expenseAdvances.collectedOn} BETWEEN ${monthStart}::date AND ${monthEnd}::date`;
   const listed = () =>
     db
       .select({
@@ -578,35 +711,53 @@ export async function listAdvances(ctx: Ctx) {
         collectedBy: expenseAdvances.collectedBy,
         countersignedBy: expenseAdvances.countersignedBy,
         returnNote: expenseAdvances.returnNote,
+        cancelReason: expenseAdvances.cancelReason,
+        rejectedBy: expenseAdvances.rejectedBy,
+        backdateReason: expenseAdvances.backdateReason,
         accountedKobo: accounted,
         oneStep: expenseAdvances.oneStep,
         recordedBy: users.name,
+        category: sql<string | null>`(
+          SELECT l.category::text FROM expense_lines l WHERE l.advance_id = expense_advances.id AND l.kind = 'spent'
+          ORDER BY (EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = l.id)), l.created_at DESC LIMIT 1)`,
       })
       .from(expenseAdvances)
       .innerJoin(users, eq(users.id, expenseAdvances.collectedBy))
       .orderBy(desc(expenseAdvances.collectedOn), desc(expenseAdvances.createdAt));
-  const [waiting, approved, month] = await Promise.all([
-    // Everything still waiting on someone is always listed; approved ones only the latest.
+  const [waiting, approved, removed, byCategory] = await Promise.all([
+    // Everything still waiting on someone is always listed, whatever the month.
     listed().where(inArray(expenseAdvances.status, ["open", "submitted"])),
-    listed().where(eq(expenseAdvances.status, "countersigned")).limit(100),
+    listed().where(and(eq(expenseAdvances.status, "countersigned"), inMonth)),
+    listed().where(and(eq(expenseAdvances.status, "cancelled"), inMonth)),
     // Same rule as the report: spent lines by the day spent, voided lines and removed records left out.
     db.execute(sql`
-      SELECT COALESCE(SUM(l.amount_kobo), 0)::float8 AS total FROM expense_lines l
+      SELECT l.category::text AS category, COALESCE(SUM(l.amount_kobo), 0)::float8 AS total FROM expense_lines l
       JOIN expense_advances a ON a.id = l.advance_id AND a.status <> 'cancelled'
-      WHERE l.kind = 'spent' AND l.spent_on BETWEEN ${monthStart}::date AND ${today}::date
+      WHERE l.kind = 'spent' AND l.spent_on BETWEEN ${monthStart}::date AND ${monthEnd}::date
         AND NOT EXISTS (SELECT 1 FROM expense_line_voids v WHERE v.line_id = l.id)
-    `) as unknown as Promise<{ total: number }[]>,
+      GROUP BY l.category ORDER BY total DESC
+    `) as unknown as Promise<{ category: string | null; total: number }[]>,
   ]);
   const open = waiting.filter((row) => row.status === "open");
   return {
+    month: chosen,
+    thisMonth: today.slice(0, 7),
     sentBack: open.filter((row) => row.oneStep),
     /** Older records from when funds were collected first (phase 3 clears these). */
     older: open.filter((row) => !row.oneStep),
     submitted: waiting.filter((row) => row.status === "submitted"),
     done: approved,
-    spentThisMonthKobo: month[0]?.total ?? 0,
+    removed,
+    byCategory,
+    spentKobo: byCategory.reduce((sum, row) => sum + row.total, 0),
     canRecord: can(ctx.actor.role, "expense.record"),
   };
+}
+
+/** "2026-11" to "2026-12". */
+function addMonthText(month: string) {
+  const [year, m] = month.split("-").map(Number) as [number, number];
+  return m === 12 ? `${year + 1}-01` : `${year}-${String(m + 1).padStart(2, "0")}`;
 }
 
 export async function getAdvance(ctx: Ctx, id: string) {
@@ -619,8 +770,11 @@ export async function getAdvance(ctx: Ctx, id: string) {
     .leftJoin(expenseLineVoids, eq(expenseLineVoids.lineId, expenseLines.id))
     .where(eq(expenseLines.advanceId, id))
     .orderBy(asc(expenseLines.createdAt));
-  const ids = [advance.collectedBy, advance.countersignedBy, advance.custodianId].filter((v): v is string => !!v);
-  const people = await db.select({ id: users.id, name: users.name }).from(users).where(inArray(users.id, ids));
+  const ids = [advance.collectedBy, advance.countersignedBy, advance.custodianId, advance.rejectedBy].filter((v): v is string => !!v);
+  const people = await db
+    .select({ id: users.id, name: users.name, status: users.status })
+    .from(users)
+    .where(inArray(users.id, ids));
   const nameOf = (value: string | null) => people.find((person) => person.id === value)?.name ?? null;
   const active = lines.filter((row) => row.voidReason === null);
   const oneStepRecord = advance.oneStep;
@@ -646,6 +800,9 @@ export async function getAdvance(ctx: Ctx, id: string) {
     collectedByName: nameOf(advance.collectedBy),
     countersignedByName: nameOf(advance.countersignedBy),
     sourceName: nameOf(advance.custodianId),
+    rejectedByName: nameOf(advance.rejectedBy),
+    /** The person who gave an older record's funds has left: money handed back needs a place. */
+    sourceLeft: advance.custodianId !== null && people.find((person) => person.id === advance.custodianId)?.status !== "active",
     sourceAccount: advance.account,
     canRecord: can(ctx.actor.role, "expense.record"),
     canCountersign: can(ctx.actor.role, "expense.countersign"),

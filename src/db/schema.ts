@@ -996,6 +996,13 @@ export const expenseAdvances = pgTable(
     cancelReason: text("cancel_reason"),
     /** Recorded as one expense (what it was for, amount, date), not as funds collected first. */
     oneStep: boolean("one_step").notNull().default(false),
+    /** The form's own id, so a save sent twice records one expense. Older records have none. */
+    clientId: uuid("client_id").unique("expense_advances_client_unique"),
+    /** Why it was spent more than a week before it was recorded. */
+    backdateReason: text("backdate_reason"),
+    /** The Manager refused it: the money went back on the balance. */
+    rejectedBy: uuid("rejected_by").references(() => users.id),
+    rejectedAt: timestamp("rejected_at", tz),
   },
   (t) => [
     index("advances_status_idx").on(t.status),

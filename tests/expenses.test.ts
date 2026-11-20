@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { expenseLines, jobRuns, loans, violations } from "@/db/schema";
+import { expenseLines, jobRuns, loans, notifications, users, violations } from "@/db/schema";
 import { addDays } from "@/lib/clock";
 import { ForbiddenError } from "@/lib/errors";
 import { issueTricycle } from "@/services/assignments";
@@ -21,6 +21,7 @@ import {
   getAdvance,
   listAdvances,
   recordExpense,
+  rejectExpense,
   removeExpense,
   sendBackAdvance,
   submitAdvance,
@@ -627,11 +628,11 @@ describe("expenses recorded in one step", () => {
 
   it("totals what was spent this month, leaving out removed expenses", async () => {
     const day = "2039-06-10";
-    const before = (await listAdvances(by(manager, day))).spentThisMonthKobo;
+    const before = (await listAdvances(by(manager, day))).spentKobo;
     await expense("1,000", { spentOn: day }, by(manager, day));
     const gone = await expense("4,000", { spentOn: day }, by(manager, day));
     await removeExpense(by(manager, day), gone.id, { reason: "Mistake" });
-    expect((await listAdvances(by(manager, day))).spentThisMonthKobo).toBe(before + 100_000);
+    expect((await listAdvances(by(manager, day))).spentKobo).toBe(before + 100_000);
   });
 
   it("shows a corrected expense as one expense, not an older advance", async () => {
@@ -719,5 +720,86 @@ describe("finishing older records", () => {
     await sendBackAdvance(manager, one.id, { reason: "Check" });
     await expect(finishAdvance(on(assistant, DATE), one.id)).rejects.toThrow(/Correct this expense/);
     await expect(finishAdvance(supervisor, id)).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("expense fixes", () => {
+  const D = "2040-03-20";
+  const form = (extra: Record<string, unknown> = {}) => ({
+    description: "Fuel",
+    category: "transport",
+    amount: "3,000",
+    spentOn: D,
+    ...extra,
+  });
+
+  it("records one expense when the same save arrives twice", async () => {
+    const clientId = randomUUID();
+    const ctx = on(assistant, D);
+    const [a, b] = await Promise.all([recordExpense(ctx, form({ clientId })), recordExpense(ctx, form({ clientId }))]);
+    expect(a!.id).toBe(b!.id);
+    const again = await recordExpense(ctx, form({ clientId }));
+    expect(again!.id).toBe(a!.id);
+  });
+
+  it("asks why an expense from more than a week ago is recorded late, and tells the owner", async () => {
+    const ctx = on(manager, D);
+    await expect(recordExpense(ctx, form({ spentOn: addDays(D, -8) }))).rejects.toMatchObject({
+      fieldErrors: { backdateReason: expect.stringMatching(/more than 7 days/) },
+    });
+    const ok = await recordExpense(ctx, form({ spentOn: addDays(D, -7) }));
+    expect((await getAdvance(ctx, ok!.id))!.advance.backdateReason).toBeNull();
+    const late = await recordExpense(ctx, form({ spentOn: "2040-01-05", backdateReason: "Receipt found in the glovebox" }));
+    expect((await getAdvance(ctx, late!.id))!.advance.backdateReason).toBe("Receipt found in the glovebox");
+    const [notice] = await db.select().from(notifications).where(eq(notifications.dedupeKey, `expense_backdated:${late!.id}:2040-01-05`));
+    expect(notice?.body).toContain("Receipt found in the glovebox");
+  });
+
+  it("lets the Manager reject an expense even after the person who recorded it has left", async () => {
+    const leaver = on((await makeUser("assistant_manager")).ctx, D);
+    const spent = await recordExpense(leaver, form({ amount: "6,000" }));
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, leaver.actor.userId));
+    const boss = on(manager, D);
+    const before = (await listAdvances(boss, D.slice(0, 7))).spentKobo;
+    await rejectExpense(boss, spent!.id, { reason: "Not a company cost" });
+    const detail = await getAdvance(boss, spent!.id);
+    expect(detail!.advance).toMatchObject({ status: "cancelled", rejectedBy: boss.actor.userId, cancelReason: "Not a company cost" });
+    const list = await listAdvances(boss, D.slice(0, 7));
+    expect(list.spentKobo).toBe(before - 600_000);
+    expect(list.removed.find((row) => row.id === spent!.id)).toMatchObject({ rejectedBy: boss.actor.userId });
+    await expect(rejectExpense(boss, spent!.id, { reason: "again" })).rejects.toThrow(/Only an expense waiting/);
+  });
+
+  it("will not let the Manager reject their own expense", async () => {
+    const boss = on(manager, D);
+    const own = await recordExpense(boss, form());
+    await expect(rejectExpense(boss, own!.id, { reason: "x" })).rejects.toThrow();
+  });
+
+  it("lists a month by category, and removed expenses apart", async () => {
+    const month = "2040-04";
+    const boss = on(manager, `${month}-15`);
+    const kept = await recordExpense(boss, form({ spentOn: `${month}-14`, category: "office", amount: "2,000" }));
+    const gone = await recordExpense(boss, form({ spentOn: `${month}-14`, category: "office", amount: "5,000" }));
+    await removeExpense(boss, gone!.id, { reason: "Entered twice" });
+    const list = await listAdvances(boss, month);
+    expect(list.month).toBe(month);
+    expect(list.done.map((row) => row.id)).toContain(kept!.id);
+    expect(list.removed.find((row) => row.id === gone!.id)).toMatchObject({ cancelReason: "Entered twice", rejectedBy: null });
+    expect(list.byCategory.find((row) => row.category === "office")!.total).toBeGreaterThanOrEqual(200_000);
+  });
+
+  it("asks where the money goes when an older record's funds came from someone who left", async () => {
+    const giver = on((await makeUser("assistant_manager")).ctx, D);
+    const operator = await makeOperator(manager);
+    await recordPayment(giver, { operatorId: operator.id, amount: "9,000", method: "cash", clientId: randomUUID() });
+    const advance = await createAdvance(on(manager, D), { purpose: "Parts", amount: "9,000", source: giver.actor.userId });
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, giver.actor.userId));
+    const boss = on(manager, D);
+    await expect(cancelAdvance(boss, advance!.id, { reason: "Mistake" })).rejects.toMatchObject({
+      fieldErrors: { source: expect.stringMatching(/no longer holds cash/) },
+    });
+    await cancelAdvance(boss, advance!.id, { reason: "Mistake", source: "owner" });
+    expect(await expectedCash(db, giver.actor.userId, D)).toBe(0);
   });
 });

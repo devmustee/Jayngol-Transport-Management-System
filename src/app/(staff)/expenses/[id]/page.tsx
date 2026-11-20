@@ -7,19 +7,22 @@ import {
   correctExpenseAction,
   countersignAdvanceAction,
   finishAdvanceAction,
+  rejectExpenseAction,
   removeExpenseAction,
   sendBackAdvanceAction,
   voidExpenseLineAction,
 } from "@/app/actions";
 import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { PhotoInput } from "@/components/photo-input";
+import { SpentOnFields } from "@/components/forms/spent-on-fields";
 import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/components/ui";
-import { businessDate } from "@/lib/clock";
+import { addDays, businessDate } from "@/lib/clock";
 import { isUuid } from "@/lib/fields";
 import { ADVANCE_STATUS_LABELS, EXPENSE_CATEGORY_LABELS, formatDate, formatDateTime } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
-import { getAdvance } from "@/services/expenses";
+import { moneySources } from "@/services/cash-book";
+import { EXPENSE_FREE_DAYS, getAdvance } from "@/services/expenses";
 
 export const metadata: Metadata = { title: "Expense record" };
 
@@ -46,6 +49,16 @@ export default async function ExpensePage({
   const current = correctable ? lines.find((row) => row.voidReason === null)!.line : null;
   const advanceEditable = editable && !oneStep;
   const today = businessDate(ctx.clock());
+  const rejected = advance.rejectedBy !== null;
+  const canReject =
+    data.canCountersign &&
+    oneStep &&
+    data.single &&
+    (advance.status === "submitted" || advance.status === "open") &&
+    advance.collectedBy !== ctx.actor.userId;
+  // An older record whose funds came from someone who has left: cancelling asks where the money is now.
+  const cancelNeedsPlace = advanceEditable && data.sourceLeft;
+  const sources = cancelNeedsPlace ? await moneySources(ctx) : [];
 
   return (
     <>
@@ -53,7 +66,9 @@ export default async function ExpensePage({
         title={advance.purpose}
         subtitle={formatNaira(advance.amountKobo)}
         back={{ href: "/expenses", label: "Expenses" }}
-        action={<Badge tone={TONE[advance.status]}>{oneStep && advance.status === "cancelled"
+        action={<Badge tone={rejected ? "bad" : TONE[advance.status]}>{rejected
+              ? "Rejected"
+              : oneStep && advance.status === "cancelled"
               ? "Removed"
               : !oneStep && advance.status === "open"
                 ? "To finish"
@@ -70,7 +85,7 @@ export default async function ExpensePage({
               : "Expense recorded. It is waiting for the Manager's approval."}
           </p>
         ) : null}
-        {advance.returnNote ? (
+        {advance.returnNote && advance.status === "open" ? (
           <p role="alert" className="rounded-lg bg-danger-wash px-3 py-2 font-semibold text-danger">Sent back: {advance.returnNote}</p>
         ) : null}
         {oneStep && latest ? (
@@ -89,7 +104,13 @@ export default async function ExpensePage({
                     : advance.status === "submitted"
                       ? ([["Approval", "Waiting for the Manager"]] as [string, string][])
                       : []),
-                ...(advance.cancelReason ? ([["Why removed", advance.cancelReason]] as [string, string][]) : []),
+                ...(advance.backdateReason ? ([["Recorded late because", advance.backdateReason]] as [string, string][]) : []),
+                ...(rejected && advance.rejectedAt
+                  ? ([["Rejected by", `${data.rejectedByName ?? "the Manager"}, ${formatDateTime(advance.rejectedAt)}`]] as [string, string][])
+                  : []),
+                ...(advance.cancelReason
+                  ? ([[rejected ? "Why rejected" : "Why removed", advance.cancelReason]] as [string, string][])
+                  : []),
               ]}
             />
             {latest.photoId ? (
@@ -231,7 +252,12 @@ export default async function ExpensePage({
                   defaultValue={String(current.amountKobo / 100)}
                   hint="Only the difference comes off or goes back to the balance."
                 />
-                <Field name="spentOn" label="Date spent" type="date" max={today} defaultValue={current.spentOn} />
+                <SpentOnFields
+                  today={today}
+                  freeFrom={addDays(today, -EXPENSE_FREE_DAYS)}
+                  defaultValue={current.spentOn}
+                  defaultReason={advance.backdateReason}
+                />
                 <SubmitButton>{correctable === "same_day" ? "Save correction" : "Correct and send for approval"}</SubmitButton>
               </ActionForm>
             </Card>
@@ -259,9 +285,41 @@ export default async function ExpensePage({
           </>
         ) : null}
 
+        {canReject ? (
+          <Disclosure label="Reject this expense">
+            <ActionForm action={rejectExpenseAction.bind(null, advance.id)}>
+              <p className="text-sm text-muted">
+                The {formatNaira(advance.amountKobo)} goes back on the company balance and the record stays, marked rejected.{" "}
+                {data.collectedByName ?? "The person who recorded it"} is told.
+              </p>
+              <TextareaField name="reason" label="Why it is rejected" />
+              <SubmitButton tone="plain">Reject and put the money back</SubmitButton>
+            </ActionForm>
+          </Disclosure>
+        ) : null}
+
         {advanceEditable && accountedKobo === 0 ? (
           <Disclosure label="Cancel and put the money back">
             <ActionForm action={cancelAdvanceAction.bind(null, advance.id)}>
+              {cancelNeedsPlace ? (
+                <>
+                  <p className="text-sm text-muted">
+                    The funds came from {data.sourceName ?? "someone"}&apos;s cash, but they no longer work here. Choose where the money is now.
+                  </p>
+                  <SelectField name="source" label="Money goes back to" defaultValue="">
+                    <option value="" disabled>
+                      Choose…
+                    </option>
+                    {sources.map((person) => (
+                      <option key={person.id} value={person.id}>
+                        Cash held by {person.name}
+                      </option>
+                    ))}
+                    <option value="bank">Bank</option>
+                    <option value="owner">Owner</option>
+                  </SelectField>
+                </>
+              ) : null}
               <TextareaField name="reason" label="Reason" />
               <SubmitButton tone="plain">Cancel this record</SubmitButton>
             </ActionForm>

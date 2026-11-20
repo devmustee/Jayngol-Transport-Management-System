@@ -285,15 +285,23 @@ export async function tellExpenseSubmitted(tx: Tx, ctx: Ctx, a: Advance) {
   });
 }
 
-export async function tellExpenseDecided(tx: Tx, ctx: Ctx, a: Advance, outcome: "sent_back" | "countersigned", reason?: string) {
+export async function tellExpenseDecided(
+  tx: Tx,
+  ctx: Ctx,
+  a: Advance,
+  outcome: "sent_back" | "countersigned" | "rejected",
+  reason?: string,
+) {
   await notify(tx, {
-    kind: outcome === "sent_back" ? "expense_sent_back" : "expense_countersigned",
+    kind: outcome === "sent_back" ? "expense_sent_back" : outcome === "rejected" ? "expense_rejected" : "expense_countersigned",
     ...by(ctx),
     userIds: [a.collectedBy],
     body:
       outcome === "sent_back"
         ? `${ctx.actor.name} sent back "${a.purpose}" (${formatNaira(a.amountKobo)}). ${reason ?? ""}`.trim()
-        : `${ctx.actor.name} countersigned "${a.purpose}" (${formatNaira(a.amountKobo)}).`,
+        : outcome === "rejected"
+          ? `${ctx.actor.name} rejected "${a.purpose}" (${formatNaira(a.amountKobo)}). The money is back on the balance. ${reason ?? ""}`.trim()
+          : `${ctx.actor.name} countersigned "${a.purpose}" (${formatNaira(a.amountKobo)}).`,
     link: `/expenses/${a.id}`,
     entity: { type: "expense_advance", id: a.id },
     dedupeKey: `advance:${a.id}:${outcome}:${ctx.clock().getTime()}`,
