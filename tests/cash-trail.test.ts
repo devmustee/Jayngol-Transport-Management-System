@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import { bankMovements, moneyTransfers } from "@/db/schema";
+import { bankMovements, moneyTransfers, notificationRecipients, notifications, users } from "@/db/schema";
 import { ForbiddenError } from "@/lib/errors";
 import { bankPosition, confirmBankPayment, recordReconciliation, setOpeningBalance } from "@/services/bank";
-import { cashAlerts, cashBook, cashPosition, expectedCash } from "@/services/cash-book";
+import { cashAlerts, cashBook, cashPosition, expectedCash, moneySources } from "@/services/cash-book";
 import type { Ctx } from "@/services/context";
 import { cashDay, closeCash } from "@/services/finance";
 import { cancelLoan, grantLoan } from "@/services/loans";
@@ -226,6 +226,116 @@ describe("moving money", () => {
   });
 });
 
+const toldAbout = async (userId: string, kind: string, transferId: string) =>
+  (
+    await db
+      .select({ body: notifications.body })
+      .from(notificationRecipients)
+      .innerJoin(notifications, eq(notifications.id, notificationRecipients.notificationId))
+      .where(and(eq(notificationRecipients.userId, userId), eq(notifications.kind, kind), eq(notifications.entityId, transferId)))
+  ).map((row) => row.body);
+const disable = (ctx: Ctx) => db.update(users).set({ status: "disabled" }).where(eq(users.id, ctx.actor.userId));
+
+describe("moving money safely", () => {
+  it("cannot promise the same cash in two handovers, or spend cash a handover is waiting on", async () => {
+    const date = "2034-08-01";
+    const sender = on(await someone(), date);
+    const first = await someone();
+    const second = await someone();
+    await collect(sender, "10,000");
+    const one = await createTransfer(sender, { from: sender.actor.userId, to: first.actor.userId, amount: "7,000" });
+    expect(one.message).toMatch(/Waiting for .* to accept ₦7,000/);
+    await expect(
+      createTransfer(sender, { from: sender.actor.userId, to: second.actor.userId, amount: "4,000" }),
+    ).rejects.toMatchObject({ fieldErrors: { from: expect.stringMatching(/Only ₦3,000 is free.*₦7,000 is waiting/) } });
+    await expect(
+      createTransfer(sender, { from: sender.actor.userId, to: "owner", amount: "4,000" }),
+    ).rejects.toMatchObject({ fieldErrors: { from: expect.anything() } });
+    const operator = await makeOperator(manager);
+    await expect(
+      grantLoan(on(manager, date), { operatorId: operator.id, amount: "4,000", source: sender.actor.userId }),
+    ).rejects.toThrow();
+
+    const mine = (await moneySources(on(manager, date))).find((person) => person.id === sender.actor.userId)!;
+    expect(mine).toMatchObject({ heldKobo: 1_000_000, waitingKobo: 700_000, availableKobo: 300_000 });
+
+    await acceptTransfer(on(first, date), one.id);
+    expect(await expectedCash(db, first.actor.userId, date)).toBe(700_000);
+    const two = await createTransfer(sender, { from: sender.actor.userId, to: second.actor.userId, amount: "3,000" });
+    expect(two.status).toBe("pending");
+  });
+
+  it("asks the giver, not the Manager, to confirm when the Manager takes their cash", async () => {
+    const date = "2034-08-02";
+    const boss = on(manager, date);
+    const assistantNow = on(await someone(), date);
+    await collect(assistantNow, "5,000");
+    const handover = await createTransfer(boss, { from: assistantNow.actor.userId, to: manager.actor.userId, amount: "5,000" });
+    expect(handover.message).toMatch(/to confirm they gave you ₦5,000/);
+    expect(await toldAbout(assistantNow.actor.userId, "handover_sent", handover.id)).toHaveLength(1);
+
+    await expect(acceptTransfer(boss, handover.id)).rejects.toThrow(/giving the cash must confirm/);
+    expect(await expectedCash(db, assistantNow.actor.userId, date)).toBe(500_000);
+    await acceptTransfer(assistantNow, handover.id);
+    expect(await expectedCash(db, assistantNow.actor.userId, date)).toBe(0);
+    expect(await expectedCash(db, manager.actor.userId, date)).toBeGreaterThanOrEqual(500_000);
+  });
+
+  it("tells the person whose cash it is, and lets them withdraw a handover someone else recorded", async () => {
+    const date = "2034-08-03";
+    const giver = on(await someone(), date);
+    const taker = on(await someone(), date);
+    await collect(giver, "2,000");
+    const handover = await createTransfer(on(manager, date), { from: giver.actor.userId, to: taker.actor.userId, amount: "2,000" });
+    expect(await toldAbout(taker.actor.userId, "handover_sent", handover.id)).toHaveLength(1);
+    expect((await toldAbout(giver.actor.userId, "cash_moved", handover.id))[0]).toContain("of your cash");
+    await rejectTransfer(giver, handover.id, { reason: "I never gave this" });
+    const [row] = await db.select().from(moneyTransfers).where(eq(moneyTransfers.id, handover.id));
+    expect(row!.status).toBe("rejected");
+    expect((await toldAbout(manager.actor.userId, "handover_rejected", handover.id))[0]).toContain("withdrew");
+
+    const stranger = on(await someone(), date);
+    const again = await createTransfer(on(manager, date), { from: giver.actor.userId, to: taker.actor.userId, amount: "1,000" });
+    await expect(rejectTransfer(stranger, again.id, { reason: "x" })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("tells the person when the Manager sends their cash straight to the Owner", async () => {
+    const date = "2034-08-04";
+    const person = on(await someone(), date);
+    await collect(person, "3,000");
+    const move = await createTransfer(on(manager, date), { from: person.actor.userId, to: "owner", amount: "3,000" });
+    expect(move.message).toMatch(/₦3,000 from .* handed to the Owner/);
+    expect((await toldAbout(person.actor.userId, "cash_moved", move.id))[0]).toContain("moved ₦3,000 of your cash");
+  });
+
+  it("warns that the bank was not checked before there is an opening balance", async () => {
+    const move = await createTransfer(on(manager, "2034-08-05"), { from: "bank", to: "owner", amount: "1,000" });
+    expect(move.message).toContain("no opening balance");
+  });
+
+  it("will not accept a handover from someone who has left, and says why", async () => {
+    const date = "2034-08-06";
+    const sender = on(await someone(), date);
+    const receiver = on(await someone(), date);
+    await collect(sender, "2,000");
+    const handover = await createTransfer(sender, { from: sender.actor.userId, to: receiver.actor.userId, amount: "2,000" });
+    await disable(sender);
+    await expect(acceptTransfer(receiver, handover.id)).rejects.toThrow(/no longer staff, so this handover cannot be accepted/);
+    await rejectTransfer(receiver, handover.id, { reason: "They left" });
+  });
+
+  it("will not reverse a move into the cash of someone who has left", async () => {
+    const date = "2034-08-07";
+    const person = on(await someone(), date);
+    await collect(person, "3,000");
+    const move = await createTransfer(person, { from: person.actor.userId, to: "owner", amount: "3,000" });
+    expect(move.message).toContain("handed to the Owner");
+    await disable(person);
+    await expect(voidTransfer(on(manager, date), move.id, { reason: "Wrong" })).rejects.toThrow(/no longer staff/);
+    expect(await expectedCash(db, person.actor.userId, date)).toBe(0);
+  });
+});
+
 describe("owner money", () => {
   it("keeps a loan from the owner off the bank, and returns it there on cancel", async () => {
     const date = "2035-01-10";
@@ -267,6 +377,17 @@ describe("bank reconciliation", () => {
     expect(history[0]).toMatchObject({ month: "2036-05-01", bookKobo: book, statementKobo: book + 50_000 });
     await expect(recordReconciliation(ctx, { month: "2036-05", statement, explanation: "x" })).rejects.toMatchObject({
       fieldErrors: { month: expect.anything() },
+    });
+  });
+});
+
+describe("the bank book", () => {
+  it("refuses a move out of the bank beyond the book once there is an opening balance", async () => {
+    const boss = on(manager, "2034-09-01");
+    const { bookKobo } = await bankPosition(boss);
+    const tooMuch = String(Math.max(Math.floor(bookKobo / 100), 0) + 1_000);
+    await expect(createTransfer(boss, { from: "bank", to: "owner", amount: tooMuch })).rejects.toMatchObject({
+      fieldErrors: { amount: expect.stringMatching(/The bank book shows only/) },
     });
   });
 });

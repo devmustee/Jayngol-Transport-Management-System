@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
-import { bankMovements, cashCloses, cashMovements, users } from "@/db/schema";
+import { bankMovements, cashCloses, cashMovements, moneyTransfers, users } from "@/db/schema";
 import { closeDueBy, closeRhythm, weekOf } from "@/lib/cash-rhythm";
 import { addDays, businessDate } from "@/lib/clock";
 import { DomainError, fieldError } from "@/lib/errors";
@@ -94,11 +94,34 @@ export async function lockCashHolder(tx: Tx, custodianId: string, field: string)
   }
 }
 
+/** Cash promised in handovers the receiver has not accepted yet. */
+export async function waitingHandovers(exec: Executor, custodianId: string) {
+  const [row] = await exec
+    .select({ kobo: sql<number>`COALESCE(SUM(${moneyTransfers.amountKobo}), 0)::float8` })
+    .from(moneyTransfers)
+    .where(and(eq(moneyTransfers.fromCustodian, custodianId), eq(moneyTransfers.status, "pending")));
+  return row?.kobo ?? 0;
+}
+
+/**
+ * Cash held, less what is already promised in waiting handovers, so the same
+ * cash cannot be handed over twice or spent while a handover waits.
+ */
+export async function freeCash(exec: Executor, custodianId: string, date: string) {
+  const [heldKobo, waitingKobo] = await Promise.all([expectedCash(exec, custodianId, date), waitingHandovers(exec, custodianId)]);
+  return { heldKobo, waitingKobo, freeKobo: heldKobo - waitingKobo };
+}
+
 export async function assertCashHeld(tx: Tx, custodianId: string, amountKobo: number, at: Date, field: string) {
   const date = await cashDate(tx, custodianId, businessDate(at));
-  const available = await expectedCash(tx, custodianId, date);
-  if (amountKobo > available) {
-    throw fieldError(field, `Only ${formatNaira(available)} in cash is held by this person`);
+  const { heldKobo, waitingKobo, freeKobo } = await freeCash(tx, custodianId, date);
+  if (amountKobo > freeKobo) {
+    throw fieldError(
+      field,
+      waitingKobo > 0
+        ? `Only ${formatNaira(Math.max(freeKobo, 0))} is free. This person holds ${formatNaira(heldKobo)}, and ${formatNaira(waitingKobo)} is waiting in handovers`
+        : `Only ${formatNaira(heldKobo)} in cash is held by this person`,
+    );
   }
 }
 
@@ -181,7 +204,7 @@ export async function cashAlerts(exec: Executor, today: string) {
   };
 }
 
-/** Who money can come from, with the cash each person holds today. */
+/** Who money can come from, with the cash each person holds today and how much of it is free. */
 export async function moneySources(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
@@ -191,10 +214,11 @@ export async function moneySources(ctx: Ctx) {
     .where(and(inArray(users.role, ["manager", "assistant_manager"]), eq(users.status, "active")))
     .orderBy(users.name);
   return Promise.all(
-    people.map(async (person) => ({
-      ...person,
-      availableKobo: await expectedCash(db, person.id, await cashDate(db, person.id, today)),
-    })),
+    people.map(async (person) => {
+      const { heldKobo, waitingKobo, freeKobo } = await freeCash(db, person.id, await cashDate(db, person.id, today));
+      /** availableKobo is what can be spent: cash held less waiting handovers. */
+      return { ...person, availableKobo: freeKobo, heldKobo, waitingKobo };
+    }),
   );
 }
 

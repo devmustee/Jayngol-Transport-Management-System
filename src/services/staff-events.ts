@@ -100,38 +100,91 @@ export async function tellOffenceDecided(
   });
 }
 
-export async function tellHandoverSent(
-  tx: Tx,
-  ctx: Ctx,
-  t: { id: string; fromCustodian: string | null; toCustodian: string | null; amountKobo: number },
-) {
-  if (!t.toCustodian) return;
+type Handover = {
+  id: string;
+  fromCustodian: string | null;
+  toCustodian: string | null;
+  createdBy: string;
+  amountKobo: number;
+};
+
+/**
+ * Who must agree to a handover. Normally the receiver. When the person
+ * recording it is also the receiver, taking someone else's cash, the person
+ * giving the cash must confirm instead, so nobody signs off their own claim.
+ */
+export const handoverConfirmer = (t: Pick<Handover, "fromCustodian" | "toCustodian" | "createdBy">) =>
+  t.toCustodian === t.createdBy && t.fromCustodian !== t.createdBy ? t.fromCustodian : t.toCustodian;
+
+/**
+ * The person who must agree is asked. The person whose cash it is hears of it
+ * too when someone else recorded the handover, so they can withdraw it.
+ */
+export async function tellHandoverSent(tx: Tx, ctx: Ctx, t: Handover) {
+  const confirmer = handoverConfirmer(t);
+  if (!confirmer || !t.toCustodian) return;
   const from = t.fromCustodian ? await userName(tx, t.fromCustodian) : ctx.actor.name;
+  const to = await userName(tx, t.toCustodian);
+  const amount = formatNaira(t.amountKobo);
   await notify(tx, {
     kind: "handover_sent",
     ...by(ctx),
-    userIds: [t.toCustodian],
-    body: `${from} is handing you ${formatNaira(t.amountKobo)} in cash. Count it, then accept it.`,
+    userIds: [confirmer],
+    body:
+      confirmer === t.toCustodian
+        ? `${from} is handing you ${amount} in cash. Count it, then accept it.`
+        : `${ctx.actor.name} recorded that you gave ${to} ${amount} in cash. Confirm it if you did, or withdraw it.`,
     entity: { type: "money_transfer", id: t.id },
     dedupeKey: `transfer:${t.id}:sent`,
   });
+  if (t.fromCustodian && t.fromCustodian !== confirmer && t.fromCustodian !== ctx.actor.userId) {
+    await notify(tx, {
+      kind: "cash_moved",
+      ...by(ctx),
+      userIds: [t.fromCustodian],
+      body: `${ctx.actor.name} recorded a handover of ${amount} of your cash to ${to}. Withdraw it if this is wrong.`,
+      entity: { type: "money_transfer", id: t.id },
+      dedupeKey: `transfer:${t.id}:yours`,
+    });
+  }
 }
 
-/** The receiver refused it, or the sender withdrew it: the other side is told. */
-export async function tellHandoverRejected(
-  tx: Tx,
-  ctx: Ctx,
-  t: { id: string; toCustodian: string | null; createdBy: string; amountKobo: number },
-  reason: string,
-) {
-  const refused = t.toCustodian === ctx.actor.userId;
+/** The person who had to agree refused it, or someone withdrew it: everyone involved is told. */
+export async function tellHandoverRejected(tx: Tx, ctx: Ctx, t: Handover, reason: string) {
+  const refused = handoverConfirmer(t) === ctx.actor.userId;
+  const people = [t.createdBy, t.fromCustodian, t.toCustodian].filter((id): id is string => id !== null);
   await notify(tx, {
     kind: "handover_rejected",
     ...by(ctx),
-    userIds: [t.createdBy, ...(t.toCustodian ? [t.toCustodian] : [])],
+    userIds: [...new Set(people)],
     body: `${ctx.actor.name} ${refused ? "refused" : "withdrew"} the cash handover of ${formatNaira(t.amountKobo)}. Reason: ${reason}`,
     entity: { type: "money_transfer", id: t.id },
     dedupeKey: `transfer:${t.id}:rejected`,
+  });
+}
+
+/** Someone else moved a person's cash at once, or reversed a move involving it. */
+export async function tellCashMoved(
+  tx: Tx,
+  ctx: Ctx,
+  t: Handover,
+  how: { what: "moved" | "reversed"; fromLabel: string; toLabel: string; reason?: string },
+) {
+  const people = [t.fromCustodian, ...(how.what === "reversed" ? [t.toCustodian] : [])].filter(
+    (id): id is string => id !== null && id !== ctx.actor.userId,
+  );
+  if (people.length === 0) return;
+  const amount = formatNaira(t.amountKobo);
+  await notify(tx, {
+    kind: "cash_moved",
+    ...by(ctx),
+    userIds: [...new Set(people)],
+    body:
+      how.what === "moved"
+        ? `${ctx.actor.name} moved ${amount} of your cash to ${how.toLabel}.`
+        : `${ctx.actor.name} reversed the move of ${amount} from ${how.fromLabel} to ${how.toLabel}. Reason: ${how.reason ?? ""}`,
+    entity: { type: "money_transfer", id: t.id },
+    dedupeKey: `transfer:${t.id}:${how.what}`,
   });
 }
 

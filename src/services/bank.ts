@@ -5,6 +5,7 @@ import { bankMovements, bankReconciliations, operatorDeposits, paymentReferences
 import { addMonths, businessDate } from "@/lib/clock";
 import { asPgError, DomainError, fieldError, parseInput } from "@/lib/errors";
 import { dateField, idField, nairaField, optionalText } from "@/lib/fields";
+import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
@@ -96,6 +97,24 @@ async function bookAt(exec: Executor, before: string) {
           AND COALESCE(p.business_date, d.business_date) < ${before}::date) AS unconfirmed
   `)) as unknown as { book: number; unconfirmed: number }[];
   return { bookKobo: rows[0]?.book ?? 0, unconfirmedKobo: rows[0]?.unconfirmed ?? 0 };
+}
+
+/**
+ * Refuses to take more out of the bank than the book shows, once an opening
+ * balance makes the book worth trusting. Before that, says the book could not
+ * be checked. The lock keeps two moves from both seeing the same balance.
+ */
+export async function checkBankHolds(tx: Executor, amountKobo: number, field: string) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bank_book'))`);
+  const [opening] = await tx
+    .select({ id: bankMovements.id })
+    .from(bankMovements)
+    .where(eq(bankMovements.sourceType, "opening_balance"))
+    .limit(1);
+  if (!opening) return { checked: false as const };
+  const { bookKobo } = await bookAt(tx, "infinity");
+  if (amountKobo > bookKobo) throw fieldError(field, `The bank book shows only ${formatNaira(Math.max(bookKobo, 0))}`);
+  return { checked: true as const };
 }
 
 const reconcileSchema = z.object({

@@ -568,7 +568,7 @@ export async function rejectAwardAction(id: string, _: FormState, data: FormData
 }
 
 export async function createTransferAction(_: FormState, data: FormData) {
-  return perform((ctx) => createTransfer(ctx, values(data)), "Saved.");
+  return perform((ctx) => createTransfer(ctx, values(data)), (transfer) => transfer.message);
 }
 
 export async function acceptTransferAction(id: string, _state: FormState, _data: FormData) {

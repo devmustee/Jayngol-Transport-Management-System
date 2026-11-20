@@ -35,7 +35,7 @@ export async function needsAction(ctx: Ctx): Promise<ActionItem[]> {
         (SELECT COUNT(*)::int FROM violations WHERE status = 'proposed' AND raised_by IS DISTINCT FROM ${userId}) AS offences,
         (SELECT COUNT(*)::int FROM dismissals WHERE status = 'flagged') AS sacking,
         (SELECT COUNT(*)::int FROM award_candidates WHERE status = 'proposed') AS awards,
-        (SELECT COUNT(*)::int FROM money_transfers WHERE status = 'pending' AND to_custodian = ${userId}) AS handovers,
+        (SELECT COUNT(*)::int FROM money_transfers WHERE status = 'pending' AND CASE WHEN to_custodian = created_by AND from_custodian IS DISTINCT FROM created_by THEN from_custodian ELSE to_custodian END = ${userId}) AS handovers,
         (SELECT COUNT(*)::int FROM expense_advances WHERE status = 'submitted' AND collected_by <> ${userId}) AS to_countersign,
         (SELECT COUNT(*)::int FROM expense_advances
           WHERE status = 'open' AND collected_by = ${userId} AND return_note IS NOT NULL) AS sent_back,

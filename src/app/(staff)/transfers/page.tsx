@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
-import { acceptTransferAction, createTransferAction, rejectTransferAction, voidTransferAction } from "@/app/actions";
-import { ActionForm, Field, SelectField, SubmitButton, TextareaField } from "@/components/form";
-import { PhotoInput } from "@/components/photo-input";
+import { acceptTransferAction, rejectTransferAction, voidTransferAction } from "@/app/actions";
+import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
+import { TransferForm } from "@/components/forms/transfer-form";
 import { Badge, Card, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
@@ -33,57 +33,40 @@ export default async function TransfersPage() {
         {pending.length > 0 ? (
           <Card title="Handovers waiting">
             <ul className="space-y-4">
-              {pending.map((item) => (
-                <li key={item.id} className="space-y-2">
-                  <div className="font-semibold">{formatNaira(item.amountKobo)}</div>
-                  <div className="text-sm text-muted">{item.fromLabel} to {item.toLabel}</div>
-                  {item.note ? <div className="text-sm">{item.note}</div> : null}
-                  {item.toCustodian === userId ? (
-                    <ActionForm action={acceptTransferAction.bind(null, item.id)}>
-                      <SubmitButton>I received this cash</SubmitButton>
-                    </ActionForm>
-                  ) : null}
-                  {item.toCustodian === userId || item.createdBy === userId ? (
-                    <Disclosure label={item.toCustodian === userId ? "Refuse" : "Withdraw"}>
-                      <ActionForm action={rejectTransferAction.bind(null, item.id)}>
-                        <TextareaField name="reason" label="Reason" />
-                        <SubmitButton tone="plain">Confirm</SubmitButton>
+              {pending.map((item) => {
+                const mine = item.confirmer === userId;
+                const canWithdraw = !mine && (item.createdBy === userId || item.fromCustodian === userId);
+                return (
+                  <li key={item.id} className="space-y-2">
+                    <div className="font-semibold">{formatNaira(item.amountKobo)}</div>
+                    <div className="text-sm text-muted">{item.fromLabel} to {item.toLabel}</div>
+                    <div className="text-sm text-muted">
+                      Recorded by {item.createdByName} · waiting for {item.confirmerName} to {item.giverConfirms ? "confirm they gave it" : "accept it"}
+                    </div>
+                    {item.note ? <div className="text-sm">{item.note}</div> : null}
+                    {mine ? (
+                      <ActionForm action={acceptTransferAction.bind(null, item.id)}>
+                        <SubmitButton>{item.giverConfirms ? "I gave this cash" : "I received this cash"}</SubmitButton>
                       </ActionForm>
-                    </Disclosure>
-                  ) : null}
-                </li>
-              ))}
+                    ) : null}
+                    {mine || canWithdraw ? (
+                      <Disclosure label={mine ? "Refuse" : "Withdraw"}>
+                        <ActionForm action={rejectTransferAction.bind(null, item.id)}>
+                          <TextareaField name="reason" label="Reason" />
+                          <SubmitButton tone="plain">Confirm</SubmitButton>
+                        </ActionForm>
+                      </Disclosure>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           </Card>
         ) : null}
 
         {canMove ? (
           <Card title="Record a move">
-            <ActionForm action={createTransferAction}>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <SelectField name="from" label="From" defaultValue="">
-                  <option value="" disabled>Choose…</option>
-                  {from.map((person) => (
-                    <option key={person.id} value={person.id}>Cash held by {person.name} ({formatNaira(Math.max(person.availableKobo, 0))})</option>
-                  ))}
-                  {isManager ? <option value="bank">Bank</option> : null}
-                  {isManager ? <option value="owner">Owner</option> : null}
-                </SelectField>
-                <SelectField name="to" label="To" defaultValue="">
-                  <option value="" disabled>Choose…</option>
-                  <option value="bank">Bank</option>
-                  <option value="owner">Owner (cash handed over)</option>
-                  {people.map((person) => (
-                    <option key={person.id} value={person.id}>Cash held by {person.name}</option>
-                  ))}
-                </SelectField>
-              </div>
-              <Field name="amount" label="Amount (₦)" inputMode="decimal" autoComplete="off" />
-              <Field name="reference" label="Teller, slip or transfer number" autoComplete="off" hint="Only for money paid into the bank. Leave empty for cash handed to the Owner." />
-              <PhotoInput name="photo" label="Teller photo (required for bank deposits)" />
-              <TextareaField name="note" label="Note (optional)" />
-              <SubmitButton>Save</SubmitButton>
-            </ActionForm>
+            <TransferForm from={from} people={people} isManager={isManager} />
           </Card>
         ) : null}
 

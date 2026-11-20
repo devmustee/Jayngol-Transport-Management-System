@@ -94,6 +94,7 @@ export const CATALOGUE = {
   offence_decided: staffNotice("info", "Offence decided", "/offences", "violation.raise"),
   handover_sent: staffNotice("action", "Cash handover to accept", "/transfers", "money.transfer"),
   handover_rejected: staffNotice("action", "Cash handover refused", "/transfers", "money.transfer"),
+  cash_moved: staffNotice("info", "Your cash was moved", "/transfers", "money.transfer"),
   cash_difference: staffNotice("critical", "Cash count does not match", "/cash", "cash.oversee"),
   expense_submitted: staffNotice("action", "Expenses to countersign", "/expenses", "expense.countersign"),
   expense_sent_back: staffNotice("action", "Expenses sent back", "/expenses", "expense.record"),
