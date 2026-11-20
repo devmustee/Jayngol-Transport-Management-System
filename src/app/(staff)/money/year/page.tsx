@@ -8,6 +8,7 @@ import { businessDate } from "@/lib/clock";
 import { formatDate, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import {
   annualBalance,
   monthName,
@@ -206,6 +207,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
     <>
       <PageHeader
         title={`Annual balance ${year}`}
+        help={helpForPage(ctx.actor.role, "/money/year")?.id}
         subtitle={
           year === last
             ? `January to today (${formatDate(report.upTo)}), by month and by week`

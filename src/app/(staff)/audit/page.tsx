@@ -3,6 +3,7 @@ import { Empty, PageHeader } from "@/components/ui";
 import { formatDateTime } from "@/lib/format";
 import { ROLE_LABELS } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { listAudit } from "@/services/audit";
 
 export const metadata: Metadata = { title: "Audit log" };
@@ -94,7 +95,7 @@ export default async function AuditPage() {
   const rows = await listAudit(ctx);
   return (
     <>
-      <PageHeader title="Audit log" subtitle="Latest 200 actions. This record cannot be changed." />
+      <PageHeader title="Audit log" help={helpForPage(ctx.actor.role, "/audit")?.id} subtitle="Latest 200 actions. This record cannot be changed." />
       {rows.length === 0 ? (
         <Empty>Nothing recorded yet.</Empty>
       ) : (

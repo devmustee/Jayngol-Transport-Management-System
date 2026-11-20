@@ -82,6 +82,9 @@ describe("who sees what", () => {
     expect(helpForPage("manager", "/reports")?.id).toBe("reports");
     expect(helpForPage("supervisor", "/awards")?.id).toBe("awards");
     expect(helpForPage("supervisor", "/reports")).toBeNull();
+    expect(helpForPage("owner", "/audit")?.id).toBe("audit-log");
+    expect(helpForPage("assistant_manager", "/audit")).toBeNull();
+    expect(helpForPage("assistant_manager", "/money/year")?.id).toBe("annual-balance");
   });
 });
 
