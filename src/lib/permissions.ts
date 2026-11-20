@@ -52,6 +52,8 @@ const MATRIX = {
   "loan.approve": ["manager"],
   /** Ask the Manager to give a loan. No money moves until the Manager approves. */
   "loan.request": ["assistant_manager"],
+  /** Told when a large loan is given. */
+  "loan.oversee": ["owner"],
   "award.approve": ["manager"],
   "awards.track": STAFF,
   "violation.view": STAFF,

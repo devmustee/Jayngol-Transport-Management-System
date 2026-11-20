@@ -40,6 +40,8 @@ export default async function TakePaymentPage({
   // Opened from the operator's page: every back link leads there, not to the operator picker.
   const fromOperator = queryValue(params.from) === "operator";
   const keep = fromOperator ? "&from=operator" : "";
+  // Opened from a loan: taking a repayment leads back to it.
+  const fromLoan = queryValue(params.loan);
 
   if (operatorId) {
     const data = isUuid(operatorId) ? await paymentContext(ctx, operatorId) : null;
@@ -138,7 +140,11 @@ export default async function TakePaymentPage({
           <PageHeader
             title={operator.name}
             subtitle={current ? `Tricycle ${current.codeNumber} · ${titles[mode]}` : titles[mode]}
-            back={{ href: `/payments/new?operator=${operator.id}${keep}`, label: "Today's balance" }}
+            back={
+              mode === "loan" && fromLoan && isUuid(fromLoan)
+                ? { href: `/loans/${fromLoan}`, label: "Loan" }
+                : { href: `/payments/new?operator=${operator.id}${keep}`, label: "Today's balance" }
+            }
             action={operator.status !== "active" ? <Badge tone="bad">{operator.status}</Badge> : undefined}
           />
           <div className="space-y-4">

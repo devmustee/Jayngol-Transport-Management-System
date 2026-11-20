@@ -4,12 +4,13 @@ import Link from "next/link";
 import { HandCoins } from "lucide-react";
 import { notFound } from "next/navigation";
 import { cancelLoanAction } from "@/app/actions";
-import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
+import { ActionForm, SelectField, SubmitButton, TextareaField } from "@/components/form";
 import { Badge, Card, Details, Disclosure, Empty, LinkButton, PageHeader } from "@/components/ui";
 import { isUuid } from "@/lib/fields";
-import { formatDate, LOAN_STATUS_LABELS } from "@/lib/format";
+import { formatDate, LOAN_STATUS_LABELS, METHOD_LABELS } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
+import { moneySources } from "@/services/cash-book";
 import { getLoan } from "@/services/loans";
 
 export const metadata: Metadata = { title: "Loan" };
@@ -30,6 +31,15 @@ export default async function LoanPage({
   const data = isUuid(id) ? await getLoan(ctx, id) : null;
   if (!data) notFound();
   const { loan, repayments, owedKobo } = data;
+  const canCancel = data.canApprove && loan.status === "active" && loan.repaidKobo === 0;
+  // The person whose cash it came from has left: the Manager says where the money is now.
+  const holderLeft = Boolean(loan.custodianId) && loan.givenFromActive !== true;
+  const sources = canCancel && holderLeft ? await moneySources(ctx) : [];
+  const givenFrom = loan.custodianId
+    ? `Cash held by ${loan.givenFrom ?? "a former staff member"}`
+    : loan.account === "owner"
+      ? "Owner's own money"
+      : "Bank";
   return (
     <>
       <PageHeader
@@ -56,7 +66,7 @@ export default async function LoanPage({
               <div className="text-sm text-paper/60">Still owed</div>
               <div className="text-2xl font-semibold tabular-nums">{formatNaira(owedKobo)}</div>
             </div>
-            <LinkButton href={`/payments/new?operator=${loan.operatorId}&for=loan`} variant="gold">
+            <LinkButton href={`/payments/new?operator=${loan.operatorId}&for=loan&loan=${loan.id}`} variant="gold">
               <HandCoins size={16} aria-hidden />
               Take loan repayment
             </LinkButton>
@@ -68,6 +78,7 @@ export default async function LoanPage({
               ["Given on", formatDate(loan.disbursedOn)],
               ...(loan.requestedByName ? ([["Requested by", loan.requestedByName]] as [string, string][]) : []),
               ["Approved by", loan.approvedByName],
+              ["Given from", givenFrom],
               ["Repaid", formatNaira(loan.repaidKobo)],
               ["Still owed", formatNaira(owedKobo)],
               ...(loan.note ? ([["Note", loan.note]] as [string, string][]) : []),
@@ -84,7 +95,9 @@ export default async function LoanPage({
                 <li key={r.id} className="flex items-center justify-between gap-3 py-2">
                   <div>
                     <Link href={`/payments/${r.id}`} className="font-semibold text-gold-deep underline">{r.receipt_number}</Link>
-                    <div className="text-sm text-muted">{formatDate(r.date)}</div>
+                    <div className="text-sm text-muted">
+                      {formatDate(r.date)} · {METHOD_LABELS[r.method] ?? r.method}
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className={`font-semibold tabular-nums ${r.reversed ? "line-through" : ""}`}>{formatNaira(r.amount)}</div>
@@ -95,9 +108,28 @@ export default async function LoanPage({
             </ul>
           )}
         </Card>
-        {data.canApprove && loan.status === "active" && loan.repaidKobo === 0 ? (
+        {canCancel ? (
           <Disclosure label="Cancel this loan">
             <ActionForm action={cancelLoanAction.bind(null, loan.id)}>
+              <p className="text-sm text-muted">
+                {holderLeft
+                  ? `The ${formatNaira(loan.principalKobo)} came from ${loan.givenFrom ?? "someone"}'s cash, but they no longer work here. Choose where the money is now.`
+                  : `The ${formatNaira(loan.principalKobo)} goes back to: ${givenFrom}.`}
+              </p>
+              {holderLeft ? (
+                <SelectField name="source" label="Money goes back to" defaultValue="">
+                  <option value="" disabled>
+                    Choose…
+                  </option>
+                  {sources.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      Cash held by {person.name}
+                    </option>
+                  ))}
+                  <option value="bank">Bank</option>
+                  <option value="owner">Owner</option>
+                </SelectField>
+              ) : null}
               <TextareaField name="reason" label="Reason" hint="Use this only if the loan was entered by mistake." />
               <SubmitButton tone="plain">Cancel loan</SubmitButton>
             </ActionForm>

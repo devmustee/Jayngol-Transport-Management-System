@@ -152,7 +152,7 @@ type SettleInput = z.infer<typeof settleSchema>;
 
 /**
  * Refunds an operator's savings: the ticked debts are cleared oldest first on
- * a "From deposit" receipt, damage is taken out, and the rest leaves the
+ * a "From savings" receipt, damage is taken out, and the rest leaves the
  * chosen cash or bank. All of it is saved together, or none of it.
  */
 export async function settleDeposit(ctx: Ctx, raw: unknown) {

@@ -39,8 +39,11 @@ export function LoanOperatorPicker({
   choices,
   owingCount,
   asking = false,
+  sources,
   children,
 }: {
+  /** Giving a loan: where the money comes from, with what it leaves. */
+  sources?: { id: string; name: string; availableKobo: number }[];
   choices: LoanChoice[];
   owingCount: number;
   /** An Assistant Manager's request: the line reads "Ask the Manager for…". */
@@ -51,6 +54,8 @@ export function LoanOperatorPicker({
   const [query, setQuery] = useState("");
   const [chosenId, setChosenId] = useState("");
   const [amount, setAmount] = useState("");
+  const [source, setSource] = useState("");
+  const giver = sources?.find((person) => person.id === source) ?? null;
   const shown = useMemo(() => {
     const found = choices.filter((o) => matches(o, query));
     // The one already chosen stays in the list, so a new search never drops it silently.
@@ -103,6 +108,38 @@ export function LoanOperatorPicker({
         value={amount}
         onChange={(event) => setAmount(event.target.value)}
       />
+      {sources ? (
+        <>
+          <SelectField
+            name="source"
+            label="Where the money came from"
+            value={source}
+            onChange={(event) => setSource(event.target.value)}
+          >
+            <option value="" disabled>
+              Choose…
+            </option>
+            {sources.map((person) => (
+              <option key={person.id} value={person.id}>
+                Cash held by {person.name} ({formatNaira(Math.max(person.availableKobo, 0))} free)
+              </option>
+            ))}
+            <option value="bank">Bank</option>
+            <option value="owner">Owner&apos;s own money</option>
+          </SelectField>
+          {giver && kobo ? (
+            giver.availableKobo >= kobo ? (
+              <p className="text-sm text-muted" aria-live="polite">
+                {giver.name}&apos;s cash will drop to {formatNaira(giver.availableKobo - kobo)}.
+              </p>
+            ) : (
+              <p className="text-sm font-semibold text-danger" aria-live="polite">
+                {giver.name} has only {formatNaira(Math.max(giver.availableKobo, 0))} free.
+              </p>
+            )
+          ) : null}
+        </>
+      ) : null}
       {children}
       {chosen ? (
         <p className="rounded-xl border border-gold/40 bg-gold-wash p-3 text-sm text-ink" aria-live="polite">

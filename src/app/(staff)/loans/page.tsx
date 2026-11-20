@@ -6,7 +6,6 @@ import { LoanRequestLists } from "@/components/loan-requests";
 import { listLoanRequests } from "@/services/loan-requests";
 import { ActionForm, SubmitButton, TextareaField } from "@/components/form";
 import { LoanOperatorPicker } from "@/components/forms/loan-operator-picker";
-import { MoneySourceField } from "@/components/money-source";
 import { Badge, Card, Disclosure, Empty, PageHeader, SearchBar } from "@/components/ui";
 import { formatDate, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
@@ -75,7 +74,7 @@ function ActiveLoans({ rows, canCollect }: { rows: Active[]; canCollect: boolean
           </Link>
           {canCollect ? (
             <Link
-              href={`/payments/new?operator=${row.operatorId}&for=loan`}
+              href={`/payments/new?operator=${row.operatorId}&for=loan&loan=${row.id}`}
               aria-label={`Take loan repayment from ${row.operatorName}`}
               className="inline-flex min-h-11 items-center justify-center gap-2 self-end rounded-xl bg-gold px-4 text-sm font-bold text-ink shadow-gold-sm transition-all hover:brightness-105 active:scale-[0.98] sm:self-center"
             >
@@ -99,8 +98,11 @@ function ClearedLoans({ rows }: { rows: Cleared[] }) {
               <div className="font-semibold">{row.operatorName}</div>
               <Who row={row} />
               <div className="text-sm text-muted">{formatNaira(row.principalKobo)} given {formatDate(row.disbursedOn)}</div>
+              {row.status === "cancelled" && row.cancelReason ? (
+                <div className="text-sm text-muted [overflow-wrap:anywhere]">Why: {row.cancelReason}</div>
+              ) : null}
             </div>
-            <Badge tone="good">Cleared</Badge>
+            {row.status === "cancelled" ? <Badge tone="plain">Cancelled</Badge> : <Badge tone="good">Cleared</Badge>}
           </Link>
         </li>
       ))}
@@ -116,7 +118,8 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   const data = await listLoans(ctx);
   const active = data.active.filter((row) => matches(row, q));
   const cleared = data.cleared.filter((row) => matches(row, q));
-  const hasLoans = data.active.length + data.cleared.length > 0;
+  const cancelled = data.cancelled.filter((row) => matches(row, q));
+  const hasLoans = data.active.length + data.cleared.length + data.cancelled.length > 0;
   const [requests, sources, pick] = await Promise.all([
     listLoanRequests(ctx),
     data.canApprove ? moneySources(ctx) : [],
@@ -124,13 +127,12 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
   ]);
   return (
     <>
-      <PageHeader title="Loans" subtitle={`Owed to the company: ${formatNaira(data.outstandingKobo)}`} back={{ href: "/money", label: "Money" }} />
+      <PageHeader title="Loans" subtitle="No interest or fee: operators pay back what they were given." back={{ href: "/money", label: "Money" }} />
       <div className="space-y-4">
         {data.canApprove ? (
           <Disclosure label="Give a loan" open={give}>
             <ActionForm action={grantLoanAction}>
-              <LoanOperatorPicker choices={pick.choices} owingCount={pick.owingCount}>
-                <MoneySourceField sources={sources} />
+              <LoanOperatorPicker choices={pick.choices} owingCount={pick.owingCount} sources={sources}>
                 <TextareaField name="note" label="Note (optional)" />
               </LoanOperatorPicker>
               <SubmitButton>Give loan</SubmitButton>
@@ -152,9 +154,9 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             <SearchBar q={q} placeholder="Search operator, phone, tricycle or plate" />
             {q ? (
               <p className="-mt-2 text-sm text-muted" aria-live="polite">
-                {active.length + cleared.length === 0
+                {active.length + cleared.length + cancelled.length === 0
                   ? `No loan matches "${q}".`
-                  : `${active.length} to collect, owing ${formatNaira(active.reduce((sum, row) => sum + row.owedKobo, 0))}, and ${cleared.length} cleared match "${q}".`}{" "}
+                  : `${active.length} to collect, owing ${formatNaira(active.reduce((sum, row) => sum + row.owedKobo, 0))}, ${cleared.length} cleared and ${cancelled.length} cancelled match "${q}".`}{" "}
                 <Link href="/loans" className="inline-flex min-h-11 items-center font-semibold text-gold-deep underline underline-offset-2">
                   Clear search
                 </Link>
@@ -162,7 +164,7 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
             ) : null}
           </div>
         ) : null}
-        {data.active.length > 0 && !q ? (
+        {!q ? (
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-2xl border border-line bg-card p-4 shadow-premium">
               <div className="text-xs font-medium text-muted">To collect</div>
@@ -184,6 +186,11 @@ export default async function LoansPage({ searchParams }: { searchParams: Promis
         {cleared.length > 0 ? (
           <Card title={`Cleared (${cleared.length})`}>
             <ClearedLoans rows={cleared} />
+          </Card>
+        ) : null}
+        {cancelled.length > 0 ? (
+          <Card title={`Cancelled (${cancelled.length})`} subtitle="Entered by mistake. The money went back and nothing is owed.">
+            <ClearedLoans rows={cancelled} />
           </Card>
         ) : null}
       </div>

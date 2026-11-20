@@ -1,15 +1,22 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor, type Tx } from "@/db";
 import { charges, loans, operators, users } from "@/db/schema";
+import { formatDate } from "@/lib/format";
+import { formatNaira } from "@/lib/money";
 import { businessDate, daysBetween } from "@/lib/clock";
 import { DomainError, fieldError, parseInput, rethrowConstraint } from "@/lib/errors";
 import { idField, optionalText, positiveNairaField, requiredText } from "@/lib/fields";
 import { can } from "@/lib/permissions";
 import { auditFrom } from "./audit";
-import { moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
+import { lockCashHolder, moneySourceField, recordMovement, takeMoneyOut } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { voidCharge } from "./ledger";
+import { notifyOperators } from "./notices";
+import { notifyMany } from "./notifications";
+
+/** The owner is told of a loan above this, as with large refunds. */
+export const LARGE_LOAN_KOBO = 5_000_000;
 
 // Written out in full: Drizzle drops the table name on single-table selects, and
 // a bare column here would bind to the inner query instead.
@@ -85,6 +92,26 @@ export async function payOutLoan(tx: Tx, ctx: Ctx, input: PayOut, requestId: str
     sourceId: loan!.id,
     at: now,
   });
+  await notifyOperators(tx, now, [
+    {
+      operatorId: operator.id,
+      kind: "receipt",
+      body: `Loan of ${formatNaira(input.amount)} given on ${formatDate(today)}. No interest or fee: you pay back ${formatNaira(input.amount)}.`,
+    },
+  ]);
+  if (input.amount > LARGE_LOAN_KOBO) {
+    await notifyMany(tx, [
+      {
+        kind: "large_loan",
+        body: `${formatNaira(input.amount)} lent to ${operator.name}`,
+        at: now,
+        link: `/loans/${loan!.id}`,
+        entity: { type: "loan", id: loan!.id },
+        dedupeKey: `large_loan:${loan!.id}`,
+        createdBy: ctx.actor.userId,
+      },
+    ]);
+  }
   await auditFrom(ctx, tx, {
     action: "loan.grant",
     entityType: "operator",
@@ -94,11 +121,21 @@ export async function payOutLoan(tx: Tx, ctx: Ctx, input: PayOut, requestId: str
   return loan!;
 }
 
-/** For a loan entered by mistake. Once anything is repaid, it stands. */
+const cancelSchema = z.object({
+  reason: requiredText("Reason", 500),
+  /** Where the money goes back. Empty means where it came from. */
+  source: z.preprocess((value) => (value === "" ? undefined : value), moneySourceField.optional()),
+});
+
+/**
+ * For a loan entered by mistake. Once anything is repaid, it stands. The money
+ * goes back where it came from, unless that person no longer holds cash: then
+ * the Manager says where it is now.
+ */
 export async function cancelLoan(ctx: Ctx, rawId: unknown, raw: unknown) {
   requirePermission(ctx, "loan.approve");
   const id = parseInput(idField("loan"), rawId);
-  const { reason } = parseInput(z.object({ reason: requiredText("Reason", 500) }), raw);
+  const { reason, source } = parseInput(cancelSchema, raw);
   const now = ctx.clock();
   await db.transaction(async (tx) => {
     const [found] = await tx.select({ operatorId: loans.operatorId }).from(loans).where(eq(loans.id, id));
@@ -108,17 +145,44 @@ export async function cancelLoan(ctx: Ctx, rawId: unknown, raw: unknown) {
     if (loan!.row.status !== "active") throw new DomainError("Only an active loan can be cancelled.");
     if (loan!.repaid > 0) throw new DomainError("Part of this loan has been repaid, so it cannot be cancelled.");
 
+    const back = source ?? { custodianId: loan!.row.custodianId, account: loan!.row.account };
+    if (back.custodianId) {
+      if (!source) {
+        const [holder] = await tx
+          .select({ name: users.name, status: users.status })
+          .from(users)
+          .where(eq(users.id, back.custodianId));
+        if (holder?.status !== "active") {
+          throw fieldError("source", `${holder?.name ?? "The person who gave it"} no longer holds cash. Choose where the money is now`);
+        }
+      }
+      await lockCashHolder(tx, back.custodianId, "source");
+    }
+
     await tx.update(loans).set({ status: "cancelled", cancelReason: reason }).where(eq(loans.id, id));
     await voidCharge(tx, loan!.row.chargeId, { userId: ctx.actor.userId, at: now }, reason);
     await recordMovement(tx, {
-      custodianId: loan!.row.custodianId,
-      account: loan!.row.account,
+      custodianId: back.custodianId,
+      account: back.account,
       amountKobo: loan!.row.principalKobo,
       sourceType: "loan_cancel",
       sourceId: id,
       at: now,
     });
-    await auditFrom(ctx, tx, { action: "loan.cancel", entityType: "operator", entityId: found.operatorId, reason });
+    await notifyOperators(tx, now, [
+      {
+        operatorId: found.operatorId,
+        kind: "receipt",
+        body: `The loan of ${formatNaira(loan!.row.principalKobo)} from ${formatDate(loan!.row.disbursedOn)} was a mistake and has been cancelled. You owe nothing on it.`,
+      },
+    ]);
+    await auditFrom(ctx, tx, {
+      action: "loan.cancel",
+      entityType: "operator",
+      entityId: found.operatorId,
+      after: source ? { returnedTo: source.custodianId ?? source.account } : undefined,
+      reason,
+    });
   });
 }
 
@@ -149,21 +213,28 @@ const heldTricycle = (column: "code_number" | "registration_number") => sql<stri
 export async function listLoans(ctx: Ctx) {
   requirePermission(ctx, "finance.view");
   const today = businessDate(ctx.clock());
-  const rows = await db
-    .select({
-      ...fields,
-      lastRepaidOn,
-      operatorPhone: operators.phone,
-      tricycleCode: heldTricycle("code_number"),
-      registration: heldTricycle("registration_number"),
-    })
-    .from(loans)
-    .innerJoin(operators, eq(operators.id, loans.operatorId))
-    .orderBy(desc(loans.disbursedOn), desc(loans.createdAt))
-    .limit(300);
+  const select = () =>
+    db
+      .select({
+        ...fields,
+        lastRepaidOn,
+        cancelReason: loans.cancelReason,
+        operatorPhone: operators.phone,
+        tricycleCode: heldTricycle("code_number"),
+        registration: heldTricycle("registration_number"),
+      })
+      .from(loans)
+      .innerJoin(operators, eq(operators.id, loans.operatorId));
+  // Every loan still owed is listed, however old; only finished ones are cut.
+  const [owed, finished] = await Promise.all([
+    select().where(eq(loans.status, "active")),
+    select()
+      .where(ne(loans.status, "active"))
+      .orderBy(desc(loans.disbursedOn), desc(loans.createdAt))
+      .limit(300),
+  ]);
   // Loans to collect: the one quiet for longest comes first, so slow payers stand out.
-  const active = rows
-    .filter((row) => row.status === "active")
+  const active = owed
     .map((row) => ({
       ...row,
       owedKobo: row.principalKobo - row.repaidKobo,
@@ -172,7 +243,8 @@ export async function listLoans(ctx: Ctx) {
     .sort((a, b) => b.quietDays - a.quietDays || b.owedKobo - a.owedKobo);
   return {
     active,
-    cleared: rows.filter((row) => row.status === "cleared"),
+    cleared: finished.filter((row) => row.status === "cleared"),
+    cancelled: finished.filter((row) => row.status === "cancelled"),
     outstandingKobo: active.reduce((sum, row) => sum + row.owedKobo, 0),
     canApprove: can(ctx.actor.role, "loan.approve"),
     canRequest: can(ctx.actor.role, "loan.request"),
@@ -265,6 +337,10 @@ export async function getLoan(ctx: Ctx, id: string) {
         SELECT u.name FROM loan_requests r JOIN users u ON u.id = r.requested_by WHERE r.id = loans.request_id)`,
       cancelReason: loans.cancelReason,
       chargeId: loans.chargeId,
+      custodianId: loans.custodianId,
+      account: loans.account,
+      givenFrom: sql<string | null>`(SELECT u.name FROM users u WHERE u.id = loans.custodian_id)`,
+      givenFromActive: sql<boolean | null>`(SELECT u.status = 'active' FROM users u WHERE u.id = loans.custodian_id)`,
       tricycleCode: heldTricycle("code_number"),
       registration: heldTricycle("registration_number"),
     })
@@ -275,12 +351,12 @@ export async function getLoan(ctx: Ctx, id: string) {
     .limit(1);
   if (!loan) return null;
   const repayments = (await db.execute(sql`
-    SELECT p.id, p.receipt_number, p.business_date::text AS date, a.amount_kobo::float8 AS amount,
+    SELECT p.id, p.receipt_number, p.method::text AS method, p.business_date::text AS date, a.amount_kobo::float8 AS amount,
            EXISTS (SELECT 1 FROM payment_reversals r WHERE r.payment_id = p.id) AS reversed
     FROM payment_allocations a JOIN payments p ON p.id = a.payment_id
     WHERE a.charge_id = ${loan.chargeId}
     ORDER BY p.received_at DESC
-  `)) as unknown as { id: string; receipt_number: string; date: string; amount: number; reversed: boolean }[];
+  `)) as unknown as { id: string; receipt_number: string; method: string; date: string; amount: number; reversed: boolean }[];
   return {
     loan,
     repayments,

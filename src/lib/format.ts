@@ -52,7 +52,7 @@ export const METHOD_LABELS: Record<string, string> = {
   cash: "Cash",
   transfer: "Transfer",
   pos: "POS",
-  deposit: "From deposit",
+  deposit: "From savings",
 };
 
 /** What a payment was for, as shown in lists. */

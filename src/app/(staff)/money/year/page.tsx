@@ -304,7 +304,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
               { label: "Cash", value: (f) => f.cashKobo },
               { label: "POS", value: (f) => f.posKobo },
               { label: "Transfer", value: (f) => f.transferKobo },
-              ...(total.fromDepositKobo > 0 ? [{ label: "From deposit", value: (f: YearFigures) => f.fromDepositKobo }] : []),
+              ...(total.fromDepositKobo > 0 ? [{ label: "From savings", value: (f: YearFigures) => f.fromDepositKobo }] : []),
               { label: "Total", value: (f) => f.receivedKobo },
             ]}
           />

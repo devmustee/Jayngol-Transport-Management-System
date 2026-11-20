@@ -67,6 +67,12 @@ export const CATALOGUE = {
     link: "/loans",
     audience: { permission: "loan.request" },
   },
+  large_loan: {
+    severity: "info",
+    title: "Large loan given",
+    link: "/loans",
+    audience: { permission: "loan.oversee" },
+  },
   large_damage_deduction: {
     severity: "info",
     title: "Large damage deduction",

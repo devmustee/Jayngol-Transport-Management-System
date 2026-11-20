@@ -326,7 +326,7 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "cash", label: "Cash", kind: "naira" },
   { key: "pos", label: "POS", kind: "naira" },
   { key: "transfer", label: "Transfer", kind: "naira" },
-  { key: "fromDeposit", label: "From deposit", kind: "naira" },
+  { key: "fromDeposit", label: "From savings", kind: "naira" },
   { key: "forBalances", label: "For balances", kind: "naira" },
   { key: "forFines", label: "For fines", kind: "naira" },
   { key: "loansRepaid", label: "Loans repaid", kind: "naira" },

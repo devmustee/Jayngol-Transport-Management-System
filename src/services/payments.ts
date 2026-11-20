@@ -485,7 +485,12 @@ export async function getPayment(ctx: Ctx, id: string) {
           .where(and(eq(bankMovements.sourceType, "payment_reversal"), eq(bankMovements.sourceId, id)));
     takenBackFrom = cash ? `Cash held by ${cash.name}` : bank ? (bank.account === "owner" ? "Owner" : "Bank") : null;
   }
-  return { ...row, lines, creditKobo: row.payment.amountKobo - allocated, takenBackFrom };
+  // The loan this payment went towards, so the receipt can lead back to it.
+  const [loan] = (await db.execute(sql`
+    SELECT l.id FROM loans l JOIN payment_allocations a ON a.charge_id = l.charge_id
+    WHERE a.payment_id = ${id} LIMIT 1
+  `)) as unknown as { id: string }[];
+  return { ...row, lines, creditKobo: row.payment.amountKobo - allocated, takenBackFrom, loanId: loan?.id ?? null };
 }
 
 /**

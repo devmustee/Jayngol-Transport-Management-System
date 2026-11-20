@@ -12,7 +12,13 @@ import {
   waitingLoanRequests,
   withdrawLoanRequest,
 } from "@/services/loan-requests";
-import { cancelLoan, getLoan, grantLoan } from "@/services/loans";
+import { randomUUID } from "node:crypto";
+import { users } from "@/db/schema";
+import { businessDate } from "@/lib/clock";
+import { expectedCash, recordMovement } from "@/services/cash-book";
+import { cancelLoan, getLoan, grantLoan, listLoans } from "@/services/loans";
+import { getMyNotices } from "@/services/notices";
+import { getPayment, recordPayment } from "@/services/payments";
 import { markOperatorLeft } from "@/services/operators";
 import { makeOperator, makeUser } from "./helpers";
 
@@ -130,5 +136,55 @@ describe("the Manager deciding", () => {
     await withdrawLoanRequest(assistant, request!.id);
     await expect(withdrawLoanRequest(assistant, request!.id)).rejects.toThrow(/already been withdrawn/);
     await expect(approveLoanRequest(manager, request!.id, { source: "bank" })).rejects.toThrow(/already been withdrawn/);
+  });
+});
+
+describe("loan fixes", () => {
+  const operatorCtx = (operatorId: string): Ctx => ({
+    actor: { userId: randomUUID(), name: "Operator", role: "operator", operatorId },
+    clock: () => new Date(),
+  });
+
+  it("asks where the money goes back when the person it came from has left", async () => {
+    const holder = (await makeUser("assistant_manager")).ctx;
+    await db.transaction((tx) =>
+      recordMovement(tx, { custodianId: holder.actor.userId, amountKobo: 1_000_000, sourceType: "opening", sourceId: holder.actor.userId, at: manager.clock() }),
+    );
+    const operator = await makeOperator(manager);
+    const loan = await grantLoan(manager, { operatorId: operator.id, amount: "10,000", source: holder.actor.userId });
+    await db.update(users).set({ status: "disabled" }).where(eq(users.id, holder.actor.userId));
+
+    await expect(cancelLoan(manager, loan!.id, { reason: "Entered by mistake" })).rejects.toMatchObject({
+      fieldErrors: { source: expect.stringMatching(/no longer holds cash/) },
+    });
+    await expect(cancelLoan(manager, loan!.id, { reason: "Entered by mistake", source: holder.actor.userId })).rejects.toMatchObject({
+      fieldErrors: { source: expect.anything() },
+    });
+    await cancelLoan(manager, loan!.id, { reason: "Entered by mistake", source: "owner" });
+    expect(await expectedCash(db, holder.actor.userId, businessDate(manager.clock()))).toBe(0);
+
+    const list = await listLoans(manager);
+    expect(list.cancelled.find((row) => row.id === loan!.id)).toMatchObject({ cancelReason: "Entered by mistake" });
+    const notices = await getMyNotices(operatorCtx(operator.id));
+    expect(notices.items.some((item) => /cancelled\. You owe nothing/.test(item.body))).toBe(true);
+  });
+
+  it("tells the operator of a loan, and the owner of a large one", async () => {
+    const owner = (await makeUser("owner")).ctx;
+    const small = await makeOperator(manager);
+    await grantLoan(manager, { operatorId: small.id, amount: "20,000", source: "bank" });
+    const big = await makeOperator(manager);
+    const loan = await grantLoan(manager, { operatorId: big.id, amount: "60,000", source: "bank" });
+
+    const notices = await getMyNotices(operatorCtx(small.id));
+    expect(notices.items.some((item) => /Loan of ₦20,000 given/.test(item.body))).toBe(true);
+    const alerts = await inbox(owner.actor.userId, "large_loan");
+    expect(alerts.some((n) => n.body.startsWith("₦60,000 lent"))).toBe(true);
+    expect(alerts.some((n) => n.body.startsWith("₦20,000 lent"))).toBe(false);
+
+    const payment = await recordPayment(manager, { operatorId: big.id, amount: "5,000", method: "cash", purpose: "loan", clientId: randomUUID() });
+    expect((await getPayment(manager, payment.id))!.loanId).toBe(loan!.id);
+    const detail = await getLoan(manager, loan!.id);
+    expect(detail!.repayments[0]).toMatchObject({ method: "cash" });
   });
 });

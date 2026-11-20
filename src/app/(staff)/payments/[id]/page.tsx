@@ -26,7 +26,7 @@ export default async function ReceiptPage({
   const { id } = await params;
   const data = isUuid(id) ? await getPayment(ctx, id) : null;
   if (!data) notFound();
-  const { payment, operatorName, receivedByName, lines, creditKobo, reversalReason, takenBackFrom } = data;
+  const { payment, operatorName, receivedByName, lines, creditKobo, reversalReason, takenBackFrom, loanId } = data;
 
   const canReverse = !reversalReason && can(ctx.actor.role, "payment.reverse");
   const [reference, sources] = await Promise.all([
@@ -60,6 +60,9 @@ export default async function ReceiptPage({
           <Details
             rows={[
               ["Operator", <Link key="o" href={`/operators/${payment.operatorId}/statement`} className="text-gold-deep underline">{operatorName}</Link>],
+              ...(loanId
+                ? ([["Loan", <Link key="l" href={`/loans/${loanId}`} className="text-gold-deep underline">See the loan</Link>]] as [string, React.ReactNode][])
+                : []),
               ["Received", formatDateTime(payment.receivedAt)],
               ["Method", METHOD_LABELS[payment.method]],
               ...(reference ? ([["Reference", reference.reference]] as [string, string][]) : []),

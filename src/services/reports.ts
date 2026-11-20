@@ -56,7 +56,7 @@ const COLLECTION_FIGURES: Column[] = [
   { key: "cash", label: "Cash", kind: "naira", total: true },
   { key: "transfer", label: "Transfer", kind: "naira", total: true },
   { key: "pos", label: "POS", kind: "naira", total: true },
-  { key: "fromDeposit", label: "From deposit", kind: "naira", total: true },
+  { key: "fromDeposit", label: "From savings", kind: "naira", total: true },
   { key: "collected", label: "Total received", kind: "naira", total: true },
 ];
 
