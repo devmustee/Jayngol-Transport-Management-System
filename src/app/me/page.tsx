@@ -160,6 +160,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
         </Card>
 
         <MyAwardJourney progress={journey} board={honourBoard} runAtRisk={runAtRisk} />
+        <HelpLink id="my-awards" />
 
         {/* Tricycle Assignment */}
         {current ? (

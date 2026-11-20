@@ -5,6 +5,7 @@ export const GUIDE_AREAS = {
   fleet: "Tricycles and operators",
   field: "Field work",
   admin: "Staff",
+  records: "Awards and reports",
   operator: "Your work at Jayngol",
 } as const;
 

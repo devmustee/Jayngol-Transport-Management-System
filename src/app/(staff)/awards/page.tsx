@@ -10,6 +10,7 @@ import { daysBetween } from "@/lib/clock";
 import { AWARD_LABELS, AWARD_PRIZES, formatDate } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { getAwardRace } from "@/services/award-tracker";
 import { listAwards } from "@/services/awards";
 
@@ -72,6 +73,7 @@ export default async function AwardsPage({
     <>
       <PageHeader
         title="Awards"
+        help={helpForPage(ctx.actor.role, "/awards")?.id}
         subtitle="Who is close, and who needs help getting there"
         back={canDecide ? { href: "/money", label: "Money" } : { href: "/dashboard", label: "Home" }}
       />

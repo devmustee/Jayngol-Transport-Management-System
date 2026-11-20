@@ -7,6 +7,7 @@ import { formatDate, queryValue } from "@/lib/format";
 import { readHistoryFilter } from "@/lib/history-filter";
 import { formatNaira } from "@/lib/money";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import Link from "next/link";
 import { defaultFrom, GROUPING_LABELS, GROUPING_TABS, GROUPINGS, isReportKey, parseGrouping, runReport, type Column } from "@/services/reports";
 
@@ -50,6 +51,7 @@ export default async function ReportPage({
     <>
       <PageHeader
         title={report.title}
+        help={helpForPage(ctx.actor.role, "/reports/[key]")?.id}
         subtitle={report.ranged ? `${formatDate(from)} to ${formatDate(to)}` : `As of ${formatDate(today)}`}
         back={{ href: "/reports", label: "Reports" }}
       />

@@ -7,6 +7,7 @@ import { isUuid } from "@/lib/fields";
 import { AWARD_LABELS, AWARD_PRIZES, formatDate } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { getOperatorJourney } from "@/services/award-tracker";
 
 export const metadata: Metadata = { title: "Award journey" };
@@ -62,7 +63,7 @@ export default async function AwardJourneyPage({ params }: { params: Promise<{ i
 
   return (
     <>
-      <PageHeader title={journey.name} subtitle={journey.tricycleCode ?? "No tricycle at the moment"} back={{ href: "/awards", label: "Awards" }} />
+      <PageHeader title={journey.name} help={helpForPage(ctx.actor.role, "/awards/[id]")?.id} subtitle={journey.tricycleCode ?? "No tricycle at the moment"} back={{ href: "/awards", label: "Awards" }} />
       <div className="space-y-4">
         <Card>
           <Details

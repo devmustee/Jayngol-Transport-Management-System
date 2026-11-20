@@ -79,7 +79,9 @@ describe("who sees what", () => {
     expect(helpForPage("manager", "/bank")?.id).toBe("bank-confirm");
     expect(helpForPage("owner", "/bank")).toBeNull();
     expect(helpForPage("manager", "/tricycles")?.id).toBe("add-tricycle");
-    expect(helpForPage("manager", "/reports")).toBeNull();
+    expect(helpForPage("manager", "/reports")?.id).toBe("reports");
+    expect(helpForPage("supervisor", "/awards")?.id).toBe("awards");
+    expect(helpForPage("supervisor", "/reports")).toBeNull();
   });
 });
 
@@ -89,6 +91,9 @@ describe("searching the Guide", () => {
     expect(searchTopics("manager", "teller").map((topic) => topic.id)).toContain("move-money");
     expect(searchTopics("manager", "Typo")[0]?.id).toBe("correct-count");
     expect(searchTopics("manager", "zzzz")).toEqual([]);
+    expect(searchTopics("manager", "smartphone").map((topic) => topic.id)).toContain("awards");
+    expect(searchTopics("owner", "download csv")[0]?.id).toBe("reports");
+    expect(searchTopics("supervisor", "approve award")).toEqual([]);
     expect(searchTopics("manager", "  ")).toHaveLength(topicsFor("manager").length);
   });
 

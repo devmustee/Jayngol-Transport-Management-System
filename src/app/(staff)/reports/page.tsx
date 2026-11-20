@@ -2,15 +2,16 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { PageHeader } from "@/components/ui";
 import { requirePage } from "@/lib/session";
+import { helpForPage } from "@/guide";
 import { REPORTS } from "@/services/reports";
 
 export const metadata: Metadata = { title: "Reports" };
 
 export default async function ReportsPage() {
-  await requirePage("finance.view");
+  const ctx = await requirePage("finance.view");
   return (
     <>
-      <PageHeader title="Reports" subtitle="View, download as CSV or save as PDF" back={{ href: "/money", label: "Money" }} />
+      <PageHeader title="Reports" help={helpForPage(ctx.actor.role, "/reports")?.id} subtitle="View, download as CSV or save as PDF" back={{ href: "/money", label: "Money" }} />
       <ul className="divide-y divide-line overflow-hidden rounded-xl border border-line bg-card">
         {Object.entries(REPORTS).map(([key, report]) => (
           <li key={key}>
