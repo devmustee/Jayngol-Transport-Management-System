@@ -1,4 +1,4 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, type Executor } from "@/db";
 import {
@@ -205,12 +205,19 @@ export async function correctOpeningBalance(ctx: Ctx, raw: unknown) {
     if (before.amountKobo === input.amount && before.asOf === input.date) {
       throw fieldError("amount", "This is the opening balance already");
     }
+    // The latest correction counts, so each one is stamped after the one before, even within the same millisecond.
+    const [last] = await tx
+      .select({ at: bankOpeningCorrections.correctedAt })
+      .from(bankOpeningCorrections)
+      .orderBy(desc(bankOpeningCorrections.correctedAt))
+      .limit(1);
+    const now = ctx.clock();
     await tx.insert(bankOpeningCorrections).values({
       amountKobo: input.amount,
       asOf: input.date,
       reason: input.reason,
       correctedBy: ctx.actor.userId,
-      correctedAt: ctx.clock(),
+      correctedAt: last && last.at >= now ? new Date(last.at.getTime() + 1) : now,
     });
     await auditFrom(ctx, tx, {
       action: "bank.opening_correct",

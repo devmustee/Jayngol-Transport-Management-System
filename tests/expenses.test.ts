@@ -300,10 +300,11 @@ describe("loans", () => {
 });
 
 describe("the cash book, for a test month", () => {
+  // After the bank opening balance other tests set (2030), so the bank lines count whichever file runs first.
   it("agrees with all payments, expenses and loans", async () => {
-    const first = "2027-03-01";
-    const last = "2027-03-31";
-    const at = (ctx: Ctx, day: string, time = "12:00") => on(ctx, `2027-03-${day}`, time);
+    const first = "2049-03-01";
+    const last = "2049-03-31";
+    const at = (ctx: Ctx, day: string, time = "12:00") => on(ctx, `2049-03-${day}`, time);
     const a = await makeOperator(manager);
     const b = await makeOperator(manager);
 
@@ -320,10 +321,10 @@ describe("the cash book, for a test month", () => {
     // Out: ₦10,000 cash advance with ₦1,000 change; ₦40,000 bank advance fully spent.
     await pay(at(manager, "10"), a.id, "12,000", { method: "cash" });
     const cashAdvance = (await createAdvance(at(manager, "10"), { purpose: "Parts", amount: "10,000", source: manager.actor.userId }))!;
-    await addExpenseLine(at(manager, "11"), cashAdvance.id, { kind: "spent", category: "other", description: "Parts", amount: "9,000", spentOn: "2027-03-11" });
+    await addExpenseLine(at(manager, "11"), cashAdvance.id, { kind: "spent", category: "other", description: "Parts", amount: "9,000", spentOn: "2049-03-11" });
     await addExpenseLine(at(manager, "11"), cashAdvance.id, { kind: "change", amount: "1,000" });
     const bank = (await createAdvance(at(manager, "12"), { purpose: "Stock", amount: "40,000", source: "bank" }))!;
-    await addExpenseLine(at(manager, "12"), bank.id, { kind: "spent", category: "store_purchase", description: "Oil", amount: "40,000", spentOn: "2027-03-12" });
+    await addExpenseLine(at(manager, "12"), bank.id, { kind: "spent", category: "store_purchase", description: "Oil", amount: "40,000", spentOn: "2049-03-12" });
     // A cancelled advance leaves both sides in the book and nets to nothing.
     const mistake = (await createAdvance(at(manager, "13"), { purpose: "Mistake", amount: "6,000", source: "bank" }))!;
     await cancelAdvance(at(manager, "13"), mistake.id, { reason: "Wrong" });

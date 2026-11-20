@@ -5,15 +5,15 @@ import { correctCashCountAction } from "@/app/actions";
 import { CashierTakingsCard, MyCollectionsCard } from "@/components/balance-periods";
 import { ActionForm, Field, SubmitButton, TextareaField } from "@/components/form";
 import { CashCloseForm } from "@/components/forms/cash-close-form";
-import { Badge, Card, Details, Disclosure, PageHeader } from "@/components/ui";
+import { Badge, Card, Details, Disclosure, Empty, PageHeader } from "@/components/ui";
 import { coverageDates, coverageLabel, weekOf } from "@/lib/cash-rhythm";
 import { addDays, businessDate } from "@/lib/clock";
-import { formatDate, queryValue } from "@/lib/format";
+import { formatDate, formatDateTime, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { collectionsByCashier, myCollections } from "@/services/balance-periods";
-import { cashDay } from "@/services/finance";
+import { cashDay, recentCloses } from "@/services/finance";
 
 export const metadata: Metadata = { title: "Cash close" };
 
@@ -35,12 +35,17 @@ function CoveredDays({ person }: { person: Person }) {
       ) : (
         <ul className="divide-y divide-line/70 border-b border-line/70">
           {covers.days.map((day) => (
-            <li key={day.date} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 py-2.5 text-sm">
-              <span className="font-semibold text-ink">{formatDate(day.date)}</span>
-              <span className="flex gap-3 tabular-nums">
-                {day.inKobo > 0 ? <span className="text-ok">In {formatNaira(day.inKobo)}</span> : null}
-                {day.outKobo > 0 ? <span className="text-danger">Out {formatNaira(day.outKobo)}</span> : null}
-              </span>
+            <li key={day.date}>
+              <Link
+                href={`/cash-book?whose=${person.id}&from=${day.date}&to=${day.date}`}
+                className="-mx-2 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 rounded-lg px-2 py-2.5 text-sm hover:bg-gold-wash"
+              >
+                <span className="font-semibold text-ink underline decoration-line underline-offset-2">{formatDate(day.date)}</span>
+                <span className="flex gap-3 tabular-nums">
+                  {day.inKobo > 0 ? <span className="text-ok">In {formatNaira(day.inKobo)}</span> : null}
+                  {day.outKobo > 0 ? <span className="text-danger">Out {formatNaira(day.outKobo)}</span> : null}
+                </span>
+              </Link>
             </li>
           ))}
         </ul>
@@ -59,11 +64,14 @@ export default async function CashPage({
   searchParams: Promise<Record<string, unknown>>;
 }) {
   const ctx = await requirePage("finance.view");
-  const requested = queryValue((await searchParams).date);
+  const params = await searchParams;
+  const requested = queryValue(params.date);
+  const differencesOnly = queryValue(params.diff) === "1";
   const today = businessDate(ctx.clock());
   const date = requested && /^\d{4}-\d{2}-\d{2}$/.test(requested) && requested <= today ? requested : today;
-  const [people, mine, byCashier] = await Promise.all([
+  const [people, recent, mine, byCashier] = await Promise.all([
     cashDay(ctx, date),
+    recentCloses(ctx, { differencesOnly }),
     can(ctx.actor.role, "payment.record") ? myCollections(ctx) : null,
     collectionsByCashier(ctx),
   ]);
@@ -84,8 +92,6 @@ export default async function CashPage({
         <button className="min-h-11 rounded-lg border border-line bg-card px-4 font-semibold">Show</button>
       </form>
       <div className="space-y-4">
-        {mine ? <MyCollectionsCard data={mine} /> : null}
-        <CashierTakingsCard rows={byCashier} />
         {people.map((person) => {
           const weekly = person.rhythm === "week";
           const isManager = ctx.actor.role === "manager";
@@ -94,12 +100,14 @@ export default async function CashPage({
             !person.close &&
             can(ctx.actor.role, "cash.close") &&
             (left ? isManager && date === today : person.id === ctx.actor.userId || isManager);
-          const canCorrect =
+          const correctable =
             person.close !== null &&
             person.correction === null &&
             person.isLatestClose &&
             can(ctx.actor.role, "cash.close") &&
             (person.id === ctx.actor.userId || isManager);
+          const canCorrect = correctable && person.correctionBlock === null;
+          const late = date === today && person.lateSince && !person.close ? person.lateSince : null;
           const difference = person.close ? person.countedKobo! - person.close.expectedKobo : 0;
           const week = weekOf(date);
           const title = left
@@ -134,12 +142,21 @@ export default async function CashPage({
                     : "Closes every day."
               }
             >
+              {late ? (
+                <p className="mb-3 rounded-xl border border-danger/30 bg-danger/5 p-3 text-sm font-semibold text-danger">
+                  Late: cash not counted since {formatDate(late)}.
+                </p>
+              ) : null}
               {person.close ? (
                 <Details
                   rows={[
                     ["Covers", coverageLabel(person.covers.from, date, person.rhythm)],
                     ["Expected", formatNaira(person.close.expectedKobo)],
                     ["Counted", formatNaira(person.countedKobo!)],
+                    [
+                      "Counted by",
+                      `${person.close.closedBy === person.id ? `${person.closedByName}, their own cash` : person.closedByName}, ${formatDateTime(person.close.closedAt)}`,
+                    ],
                     ...(person.correction
                       ? ([
                           [
@@ -203,6 +220,7 @@ export default async function CashPage({
                   </Disclosure>
                 </div>
               ) : null}
+              {correctable && !canCorrect ? <p className="mt-3 text-sm text-muted">{person.correctionBlock}</p> : null}
               {canClose ? (
                 <CashCloseForm
                   custodianId={person.id}
@@ -218,6 +236,55 @@ export default async function CashPage({
             </Card>
           );
         })}
+        <Card
+          title="Recent counts"
+          subtitle={differencesOnly ? "Counts that did not match" : "The latest counts of everyone's cash"}
+          action={
+            <Link
+              href={differencesOnly ? `/cash?date=${date}` : `/cash?date=${date}&diff=1`}
+              className="text-sm font-semibold text-gold-deep underline"
+            >
+              {differencesOnly ? "Show all" : "Only differences"}
+            </Link>
+          }
+        >
+          {recent.length === 0 ? (
+            <Empty>{differencesOnly ? "Every count has matched." : "No cash has been counted yet."}</Empty>
+          ) : (
+            <ul className="divide-y divide-line">
+              {recent.map((row) => {
+                const difference = row.counted - row.expected;
+                return (
+                  <li key={row.id}>
+                    <Link
+                      href={`/cash?date=${row.date}`}
+                      className="-mx-2 flex items-start justify-between gap-3 rounded-lg px-2 py-2.5 hover:bg-gold-wash"
+                    >
+                      <span className="min-w-0">
+                        <span className="block font-semibold">
+                          {row.custodian} · {formatDate(row.date)}
+                        </span>
+                        <span className="block text-sm text-muted">
+                          {formatNaira(row.counted)} counted{row.own ? "" : ` by ${row.closed_by}`}
+                          {row.corrected ? ", corrected" : ""}
+                        </span>
+                      </span>
+                      {difference === 0 ? (
+                        <Badge tone="good">Matches</Badge>
+                      ) : (
+                        <Badge tone="bad">
+                          {difference < 0 ? "Short" : "Over"} {formatNaira(Math.abs(difference))}
+                        </Badge>
+                      )}
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+        {mine ? <MyCollectionsCard data={mine} /> : null}
+        <CashierTakingsCard rows={byCashier} />
       </div>
     </>
   );

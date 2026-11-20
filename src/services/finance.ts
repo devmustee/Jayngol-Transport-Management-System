@@ -217,7 +217,11 @@ export async function cashDay(ctx: Ctx, date: string) {
       .from(users)
       .where(sql`${users.role} IN ('manager', 'assistant_manager')`)
       .orderBy(asc(users.name)),
-    db.select().from(cashCloses).where(eq(cashCloses.businessDate, date)),
+    db
+      .select({ close: cashCloses, closedByName: users.name })
+      .from(cashCloses)
+      .innerJoin(users, eq(users.id, cashCloses.closedBy))
+      .where(eq(cashCloses.businessDate, date)),
     db
       .select({ check: cashCloseChecks })
       .from(cashCloseChecks)
@@ -234,6 +238,8 @@ export async function cashDay(ctx: Ctx, date: string) {
       .from(cashCloses)
       .groupBy(cashCloses.custodianId),
   ]);
+  const today = businessDate(ctx.clock());
+  const { cashNotClosed } = await cashAlerts(db, today);
   const people = await Promise.all(
     custodians.map(async (person) => {
       const [{ openingKobo, movedKobo }, covers, laterKobo] = await Promise.all([
@@ -241,14 +247,16 @@ export async function cashDay(ctx: Ctx, date: string) {
         cashSinceLastClose(db, person.id, date),
         cashAfter(db, person.id, date),
       ]);
-      const close = closes.find((c) => c.custodianId === person.id) ?? null;
+      const found = closes.find((c) => c.close.custodianId === person.id) ?? null;
+      const close = found?.close ?? null;
+      const active = person.status === "active";
       const fix = close ? (corrections.find((row) => row.correction.closeId === close.id) ?? null) : null;
       return {
         id: person.id,
         name: person.name,
         role: person.role,
         /** Disabled people stay listed while they hold cash, so it can be counted and taken over. */
-        active: person.status === "active",
+        active,
         rhythm: closeRhythm(person.role),
         /** The days a count on this date covers, from the last count. */
         covers,
@@ -258,6 +266,11 @@ export async function cashDay(ctx: Ctx, date: string) {
         /** Cash in or out after this date, which a count now includes and this day must not. */
         laterKobo,
         close,
+        closedByName: found?.closedByName ?? null,
+        /** Why this person cannot correct the count now; null when they can. */
+        correctionBlock: close ? correctionBlock(close, active, ctx.actor, today) : null,
+        /** The first day with cash not yet counted, when the count is overdue. */
+        lateSince: cashNotClosed.find((row) => row.id === person.id)?.since ?? null,
         /** The count that stands: the correction if there is one. */
         countedKobo: close ? (fix?.correction.countedKobo ?? close.countedKobo) : null,
         correction: fix ? { ...fix.correction, byName: fix.byName } : null,
@@ -387,6 +400,33 @@ const correctionSchema = z.object({
 });
 
 /**
+ * Why a count cannot be corrected by this person now, or null when it can.
+ * A count of someone else's cash is the Manager's to correct, and a count of
+ * your own cash only the day it was made or the next, so a shortage cannot be
+ * quietly undone later. The count of someone who has left moved their cash on,
+ * so it stands. (A later count is checked apart.)
+ */
+export function correctionBlock(
+  close: { custodianId: string; closedBy: string; closedAt: Date },
+  custodianActive: boolean,
+  actor: { userId: string; role: string },
+  today: string,
+): string | null {
+  const isManager = actor.role === "manager";
+  if (!isManager && close.custodianId !== actor.userId) return "You can only correct your own count.";
+  if (!custodianActive) {
+    return "This person has left and the count moved their cash to the Manager, so it stands. If more cash turns up, count it again on a later day.";
+  }
+  if (!isManager && close.closedBy !== actor.userId) return "The Manager made this count, so only the Manager can correct it.";
+  if (close.custodianId === actor.userId && today > addDays(businessDate(close.closedAt), 1)) {
+    return isManager
+      ? "A count of your own cash can only be corrected the day it was made or the next day. Record the difference at your next count."
+      : "A count of your own cash can only be corrected the day it was made or the next day. Ask the Manager.";
+  }
+  return null;
+}
+
+/**
  * Puts right a mistyped count, once, with a reason. The original stays on
  * record. Only a person's latest close can be corrected, since a later count
  * started from this one. The Manager can correct anyone's; others their own.
@@ -399,10 +439,13 @@ export async function correctCashCount(ctx: Ctx, rawId: unknown, raw: unknown) {
     await db.transaction(async (tx) => {
       const [close] = await tx.select().from(cashCloses).where(eq(cashCloses.id, id));
       if (!close) throw new DomainError("This count was not found.");
-      if (close.custodianId !== ctx.actor.userId && ctx.actor.role !== "manager") {
-        throw new DomainError("You can only correct your own count.");
-      }
-      await tx.select({ id: users.id }).from(users).where(eq(users.id, close.custodianId)).for("update");
+      const [holder] = await tx
+        .select({ status: users.status })
+        .from(users)
+        .where(eq(users.id, close.custodianId))
+        .for("update");
+      const block = correctionBlock(close, holder?.status === "active", ctx.actor, businessDate(ctx.clock()));
+      if (block) throw new DomainError(block);
       const [later] = await tx
         .select({ id: cashCloses.id })
         .from(cashCloses)
@@ -440,6 +483,37 @@ export async function correctCashCount(ctx: Ctx, rawId: unknown, raw: unknown) {
       cash_close_corrections_pkey: new DomainError("This count has already been corrected once."),
     });
   }
+}
+
+/** The latest counts of everyone's cash, the corrected figure where there is one. */
+export async function recentCloses(ctx: Ctx, options: { differencesOnly?: boolean } = {}) {
+  requirePermission(ctx, "finance.view");
+  const counted = sql`COALESCE(x.counted_kobo, k.recounted_kobo, c.counted_kobo)`;
+  const rows = await db.execute(sql`
+    SELECT c.id, c.custodian_id, cu.name AS custodian, c.business_date::text AS date,
+           c.expected_kobo::float8 AS expected, ${counted}::float8 AS counted,
+           cb.name AS closed_by, c.closed_by = c.custodian_id AS own, c.closed_at, x.counted_kobo IS NOT NULL AS corrected
+    FROM cash_closes c
+    JOIN users cu ON cu.id = c.custodian_id
+    JOIN users cb ON cb.id = c.closed_by
+    LEFT JOIN cash_close_checks k ON k.close_id = c.id
+    LEFT JOIN cash_close_corrections x ON x.close_id = c.id
+    ${options.differencesOnly ? sql`WHERE ${counted} <> c.expected_kobo` : sql``}
+    ORDER BY c.business_date DESC, c.closed_at DESC
+    LIMIT 20
+  `);
+  return rows as unknown as {
+    id: string;
+    custodian_id: string;
+    custodian: string;
+    date: string;
+    expected: number;
+    counted: number;
+    closed_by: string;
+    own: boolean;
+    closed_at: Date;
+    corrected: boolean;
+  }[];
 }
 
 /* ---------- No-balance days ---------- */
