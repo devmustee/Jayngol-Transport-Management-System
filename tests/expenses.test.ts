@@ -333,12 +333,12 @@ describe("the cash book, for a test month", () => {
     await pay(at(assistant, "16"), b.id, "4,000", { method: "transfer", reference: nextReference(), loanAmount: "4,000" });
 
     const book = await cashBook(manager, { from: first, to: last });
-    expect(book.cash).toEqual({
+    expect(book.cash).toMatchObject({
       moneyIn: 3_000_000 + 200_000 + 1_200_000 + 100_000,
       moneyOut: 200_000 + 1_000_000,
       net: 3_300_000,
     });
-    expect(book.bank).toEqual({
+    expect(book.bank).toMatchObject({
       moneyIn: 2_000_000 + 500_000 + 300_000 + 400_000 + 600_000,
       moneyOut: 300_000 + 4_000_000 + 600_000 + 1_500_000,
       net: 3_800_000 - 6_400_000,

@@ -249,10 +249,22 @@ export async function givenOutOn(exec: Executor, date: string) {
 
 const BOOK_LIMIT = 400;
 
+/** The kinds of movement the cash book can be narrowed to. */
+export const BOOK_KINDS = {
+  payments: ["payment", "payment_reversal"],
+  savings: ["deposit", "deposit_reversal", "deposit_refund", "deposit_refund_undo"],
+  expenses: ["expense_advance", "expense_advance_cancel", "expense_change", "expense_change_void"],
+  loans: ["loan", "loan_cancel"],
+  moves: ["transfer_in", "transfer_out", "transfer_void_in", "transfer_void_out"],
+} as const;
+export type BookKind = keyof typeof BOOK_KINDS;
+const MOVES: readonly string[] = BOOK_KINDS.moves;
+
 export type BookRow = {
   id: string;
   account: "cash" | "bank" | "owner";
   amount: number;
+  /** The day it counts on, which for cash taken after a count is the next day. */
   date: string;
   at: Date;
   source_type: string;
@@ -265,70 +277,137 @@ export type BookRow = {
   advance_id: string | null;
   loan_id: string | null;
   transfer_id: string | null;
+  /** For savings given back: whose savings, to link to them. */
+  refund_operator_id: string | null;
 };
 
-/** Every naira in and out over a period. Each line is a movement, never a calculation. */
-export async function cashBook(ctx: Ctx, range: { from: string; to: string }) {
+type Side = {
+  /** Held at the start of the first day. */
+  openingKobo: number;
+  /** Money that came into the business, moves left out. */
+  moneyIn: number;
+  /** Money that left the business, moves left out. */
+  moneyOut: number;
+  /** Moved here from another person, the bank or the owner. */
+  movedIn: number;
+  /** Moved from here to another person, the bank or the owner. */
+  movedOut: number;
+  /** Everything together: closing less opening. */
+  net: number;
+  /** Held at the end of the last day. */
+  closingKobo: number;
+};
+
+/**
+ * Every naira in and out over a period, with what was held at the start and
+ * the end. Money moved between people, the bank and the owner is shown apart,
+ * so money in and out mean takings and spending. Each line is a movement,
+ * never a calculation. `whose` narrows to one person's cash, the bank or the
+ * owner; `kind` to one kind of movement (the balances stay whole).
+ */
+export async function cashBook(
+  ctx: Ctx,
+  range: { from: string; to: string; whose?: string | null; kind?: BookKind | null },
+) {
   requirePermission(ctx, "finance.view");
   if (range.from > range.to) throw new DomainError("The start date is after the end date.");
-  const book = sql`
-    SELECT m.id, 'cash' AS account, m.custodian_id, m.amount_kobo, m.business_date, m.source_type, m.source_id, m.at
-    FROM cash_movements m WHERE m.business_date BETWEEN ${range.from}::date AND ${range.to}::date
-    UNION ALL
-    SELECT b.id, b.account::text, NULL, b.amount_kobo, b.business_date, b.source_type, b.source_id, b.at
-    FROM bank_movements b WHERE b.business_date BETWEEN ${range.from}::date AND ${range.to}::date
-  `;
-  const [rows, totals] = await Promise.all([
+  const whose = range.whose ?? null;
+  const person = whose && isUuid(whose) ? whose : null;
+  const place = whose === "bank" || whose === "owner" ? whose : null;
+  const kinds = range.kind ? (BOOK_KINDS[range.kind] as readonly string[]) : null;
+
+  // Every movement of the place chosen, any day. Dates and kinds are applied after.
+  const cash = person
+    ? sql`SELECT m.id, 'cash' AS account, m.custodian_id, m.amount_kobo, m.business_date, m.source_type, m.source_id, m.at
+          FROM cash_movements m WHERE m.custodian_id = ${person}`
+    : sql`SELECT m.id, 'cash' AS account, m.custodian_id, m.amount_kobo, m.business_date, m.source_type, m.source_id, m.at
+          FROM cash_movements m`;
+  const bank = place
+    ? sql`SELECT b.id, b.account::text, NULL::uuid AS custodian_id, b.amount_kobo, b.business_date, b.source_type, b.source_id, b.at
+          FROM bank_movements b WHERE b.account = ${place}`
+    : sql`SELECT b.id, b.account::text, NULL::uuid AS custodian_id, b.amount_kobo, b.business_date, b.source_type, b.source_id, b.at
+          FROM bank_movements b`;
+  const all = person ? cash : place ? bank : sql`${cash} UNION ALL ${bank}`;
+  const kindFilter = kinds ? sql`AND source_type IN (${sql.join(kinds.map((k) => sql`${k}`), sql`, `)})` : sql``;
+  const inRange = sql`SELECT * FROM (${all}) x
+    WHERE business_date BETWEEN ${range.from}::date AND ${range.to}::date ${kindFilter}`;
+  // Ids are matched as ids, so the database can use its indexes.
+  const as = (types: string) => sql.raw(`CASE WHEN b.source_type IN (${types}) THEN b.source_id::uuid END`);
+
+  const [rows, totals, balances] = await Promise.all([
     db.execute(sql`
-      WITH book AS (${book})
+      WITH book AS (${inRange})
       SELECT b.id, b.account, b.amount_kobo::float8 AS amount, b.business_date::text AS date, b.at, b.source_type,
              u.name AS custodian, COALESCE(p.receipt_number, d.receipt_number) AS receipt,
              COALESCE(po.name, dpo.name, lo.name) AS operator,
              COALESCE(a.purpose, la.purpose, mt.note, mt.reference) AS purpose,
-             p.id AS payment_id, d.id AS deposit_id, COALESCE(a.id, la.id) AS advance_id, l.id AS loan_id, mt.id AS transfer_id
+             p.id AS payment_id, d.id AS deposit_id, COALESCE(a.id, la.id) AS advance_id, l.id AS loan_id, mt.id AS transfer_id,
+             ds.operator_id AS refund_operator_id
       FROM book b
       LEFT JOIN users u ON u.id = b.custodian_id
-      LEFT JOIN payments p ON b.source_type IN ('payment', 'payment_reversal') AND p.id::text = b.source_id
+      LEFT JOIN payments p ON p.id = ${as("'payment', 'payment_reversal'")}
       LEFT JOIN operators po ON po.id = p.operator_id
-      LEFT JOIN operator_deposits d ON b.source_type IN ('deposit', 'deposit_reversal') AND d.id::text = b.source_id
-      LEFT JOIN deposit_settlements ds ON b.source_type IN ('deposit_refund', 'deposit_refund_undo') AND ds.id::text = b.source_id
+      LEFT JOIN operator_deposits d ON d.id = ${as("'deposit', 'deposit_reversal'")}
+      LEFT JOIN deposit_settlements ds ON ds.id = ${as("'deposit_refund', 'deposit_refund_undo'")}
       LEFT JOIN operators dpo ON dpo.id = COALESCE(d.operator_id, ds.operator_id)
-      LEFT JOIN expense_advances a ON b.source_type IN ('expense_advance', 'expense_advance_cancel') AND a.id::text = b.source_id
-      LEFT JOIN expense_lines el ON b.source_type IN ('expense_change', 'expense_change_void') AND el.id::text = b.source_id
+      LEFT JOIN expense_advances a ON a.id = ${as("'expense_advance', 'expense_advance_cancel'")}
+      LEFT JOIN expense_lines el ON el.id = ${as("'expense_change', 'expense_change_void'")}
       LEFT JOIN expense_advances la ON la.id = el.advance_id
-      LEFT JOIN loans l ON b.source_type IN ('loan', 'loan_cancel') AND l.id::text = b.source_id
+      LEFT JOIN loans l ON l.id = ${as("'loan', 'loan_cancel'")}
       LEFT JOIN operators lo ON lo.id = l.operator_id
-      LEFT JOIN money_transfers mt ON b.source_type LIKE 'transfer_%' AND mt.id::text = b.source_id
+      LEFT JOIN money_transfers mt ON mt.id = ${as("'transfer_in', 'transfer_out', 'transfer_void_in', 'transfer_void_out'")}
       ORDER BY b.at DESC, b.id
       LIMIT ${BOOK_LIMIT + 1}
     `),
     db.execute(sql`
-      WITH book AS (${book})
+      WITH book AS (${inRange})
       SELECT account, source_type,
              COALESCE(SUM(amount_kobo) FILTER (WHERE amount_kobo > 0), 0)::float8 AS money_in,
              COALESCE(-SUM(amount_kobo) FILTER (WHERE amount_kobo < 0), 0)::float8 AS money_out
       FROM book GROUP BY account, source_type
     `),
+    db.execute(sql`
+      SELECT account,
+             COALESCE(SUM(amount_kobo) FILTER (WHERE business_date < ${range.from}::date), 0)::float8 AS opening,
+             COALESCE(SUM(amount_kobo) FILTER (WHERE business_date <= ${range.to}::date), 0)::float8 AS closing
+      FROM (${all}) x GROUP BY account
+    `),
   ]);
-  const all = rows as unknown as BookRow[];
+  const found = rows as unknown as BookRow[];
   const groups = totals as unknown as {
     account: "cash" | "bank" | "owner";
     source_type: string;
     money_in: number;
     money_out: number;
   }[];
-  const side = (account: "cash" | "bank" | "owner") => {
+  const held = balances as unknown as { account: "cash" | "bank" | "owner"; opening: number; closing: number }[];
+  const side = (account: "cash" | "bank" | "owner"): Side => {
     const lines = groups.filter((group) => group.account === account);
-    const moneyIn = lines.reduce((sum, group) => sum + group.money_in, 0);
-    const moneyOut = lines.reduce((sum, group) => sum + group.money_out, 0);
-    return { moneyIn, moneyOut, net: moneyIn - moneyOut };
+    const sum = (pick: (g: (typeof lines)[number]) => number, moves: boolean) =>
+      lines.filter((g) => MOVES.includes(g.source_type) === moves).reduce((total, g) => total + pick(g), 0);
+    const moneyIn = sum((g) => g.money_in, false);
+    const moneyOut = sum((g) => g.money_out, false);
+    const movedIn = sum((g) => g.money_in, true);
+    const movedOut = sum((g) => g.money_out, true);
+    const balance = held.find((row) => row.account === account);
+    return {
+      openingKobo: balance?.opening ?? 0,
+      moneyIn,
+      moneyOut,
+      movedIn,
+      movedOut,
+      net: moneyIn - moneyOut + movedIn - movedOut,
+      closingKobo: balance?.closing ?? 0,
+    };
   };
   return {
-    rows: all.slice(0, BOOK_LIMIT),
-    truncated: all.length > BOOK_LIMIT,
+    rows: found.slice(0, BOOK_LIMIT),
+    truncated: found.length > BOOK_LIMIT,
     cash: side("cash"),
     bank: side("bank"),
     owner: side("owner"),
     bySource: groups,
+    /** True when a kind is chosen: the totals cover only that kind, the balances everything. */
+    narrowed: kinds !== null,
   };
 }

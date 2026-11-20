@@ -548,3 +548,36 @@ describe("payment fixes", () => {
     expect(weekend.forDay.find((row) => row.id === late.id)!.enteredOn).toBe(date);
   });
 });
+
+describe("cash book fixes", () => {
+  it("shows moves apart, with what was held at the start and the end", async () => {
+    const date = "2041-06-10";
+    const person = on(await someone(), date);
+    await collect(person, "8,000");
+    // Held from an earlier day, so the start is not zero.
+    const before = on(person, "2041-06-09");
+    await collect(before, "2,000");
+    await createTransfer(person, { from: person.actor.userId, to: "owner", amount: "3,000" });
+
+    const book = await cashBook(on(manager, date), { from: date, to: date, whose: person.actor.userId });
+    expect(book.cash).toMatchObject({
+      openingKobo: 200_000,
+      moneyIn: 800_000,
+      moneyOut: 0,
+      movedOut: 300_000,
+      net: 500_000,
+      closingKobo: 700_000,
+    });
+    expect(book.rows.every((row) => row.account === "cash")).toBe(true);
+
+    const moves = await cashBook(on(manager, date), { from: date, to: date, whose: person.actor.userId, kind: "moves" });
+    expect(moves.rows.map((row) => row.source_type)).toEqual(["transfer_out"]);
+    expect(moves.rows[0]!.transfer_id).toBeTruthy();
+    expect(moves.cash.closingKobo).toBe(700_000);
+    expect(moves.narrowed).toBe(true);
+
+    const owner = await cashBook(on(manager, date), { from: date, to: date, whose: "owner" });
+    expect(owner.rows.every((row) => row.account === "owner")).toBe(true);
+    expect(owner.owner.movedIn).toBeGreaterThanOrEqual(300_000);
+  });
+});

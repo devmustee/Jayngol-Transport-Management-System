@@ -37,7 +37,7 @@ export default async function TransfersPage() {
                 const mine = item.confirmer === userId;
                 const canWithdraw = !mine && (item.createdBy === userId || item.fromCustodian === userId);
                 return (
-                  <li key={item.id} className="space-y-2">
+                  <li key={item.id} id={`move-${item.id}`} className="scroll-mt-24 space-y-2">
                     <div className="font-semibold">{formatNaira(item.amountKobo)}</div>
                     <div className="text-sm text-muted">{item.fromLabel} to {item.toLabel}</div>
                     <div className="text-sm text-muted">
@@ -76,7 +76,7 @@ export default async function TransfersPage() {
           ) : (
             <ul className="divide-y divide-line">
               {recent.map((item) => (
-                <li key={item.id} className="space-y-1.5 py-3 first:pt-0 last:pb-0">
+                <li key={item.id} id={`move-${item.id}`} className="scroll-mt-24 space-y-1.5 py-3 first:pt-0 last:pb-0">
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-semibold tabular-nums">{formatNaira(item.amountKobo)}</span>
                     <Badge tone={STATUS[item.status].tone}>{STATUS[item.status].label}</Badge>

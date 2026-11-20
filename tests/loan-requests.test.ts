@@ -140,6 +140,8 @@ describe("the Manager deciding", () => {
 });
 
 describe("loan fixes", () => {
+  // A day of its own, so these loans never touch another test's bank figures.
+  const when = (ctx: Ctx): Ctx => ({ ...ctx, clock: () => new Date("2043-02-14T12:00:00+01:00") });
   const operatorCtx = (operatorId: string): Ctx => ({
     actor: { userId: randomUUID(), name: "Operator", role: "operator", operatorId },
     clock: () => new Date(),
@@ -148,20 +150,20 @@ describe("loan fixes", () => {
   it("asks where the money goes back when the person it came from has left", async () => {
     const holder = (await makeUser("assistant_manager")).ctx;
     await db.transaction((tx) =>
-      recordMovement(tx, { custodianId: holder.actor.userId, amountKobo: 1_000_000, sourceType: "opening", sourceId: holder.actor.userId, at: manager.clock() }),
+      recordMovement(tx, { custodianId: holder.actor.userId, amountKobo: 1_000_000, sourceType: "opening", sourceId: holder.actor.userId, at: when(manager).clock() }),
     );
     const operator = await makeOperator(manager);
-    const loan = await grantLoan(manager, { operatorId: operator.id, amount: "10,000", source: holder.actor.userId });
+    const loan = await grantLoan(when(manager), { operatorId: operator.id, amount: "10,000", source: holder.actor.userId });
     await db.update(users).set({ status: "disabled" }).where(eq(users.id, holder.actor.userId));
 
-    await expect(cancelLoan(manager, loan!.id, { reason: "Entered by mistake" })).rejects.toMatchObject({
+    await expect(cancelLoan(when(manager), loan!.id, { reason: "Entered by mistake" })).rejects.toMatchObject({
       fieldErrors: { source: expect.stringMatching(/no longer holds cash/) },
     });
-    await expect(cancelLoan(manager, loan!.id, { reason: "Entered by mistake", source: holder.actor.userId })).rejects.toMatchObject({
+    await expect(cancelLoan(when(manager), loan!.id, { reason: "Entered by mistake", source: holder.actor.userId })).rejects.toMatchObject({
       fieldErrors: { source: expect.anything() },
     });
-    await cancelLoan(manager, loan!.id, { reason: "Entered by mistake", source: "owner" });
-    expect(await expectedCash(db, holder.actor.userId, businessDate(manager.clock()))).toBe(0);
+    await cancelLoan(when(manager), loan!.id, { reason: "Entered by mistake", source: "owner" });
+    expect(await expectedCash(db, holder.actor.userId, businessDate(when(manager).clock()))).toBe(0);
 
     const list = await listLoans(manager);
     expect(list.cancelled.find((row) => row.id === loan!.id)).toMatchObject({ cancelReason: "Entered by mistake" });
@@ -172,9 +174,9 @@ describe("loan fixes", () => {
   it("tells the operator of a loan, and the owner of a large one", async () => {
     const owner = (await makeUser("owner")).ctx;
     const small = await makeOperator(manager);
-    await grantLoan(manager, { operatorId: small.id, amount: "20,000", source: "bank" });
+    await grantLoan(when(manager), { operatorId: small.id, amount: "20,000", source: "bank" });
     const big = await makeOperator(manager);
-    const loan = await grantLoan(manager, { operatorId: big.id, amount: "60,000", source: "bank" });
+    const loan = await grantLoan(when(manager), { operatorId: big.id, amount: "60,000", source: "bank" });
 
     const notices = await getMyNotices(operatorCtx(small.id));
     expect(notices.items.some((item) => /Loan of ₦20,000 given/.test(item.body))).toBe(true);
@@ -182,7 +184,7 @@ describe("loan fixes", () => {
     expect(alerts.some((n) => n.body.startsWith("₦60,000 lent"))).toBe(true);
     expect(alerts.some((n) => n.body.startsWith("₦20,000 lent"))).toBe(false);
 
-    const payment = await recordPayment(manager, { operatorId: big.id, amount: "5,000", method: "cash", purpose: "loan", clientId: randomUUID() });
+    const payment = await recordPayment(when(manager), { operatorId: big.id, amount: "5,000", method: "cash", purpose: "loan", clientId: randomUUID() });
     expect((await getPayment(manager, payment.id))!.loanId).toBe(loan!.id);
     const detail = await getLoan(manager, loan!.id);
     expect(detail!.repayments[0]).toMatchObject({ method: "cash" });
