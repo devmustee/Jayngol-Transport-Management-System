@@ -1,6 +1,6 @@
 import { BackLink } from "@/components/back-link";
 import Link from "next/link";
-import { ChevronDown, CircleHelp, Inbox, LucideIcon, Search } from "lucide-react";
+import { ChevronDown, CircleHelp, Footprints, Inbox, LucideIcon, Search } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function PageHeader({
@@ -9,6 +9,7 @@ export function PageHeader({
   back,
   action,
   help,
+  tour,
 }: {
   title: string;
   subtitle?: ReactNode;
@@ -16,6 +17,8 @@ export function PageHeader({
   action?: ReactNode;
   /** A Guide topic id: shows a "?" that opens it. Pass null when the person cannot see it. */
   help?: string | null;
+  /** A Guide tour id: shows "Show me how", which walks through this page. */
+  tour?: string | null;
 }) {
   return (
     <header className="mb-5 sm:mb-6">
@@ -34,6 +37,7 @@ export function PageHeader({
               <Link
                 href={`/guide/${help}`}
                 aria-label="How this works"
+                data-tour="help"
                 title="How this works"
                 className="-my-1.5 flex size-10 shrink-0 items-center justify-center rounded-full text-muted hover:bg-gold-wash hover:text-gold-deep"
               >
@@ -43,6 +47,15 @@ export function PageHeader({
           </div>
           {subtitle ? (
             <div className="mt-1 text-sm leading-snug text-muted">{subtitle}</div>
+          ) : null}
+          {tour ? (
+            <Link
+              href={`?tour=${tour}`}
+              scroll={false}
+              className="mt-1.5 -ml-1 inline-flex min-h-9 items-center gap-1.5 rounded-lg px-1 text-sm font-semibold text-gold-deep hover:bg-gold-wash"
+            >
+              <Footprints size={16} aria-hidden /> Show me how
+            </Link>
           ) : null}
         </div>
         {action ? <div className="flex flex-wrap items-center gap-2">{action}</div> : null}
@@ -57,15 +70,18 @@ export function Card({
   children,
   action,
   className = "",
+  tour,
 }: {
   title?: string;
   subtitle?: string;
   children: ReactNode;
   action?: ReactNode;
   className?: string;
+  /** A Guide tour marker, so a tour step can point at this card. */
+  tour?: string;
 }) {
   return (
-    <section className={`rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>
+    <section data-tour={tour} className={`rounded-2xl border border-line bg-card p-4 sm:p-5 ${className}`}>
       {title ? (
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">

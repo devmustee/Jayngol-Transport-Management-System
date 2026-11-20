@@ -5,7 +5,8 @@ import { ActionForm, Field, SubmitButton } from "@/components/form";
 import { Card, PageHeader } from "@/components/ui";
 import { can, ROLE_LABELS } from "@/lib/permissions";
 import { requireStaffCtx } from "@/lib/session";
-import { topicsFor } from "@/guide";
+import { topicsFor, tourFor } from "@/guide";
+import { Footprints } from "lucide-react";
 
 export const metadata: Metadata = { title: "Account" };
 
@@ -41,6 +42,14 @@ export default async function AccountPage() {
               </li>
             ))}
           </ul>
+        ) : null}
+        {tourFor(actor.role, "welcome") ? (
+          <Link
+            href="/dashboard?tour=welcome"
+            className="flex min-h-12 items-center gap-3 rounded-xl border border-line bg-card px-4 font-semibold hover:bg-gold-wash"
+          >
+            <Footprints size={18} aria-hidden className="text-gold-deep" /> Take the welcome tour again
+          </Link>
         ) : null}
         <Card title="Change password">
           <ActionForm action={changePasswordAction}>

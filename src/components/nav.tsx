@@ -150,6 +150,7 @@ export function SideNav({ items }: { items: NavItem[] }) {
       <nav
         ref={listRef}
         onScroll={measure}
+        data-tour="menu"
         className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 [scrollbar-color:rgb(251_247_236/0.25)_transparent] [scrollbar-width:thin] low:space-y-1"
         aria-label="Main"
       >
@@ -202,6 +203,7 @@ export function BottomNav({ items }: { items: NavItem[] }) {
       {/* Mobile Bottom Bar */}
       <nav
         aria-label="Main"
+        data-tour="menu"
         className="print:hidden fixed inset-x-0 bottom-0 z-30 grid grid-flow-col auto-cols-fr border-t border-paper/10 bg-ink pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         {primaryTabs.map((item) => {

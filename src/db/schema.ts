@@ -1445,3 +1445,20 @@ export const bankOpeningCorrections = pgTable("bank_opening_corrections", {
     .references(() => users.id),
   correctedAt: timestamp("corrected_at", tz).notNull(),
 });
+
+// Which Guide tours each person has finished or skipped, so the welcome tour is offered once.
+export const guideProgress = pgTable(
+  "guide_progress",
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tourId: text("tour_id").notNull(),
+    status: text("status").notNull(),
+    updatedAt: timestamp("updated_at", tz).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.tourId] }),
+    check("guide_progress_status", sql`${t.status} IN ('done', 'skipped')`),
+  ],
+);

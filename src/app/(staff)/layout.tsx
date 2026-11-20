@@ -3,7 +3,9 @@ import { Suspense } from "react";
 import { PlaceMemory } from "@/components/back-link";
 import { BottomNav, SideNav, type NavItem } from "@/components/nav";
 import { can, ROLE_LABELS } from "@/lib/permissions";
-import { topicsFor } from "@/guide";
+import { topicsFor, toursFor } from "@/guide";
+import { Tours, type ClientTour } from "@/components/tour";
+import { tourProgress } from "@/services/guide-progress";
 import { requireStaffCtx } from "@/lib/session";
 import { NotificationBell } from "@/components/notification-bell";
 import { UrgentBanner } from "@/components/urgent-banner";
@@ -30,7 +32,16 @@ const MONEY_PAGES = [
 export default async function StaffLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireStaffCtx();
   const { actor } = ctx;
-  const [bell, urgent] = await Promise.all([staffBell(ctx), latestUrgent(ctx)]);
+  const [bell, urgent, progress] = await Promise.all([staffBell(ctx), latestUrgent(ctx), tourProgress(ctx)]);
+  const hasGuide = topicsFor(actor.role).length > 0;
+  const tours: ClientTour[] = toursFor(actor.role).map((tour) => ({
+    id: tour.id,
+    title: tour.title,
+    page: tour.page,
+    steps: tour.steps
+      .filter((step) => !step.guide || hasGuide)
+      .map(({ target, title, body }) => ({ ...(target ? { target } : {}), title, body })),
+  }));
   const items: NavItem[] = [
     { href: "/dashboard", label: "Home", icon: "home", primary: true },
     { href: "/tricycles", label: "Tricycles", icon: "tricycles", primary: true },
@@ -75,7 +86,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
   if (can(actor.role, "audit.view")) {
     items.push({ href: "/audit", label: "Audit log", icon: "audit", primary: false });
   }
-  if (topicsFor(actor.role).length > 0) items.push({ href: "/guide", label: "Guide", icon: "guide", primary: false });
+  if (hasGuide) items.push({ href: "/guide", label: "Guide", icon: "guide", primary: false });
   items.push({ href: "/account", label: "Account", icon: "account", primary: true });
 
   const roleLabel = ROLE_LABELS[actor.role] ?? actor.role;
@@ -108,6 +119,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
         <div className="mt-auto pt-4 low:pt-2 border-t border-paper/10">
           <Link
             href="/account"
+            data-tour="account"
             className="flex items-center gap-3 rounded-xl p-2 transition-colors hover:bg-paper/5"
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-paper/10 text-sm font-semibold text-paper">
@@ -139,6 +151,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
             <Link
               href="/account"
               aria-label={`Account: ${actor.name}`}
+              data-tour="account"
               className="flex min-h-10 max-w-[40vw] items-center gap-2 rounded-full bg-paper/10 px-3.5 text-xs font-medium text-paper active:scale-95 transition-transform"
             >
               <span className="truncate">{actor.name.split(" ")[0]}</span>
@@ -157,6 +170,7 @@ export default async function StaffLayout({ children }: { children: React.ReactN
       <BottomNav items={items} />
       <Suspense fallback={null}>
         <PlaceMemory />
+        <Tours tours={tours} offerWelcome={tours.some((tour) => tour.id === "welcome") && !progress.welcome} />
       </Suspense>
     </div>
   );

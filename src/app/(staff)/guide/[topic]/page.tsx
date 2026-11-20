@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Footprints } from "lucide-react";
 import { Card, PageHeader } from "@/components/ui";
 import { requireStaffCtx } from "@/lib/session";
-import { topicFor } from "@/guide";
+import { topicFor, tourForTopic } from "@/guide";
 
 export const metadata: Metadata = { title: "Guide" };
 
@@ -11,6 +12,7 @@ export default async function GuideTopicPage({ params }: { params: Promise<{ top
   const { actor } = await requireStaffCtx();
   const topic = topicFor(actor.role, (await params).topic);
   if (!topic) notFound();
+  const tour = tourForTopic(actor.role, topic.id);
   const related = (topic.related ?? []).map((id) => topicFor(actor.role, id)).filter((t) => t !== null);
 
   return (
@@ -44,9 +46,17 @@ export default async function GuideTopicPage({ params }: { params: Promise<{ top
             </ul>
           </Card>
         ) : null}
-        {topic.links?.length ? (
+        {topic.links?.length || tour ? (
           <div className="flex flex-wrap gap-2">
-            {topic.links.map((link) => (
+            {tour ? (
+              <Link
+                href={`${tour.page}?tour=${tour.id}`}
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-gold-light/60 bg-gold-wash/50 px-4 font-semibold text-gold-deep"
+              >
+                <Footprints size={18} aria-hidden /> Show me on the page
+              </Link>
+            ) : null}
+            {(topic.links ?? []).map((link) => (
               <Link
                 key={link.href}
                 href={link.href}

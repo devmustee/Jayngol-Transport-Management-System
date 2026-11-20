@@ -30,6 +30,7 @@ import { recordDeposit, reverseDeposit } from "@/services/deposits";
 import { refundAllDue, settleDeposit, undoSettlement } from "@/services/deposit-settlements";
 import { addNonCollectionDay, closeCash, correctCashCount, removeNonCollectionDay } from "@/services/finance";
 import { markMyNoticesRead } from "@/services/notices";
+import { saveTourProgress } from "@/services/guide-progress";
 import { markAllRead, openNotification } from "@/services/notifications";
 import { isStaff } from "@/lib/permissions";
 import { isAppLink } from "@/lib/notification-catalogue";
@@ -666,4 +667,15 @@ export async function openNotificationAction(id: string) {
   revalidatePath("/", "layout");
   // Checked again here, so a bad link saved by any route can never send someone off Jayngol.
   redirect(link && isAppLink(link) ? link : inbox);
+}
+
+/** Remembers a finished or skipped Guide tour. Nothing on the page waits on it. */
+export async function saveTourProgressAction(tourId: string, status: "done" | "skipped") {
+  const ctx = await requireCtx();
+  try {
+    await saveTourProgress(ctx, tourId, status);
+    return true;
+  } catch {
+    return false;
+  }
 }

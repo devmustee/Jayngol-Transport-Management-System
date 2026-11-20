@@ -19,6 +19,7 @@ export function CashCloseForm({
   laterKobo,
   label,
   takeOver,
+  tour = false,
 }: {
   custodianId: string;
   date: string;
@@ -29,6 +30,8 @@ export function CashCloseForm({
   label: string;
   /** Someone who has left: the counted cash moves into the Manager's cash. */
   takeOver: string | null;
+  /** Carries the Cash close tour's markers: only the card the tour is about. */
+  tour?: boolean;
 }) {
   const [typed, setTyped] = useState("");
   const anchor = useRef<HTMLDivElement>(null);
@@ -50,15 +53,17 @@ export function CashCloseForm({
       <div ref={anchor} hidden />
       <input type="hidden" name="custodianId" value={custodianId} />
       <input type="hidden" name="businessDate" value={date} />
-      <Field
-        name="counted"
-        label="Cash in hand now (₦)"
-        inputMode="decimal"
-        autoComplete="off"
-        value={typed}
-        onChange={(event) => setTyped(event.target.value)}
-        hint={`Count all the cash you hold now. This count covers ${coverage}.`}
-      />
+      <div data-tour={tour ? "cash-count" : undefined}>
+        <Field
+          name="counted"
+          label="Cash in hand now (₦)"
+          inputMode="decimal"
+          autoComplete="off"
+          value={typed}
+          onChange={(event) => setTyped(event.target.value)}
+          hint={`Count all the cash you hold now. This count covers ${coverage}.`}
+        />
+      </div>
       {laterKobo !== 0 ? (
         <p className="rounded-xl border border-gold/40 bg-gold-wash p-3 text-sm text-ink" aria-live="polite">
           {formatNaira(Math.abs(laterKobo))} {laterKobo > 0 ? "came in" : "went out"} after {dateLabel}, so it is{" "}
@@ -84,7 +89,9 @@ export function CashCloseForm({
       ) : null}
       <TextareaField name="explanation" label="Explanation" hint="Required if the count does not match." />
       {takeOver ? <p className="text-sm text-muted">{takeOver}</p> : null}
-      <SubmitButton>{label}</SubmitButton>
+      <div data-tour={tour ? "cash-close-button" : undefined}>
+        <SubmitButton>{label}</SubmitButton>
+      </div>
     </ActionForm>
   );
 }

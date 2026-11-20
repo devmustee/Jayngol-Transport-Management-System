@@ -1,8 +1,9 @@
 import { can, type Role } from "@/lib/permissions";
 import { MONEY_TOPICS } from "./topics/money";
+import { TOURS, type Tour, type TourStep } from "./tours";
 import { GUIDE_AREAS, type GuideArea, type GuideTopic } from "./types";
 
-export { GUIDE_AREAS, type GuideArea, type GuideTopic };
+export { GUIDE_AREAS, TOURS, type GuideArea, type GuideTopic, type Tour, type TourStep };
 
 export const TOPICS: GuideTopic[] = [...MONEY_TOPICS];
 
@@ -50,3 +51,17 @@ export function searchTopics(role: Role, query: string) {
     .sort((a, b) => b.score - a.score)
     .map((row) => row.topic);
 }
+
+/** The tours a role is offered. */
+export const toursFor = (role: Role) => TOURS.filter((tour) => can(role, tour.permission));
+
+/** One tour, if this role is offered it. */
+export function tourFor(role: Role, id: string) {
+  return toursFor(role).find((tour) => tour.id === id) ?? null;
+}
+
+/** The tour that walks through a page, for its "Show me how". */
+export const tourForPage = (role: Role, path: string) => toursFor(role).find((tour) => tour.page === path) ?? null;
+
+/** The tour that shows a topic on its page. */
+export const tourForTopic = (role: Role, topicId: string) => toursFor(role).find((tour) => tour.topic === topicId) ?? null;

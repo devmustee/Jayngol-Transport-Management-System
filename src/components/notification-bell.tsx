@@ -87,6 +87,7 @@ export function NotificationBell({
     <Link
       href={href}
       aria-label={name}
+      data-tour="bell"
       className={`relative inline-flex min-h-11 min-w-11 items-center justify-center gap-2.5 rounded-xl border px-2.5 transition-colors active:scale-95 ${base} ${
         label ? "w-full justify-start px-3 text-sm" : "rounded-full"
       }`}

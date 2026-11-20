@@ -267,6 +267,13 @@
       "when": 1795170809424,
       "tag": "0037_bank_corrections",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1795187757242,
+      "tag": "0038_guide_progress",
+      "breakpoints": true
     }
   ]
 }

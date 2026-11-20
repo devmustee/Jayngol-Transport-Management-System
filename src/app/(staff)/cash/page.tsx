@@ -12,7 +12,7 @@ import { formatDate, formatDateTime, queryValue } from "@/lib/format";
 import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
-import { helpForPage } from "@/guide";
+import { helpForPage, tourForPage } from "@/guide";
 import { collectionsByCashier, myCollections } from "@/services/balance-periods";
 import { cashDay, recentCloses } from "@/services/finance";
 
@@ -21,10 +21,10 @@ export const metadata: Metadata = { title: "Cash close" };
 type Person = Awaited<ReturnType<typeof cashDay>>[number];
 
 /** Each day since the last count with money in or out, then what should be in hand. */
-function CoveredDays({ person }: { person: Person }) {
+function CoveredDays({ person, tour }: { person: Person; tour: boolean }) {
   const { covers } = person;
   return (
-    <div className="rounded-xl border border-line/60 bg-card-subtle/50 px-4">
+    <div className="rounded-xl border border-line/60 bg-card-subtle/50 px-4" data-tour={tour ? "cash-days" : undefined}>
       <div className="flex justify-between gap-4 border-b border-line/70 py-3 text-sm">
         <span className="font-medium text-muted">
           {covers.lastClose ? `Counted on ${formatDate(covers.lastClose.date)}` : "Brought forward"}
@@ -77,6 +77,9 @@ export default async function CashPage({
     collectionsByCashier(ctx),
   ]);
 
+  // The tour points at your own card, or the first one.
+  const tourCard = (people.find((person) => person.id === ctx.actor.userId) ?? people[0])?.id;
+
   return (
     <>
       <PageHeader
@@ -88,8 +91,9 @@ export default async function CashPage({
         }
         back={{ href: "/money", label: "Money" }}
         help={helpForPage(ctx.actor.role, "/cash")?.id}
+        tour={tourForPage(ctx.actor.role, "/cash")?.id}
       />
-      <form className="mb-4 flex gap-2">
+      <form className="mb-4 flex gap-2" data-tour="cash-date">
         <input type="date" name="date" max={today} defaultValue={date} aria-label="Date" className="min-h-11 rounded-lg border border-line bg-card px-3" />
         <button className="min-h-11 rounded-lg border border-line bg-card px-4 font-semibold">Show</button>
       </form>
@@ -131,6 +135,7 @@ export default async function CashPage({
           return (
             <Card
               key={person.id}
+              tour={person.id === tourCard ? "cash-card" : undefined}
               title={title}
               subtitle={
                 person.close
@@ -195,7 +200,7 @@ export default async function CashPage({
                   ]}
                 />
               ) : (
-                <CoveredDays person={person} />
+                <CoveredDays person={person} tour={person.id === tourCard} />
               )}
               {closeLastWeek ? (
                 <Link
@@ -233,12 +238,14 @@ export default async function CashPage({
                   laterKobo={person.laterKobo}
                   label={closeLabel}
                   takeOver={left ? `What you count moves from ${person.name}'s cash into yours.` : null}
+                  tour={person.id === tourCard}
                 />
               ) : null}
             </Card>
           );
         })}
         <Card
+          tour="cash-recent"
           title="Recent counts"
           subtitle={differencesOnly ? "Counts that did not match" : "The latest counts of everyone's cash"}
           action={
