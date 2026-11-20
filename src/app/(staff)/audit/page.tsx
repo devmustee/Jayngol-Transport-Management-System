@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PhoneFold } from "@/components/phone-fold";
 import { Empty, PageHeader } from "@/components/ui";
 import { helpForPage } from "@/guide";
 import { AUDIT_GROUPS, auditActionLabel } from "@/lib/audit-actions";
@@ -26,6 +27,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   });
   const { rows, total, page, pages, people, filter, filtered } = result;
   const first = (page - 1) * AUDIT_PER_PAGE + 1;
+  const narrowed = [filter.who, filter.what, filter.from, filter.to].filter(Boolean).length;
 
   /** The same search on another page. */
   const pageHref = (target: number) => {
@@ -56,6 +58,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
             className={INPUT}
           />
         </label>
+        <PhoneFold label="More filters" active={narrowed}>
         <label className="col-span-2 min-w-0 font-medium sm:col-span-1">
           Who
           <select name="who" defaultValue={filter.who ?? ""} className={INPUT}>
@@ -93,6 +96,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
           To
           <input type="date" name="to" defaultValue={filter.to ?? ""} className={INPUT} />
         </label>
+        </PhoneFold>
         <div className="col-span-2 flex flex-wrap items-center gap-3 lg:col-span-6">
           <button className="min-h-11 rounded-lg bg-ink px-5 font-semibold text-gold-light">Search</button>
           {filtered ? (
