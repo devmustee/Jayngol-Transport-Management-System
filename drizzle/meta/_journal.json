@@ -281,6 +281,13 @@
       "when": 1795207481409,
       "tag": "0039_transfer_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795215382102,
+      "tag": "0040_audit_search_indexes",
+      "breakpoints": true
     }
   ]
 }

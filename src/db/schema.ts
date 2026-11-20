@@ -275,6 +275,9 @@ export const auditLog = pgTable(
   (t) => [
     index("audit_entity_idx").on(t.entityType, t.entityId),
     index("audit_occurred_idx").on(t.occurredAt),
+    // For the Audit log search by Who and by What. Read backwards, they give newest first.
+    index("audit_actor_idx").on(t.actorUserId, t.id),
+    index("audit_action_idx").on(t.action, t.id),
   ],
 );
 
