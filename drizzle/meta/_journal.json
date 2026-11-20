@@ -239,6 +239,13 @@
       "when": 1795131285471,
       "tag": "0033_loan_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1795133472953,
+      "tag": "0034_deposit_damage",
+      "breakpoints": true
     }
   ]
 }

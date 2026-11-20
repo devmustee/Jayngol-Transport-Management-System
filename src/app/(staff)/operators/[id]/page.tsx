@@ -72,7 +72,7 @@ export default async function OperatorPage({
         depositPosition(ctx, id),
       ])
     : [null, null, null, null];
-  const settleNow = position && position.canSettle && position.heldKobo > 0 && !position.notYet;
+  const settleNow = position && position.canSettle && position.dueKobo > 0;
   const sources = settleNow ? await moneySources(ctx) : [];
   const today = businessDate(ctx.clock());
 
@@ -165,16 +165,20 @@ export default async function OperatorPage({
 
         {deposits ? (
           <Card
-            title="Deposit"
-            subtitle={`Held for this operator: ${formatNaira(deposits.heldKobo)}`}
+            title="Savings"
+            subtitle={
+              position && working
+                ? `Saved this month: ${formatNaira(position.savedThisMonthKobo)} · given back on ${formatDate(position.refundDay)}`
+                : `Held for this operator: ${formatNaira(deposits.heldKobo)}`
+            }
             action={
               operator.status === "active" && can(ctx.actor.role, "payment.record") ? (
-                <LinkButton href={`/deposits/new?operator=${id}`}>Record deposit</LinkButton>
+                <LinkButton href={`/deposits/new?operator=${id}`}>Record saving</LinkButton>
               ) : undefined
             }
           >
             {deposits.items.length === 0 ? (
-              <p className="text-sm text-muted">No deposit recorded yet.</p>
+              <p className="text-sm text-muted">No saving recorded yet.</p>
             ) : (
               <ul className="divide-y divide-line">
                 {deposits.items.map((deposit) => (
@@ -187,7 +191,7 @@ export default async function OperatorPage({
                         <Badge tone="bad">Reversed</Badge>
                       ) : (
                         <span className="flex shrink-0 items-center gap-2">
-                          {deposit.settlementId ? <Badge tone="plain">Settled</Badge> : null}
+                          {deposit.settlementId ? <Badge tone="plain">Given back</Badge> : null}
                           <span className="font-semibold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
                         </span>
                       )}
@@ -196,7 +200,7 @@ export default async function OperatorPage({
                 ))}
               </ul>
             )}
-            {position && position.heldKobo > 0 && position.notYet && !working ? (
+            {position && position.heldKobo > 0 && position.notYet ? (
               <p className="mt-3 text-sm text-muted">{position.notYet}</p>
             ) : null}
           </Card>
@@ -204,27 +208,27 @@ export default async function OperatorPage({
 
         {settleNow ? (
           <div id="deposit" className="scroll-mt-24">
-            <Card title="Settle deposit" subtitle="Clear what is owed from the deposit and give the rest back.">
-              <DepositSettleForm operatorId={operator.id} heldKobo={position.heldKobo} owed={position.owed} sources={sources} />
+            <Card title="Give back savings" subtitle="Clear what is owed, take off any damage, and give the rest back.">
+              <DepositSettleForm operatorId={operator.id} dueKobo={position.dueKobo} owed={position.owed} sources={sources} />
             </Card>
           </div>
         ) : null}
 
         {position && position.settlements.length > 0 ? (
-          <Card title="Deposit settlements">
+          <Card title="Savings given back">
             <ul className="divide-y divide-line">
               {position.settlements.map((s) => (
                 <li key={s.id} className="space-y-1 py-3 first:pt-0 last:pb-0">
                   <div className="flex items-center justify-between gap-3">
                     <span className="font-semibold">
-                      {formatDate(s.businessDate)} · {formatNaira(s.heldKobo)} held
+                      {formatDate(s.businessDate)} · {formatNaira(s.heldKobo)} saved
                     </span>
                     {s.undoneAt ? (
                       <Badge tone="bad">Undone</Badge>
                     ) : s.keptKobo > 0 ? (
-                      <Badge tone="warning">Partly kept</Badge>
+                      <Badge tone={s.damageOnPurpose ? "bad" : "warning"}>{s.damageOnPurpose ? "Damage on purpose" : "Damage taken off"}</Badge>
                     ) : (
-                      <Badge tone="good">Settled</Badge>
+                      <Badge tone="good">Given back</Badge>
                     )}
                   </div>
                   <dl className="grid gap-x-4 text-sm sm:grid-cols-3">
@@ -252,14 +256,19 @@ export default async function OperatorPage({
                       </dd>
                     </div>
                     <div className="flex justify-between gap-2 sm:block">
-                      <dt className="text-muted">Kept</dt>
-                      <dd className="tabular-nums">{formatNaira(s.keptKobo)}</dd>
+                      <dt className="text-muted">For damage</dt>
+                      <dd className="tabular-nums">{formatNaira(s.keptKobo + s.owedFineKobo)}</dd>
                     </div>
                   </dl>
-                  {s.keptReason ? <p className="text-sm text-muted">Kept because: {s.keptReason}</p> : null}
+                  {s.keptReason ? (
+                    <p className="text-sm text-muted">
+                      Damage: {s.keptReason}
+                      {s.owedFineKobo > 0 ? ` · ${formatNaira(s.owedFineKobo)} owed as a fine` : ""}
+                    </p>
+                  ) : null}
                   {!s.undoneAt && s.businessDate === today && position.canSettle ? (
                     <ActionForm action={undoSettlementAction.bind(null, s.id)} className="pt-1">
-                      <SubmitButton tone="plain">Undo settlement</SubmitButton>
+                      <SubmitButton tone="plain">Undo this refund</SubmitButton>
                     </ActionForm>
                   ) : null}
                 </li>

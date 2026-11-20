@@ -6,57 +6,96 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { requirePage } from "@/lib/session";
 import { listDeposits } from "@/services/deposits";
-import { depositsToSettle, listSettlements } from "@/services/deposit-settlements";
+import { depositsToSettle, listSettlements, monthEnd, notSavingThisMonth } from "@/services/deposit-settlements";
+import { moneySources } from "@/services/cash-book";
+import { RefundAllForm } from "@/components/forms/refund-all-form";
+import { businessDate } from "@/lib/clock";
 
-export const metadata: Metadata = { title: "Operator deposits" };
+export const metadata: Metadata = { title: "Operator savings" };
 
 export default async function DepositsPage() {
   const ctx = await requirePage("finance.view");
-  const [{ items, truncated, heldKobo }, toSettle, settled] = await Promise.all([
+  const today = businessDate(ctx.clock());
+  const canSettle = can(ctx.actor.role, "deposit.settle");
+  const [{ items, truncated, heldKobo }, toSettle, settled, notSaving, sources] = await Promise.all([
     listDeposits(ctx),
-    depositsToSettle(),
+    depositsToSettle(undefined, today),
     listSettlements(ctx),
+    notSavingThisMonth(undefined, today),
+    canSettle ? moneySources(ctx) : [],
   ]);
+  const refundDay = monthEnd(today) === today;
+  const month = new Date(`${today}T00:00:00Z`).toLocaleString("en-GB", { month: "long", timeZone: "UTC" });
 
   return (
     <>
       <PageHeader
-        title="Operator deposits"
-        subtitle="Money held for operators. It is not income."
+        title="Operator savings"
+        subtitle="Saved by operators through the month and given back at the month end. It is not income."
         back={{ href: "/money", label: "Money" }}
-        action={can(ctx.actor.role, "payment.record") ? <LinkButton href="/deposits/new">Record deposit</LinkButton> : undefined}
+        action={can(ctx.actor.role, "payment.record") ? <LinkButton href="/deposits/new">Record saving</LinkButton> : undefined}
       />
       <div className="space-y-4">
         <Card>
           <p className="text-sm font-semibold text-muted">Total held</p>
           <p className="mt-1 text-3xl font-bold tabular-nums">{formatNaira(heldKobo)}</p>
-          <p className="mt-1 text-sm text-muted">Deposits not yet reversed or settled.</p>
+          <p className="mt-1 text-sm text-muted">Savings not yet given back.</p>
         </Card>
         {toSettle.length > 0 ? (
-          <Card title="To settle" subtitle="Operators who stopped working with a deposit still held, oldest first.">
-            <ul className="divide-y divide-line">
-              {toSettle.map((row) => (
-                <li key={row.operator_id}>
-                  <Link
-                    href={`/operators/${row.operator_id}#deposit`}
-                    className="flex min-h-12 items-center justify-between gap-3 py-2 hover:text-gold-deep"
-                  >
-                    <span className="min-w-0">
-                      <span className="block font-semibold [overflow-wrap:anywhere]">{row.name}</span>
-                      <span className="text-sm text-muted">
-                        {OPERATOR_STATUS_LABELS[row.status as keyof typeof OPERATOR_STATUS_LABELS] ?? row.status} · held since{" "}
-                        {formatDate(row.since)}
-                      </span>
-                    </span>
+          <Card
+            title={refundDay ? `To give back for ${month}` : "To give back"}
+            subtitle={
+              canSettle
+                ? "Every debt is cleared from each person's savings and the rest given back. Untick anyone with damage and give back on their own page."
+                : "The Manager gives savings back at the month end."
+            }
+          >
+            {canSettle ? (
+              <RefundAllForm
+                label={refundDay ? `Give back all for ${month}` : "Give back all ticked"}
+                sources={sources}
+                rows={toSettle.map((row) => ({
+                  operatorId: row.operator_id,
+                  name: row.name,
+                  heldKobo: row.held,
+                  owedKobo: row.owed,
+                  workshop: row.workshop_this_month,
+                  blocked:
+                    row.status !== "active" && row.has_tricycle
+                      ? `${OPERATOR_STATUS_LABELS[row.status as keyof typeof OPERATOR_STATUS_LABELS] ?? row.status}: tricycle not returned yet`
+                      : null,
+                }))}
+              />
+            ) : (
+              <ul className="divide-y divide-line">
+                {toSettle.map((row) => (
+                  <li key={row.operator_id} className="flex min-h-12 items-center justify-between gap-3 py-2">
+                    <span className="min-w-0 font-semibold [overflow-wrap:anywhere]">{row.name}</span>
                     <span className="shrink-0 font-bold tabular-nums">{formatNaira(row.held)}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
+        ) : (
+          <p className="text-sm text-muted">Savings are given back on {formatDate(monthEnd(today))}.</p>
+        )}
+        {notSaving.length > 0 ? (
+          <Card title={`Not saving this month (${notSaving.length})`} subtitle="Working operators with nothing saved since the 1st. A reminder goes out on the 5th.">
+            <p className="text-sm [overflow-wrap:anywhere]">
+              {notSaving.map((row, i) => (
+                <span key={row.operator_id}>
+                  {i > 0 ? ", " : ""}
+                  <Link href={`/operators/${row.operator_id}`} className="hover:text-gold-deep">
+                    {row.name}
                   </Link>
-                </li>
+                </span>
               ))}
-            </ul>
+            </p>
           </Card>
         ) : null}
         {settled.length > 0 ? (
-          <Card title="Settled">
+          <Card title="Given back">
             <ul className="divide-y divide-line">
               {settled.map((s) => (
                 <li key={s.id}>
@@ -68,7 +107,7 @@ export default async function DepositsPage() {
                       <span className="block font-semibold [overflow-wrap:anywhere]">{s.operatorName}</span>
                       <span className="text-sm text-muted">
                         {formatDate(s.businessDate)} · cleared {formatNaira(s.clearedKobo)} · given back {formatNaira(s.givenBackKobo)}
-                        {s.keptKobo > 0 ? ` · kept ${formatNaira(s.keptKobo)}` : ""}
+                        {s.keptKobo > 0 ? ` · damage ${formatNaira(s.keptKobo)}` : ""}
                       </span>
                     </span>
                     <span className="shrink-0 font-bold tabular-nums">{formatNaira(s.heldKobo)}</span>
@@ -96,7 +135,7 @@ export default async function DepositsPage() {
                     <Badge tone="bad">Reversed</Badge>
                   ) : (
                     <span className="flex shrink-0 items-center gap-2">
-                      {deposit.settlementId ? <Badge tone="plain">Settled</Badge> : null}
+                      {deposit.settlementId ? <Badge tone="plain">Given back</Badge> : null}
                       <span className="font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
                     </span>
                   )}

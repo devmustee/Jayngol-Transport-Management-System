@@ -46,6 +46,7 @@ export const CATALOGUE = {
   service_reminder: operatorNotice("action", "Service tomorrow"),
   balance_changed: operatorNotice("action", "Daily balance changed"),
   contribution_due: operatorNotice("action", "Contribution due Sunday"),
+  saving_reminder: operatorNotice("info", "Monthly saving"),
   contribution_unpaid: operatorNotice("action", "Contribution unpaid"),
   balance_waived: operatorNotice("info", "Balance waived"),
   balance_waiver: {
@@ -65,6 +66,12 @@ export const CATALOGUE = {
     title: "Loan request answered",
     link: "/loans",
     audience: { permission: "loan.request" },
+  },
+  large_damage_deduction: {
+    severity: "info",
+    title: "Large damage deduction",
+    link: "/deposits",
+    audience: { permission: "deposit.oversee" },
   },
   large_deposit_refund: {
     severity: "info",

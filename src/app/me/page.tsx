@@ -171,7 +171,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
 
         {/* Deposits */}
         {deposits.items.length > 0 ? (
-          <Card title="My deposit" subtitle="Held for you by Jayngol. It does not pay your daily balance.">
+          <Card title="My savings" subtitle="Held for you by Jayngol and given back at the month end. It does not pay your daily balance.">
             <div className="mb-3 text-2xl font-semibold tabular-nums text-ink">{formatNaira(deposits.heldKobo)}</div>
             <ul className="divide-y divide-line/60">
               {deposits.items.map((deposit) => (
@@ -186,7 +186,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
                     <Badge tone="bad">Reversed</Badge>
                   ) : (
                     <span className="flex shrink-0 items-center gap-2">
-                      {deposit.settlementId ? <Badge tone="plain">Settled</Badge> : null}
+                      {deposit.settlementId ? <Badge tone="plain">Given back</Badge> : null}
                       <span className="text-sm font-bold tabular-nums">{formatNaira(deposit.amountKobo)}</span>
                     </span>
                   )}
@@ -195,7 +195,7 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
             </ul>
             {deposits.settlements.map((s) => (
               <dl key={s.id} className="mt-3 space-y-1 rounded-xl border border-line bg-card-subtle p-3 text-sm">
-                <div className="font-semibold text-ink">Settled on {formatDate(s.businessDate)}</div>
+                <div className="font-semibold text-ink">Given back on {formatDate(s.businessDate)}</div>
                 <div className="flex justify-between gap-3">
                   <dt className="text-muted">Cleared what you owed</dt>
                   <dd className="tabular-nums">{formatNaira(s.clearedKobo)}</dd>
@@ -206,8 +206,14 @@ export default async function MyRecordsPage({ searchParams }: { searchParams: Pr
                 </div>
                 {s.keptKobo > 0 ? (
                   <div className="flex justify-between gap-3">
-                    <dt className="text-muted">Kept: {s.keptReason}</dt>
+                    <dt className="text-muted">Taken off for damage: {s.keptReason}</dt>
                     <dd className="tabular-nums">{formatNaira(s.keptKobo)}</dd>
+                  </div>
+                ) : null}
+                {s.owedFineKobo > 0 ? (
+                  <div className="flex justify-between gap-3">
+                    <dt className="text-muted">Damage still owed, as a fine</dt>
+                    <dd className="tabular-nums">{formatNaira(s.owedFineKobo)}</dd>
                   </div>
                 ) : null}
               </dl>

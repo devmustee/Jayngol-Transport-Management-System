@@ -1,0 +1,3 @@
+ALTER TABLE "deposit_settlements" ADD COLUMN "damage_on_purpose" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "deposit_settlements" ADD COLUMN "damage_charge_id" uuid;--> statement-breakpoint
+ALTER TABLE "deposit_settlements" ADD CONSTRAINT "deposit_settlements_damage_charge_id_charges_id_fk" FOREIGN KEY ("damage_charge_id") REFERENCES "public"."charges"("id") ON DELETE no action ON UPDATE no action;

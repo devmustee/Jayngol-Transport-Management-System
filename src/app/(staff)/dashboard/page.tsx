@@ -56,9 +56,14 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
     seesMoney && pulse !== "today" ? fleetPeriod(ctx, pulse) : null,
     seesMoney && pulse === "today" ? fleetToday(ctx) : null,
     seesMoney ? contributionSummary(ctx) : null,
-    can(ctx.actor.role, "deposit.settle") ? depositsToSettle() : null,
+    can(ctx.actor.role, "deposit.settle") ? depositsToSettle(undefined, businessDate(ctx.clock())) : null,
     can(ctx.actor.role, "loan.approve") ? waitingLoanRequests() : null,
   ]);
+
+  // Savings left from an earlier month are overdue from the 7th.
+  const todayDate = businessDate(ctx.clock());
+  const overdueSavings =
+    Number(todayDate.slice(8)) >= 7 && (toSettle ?? []).some((row) => row.since < `${todayDate.slice(0, 8)}01`);
 
   const inspectionsLeft = inspections
     ? inspections.items.filter((item) => item.washed === null).length
@@ -131,11 +136,12 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         >
           <span>
             <span className="font-semibold">
-              {toSettle.length} deposit{toSettle.length === 1 ? "" : "s"} to settle
+              {toSettle.length} operator{toSettle.length === 1 ? "" : "s"} to give savings back to
             </span>{" "}
-            · {formatNaira(toSettle.reduce((sum, row) => sum + row.held, 0))} held for operators who left
+            · {formatNaira(toSettle.reduce((sum, row) => sum + row.held, 0))}
+            {overdueSavings ? " · Overdue" : ""}
           </span>
-          <span className="shrink-0 font-semibold text-gold-deep">Settle</span>
+          <span className="shrink-0 font-semibold text-gold-deep">Give back</span>
         </Link>
       ) : null}
 

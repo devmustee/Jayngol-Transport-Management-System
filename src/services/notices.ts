@@ -115,6 +115,30 @@ export async function queueDayNotices(tx: Tx, date: string, now: Date, runs: Map
   );
 
   await queueContributionNotices(tx, date, now);
+
+  // On the 5th: working operators who have saved nothing this month. A reminder only.
+  if (date.endsWith("-05")) {
+    const monthStart = `${date.slice(0, 8)}01`;
+    const idle = (await tx.execute(sql`
+      SELECT o.id AS operator_id FROM operators o
+      WHERE o.status = 'active'
+        AND EXISTS (SELECT 1 FROM assignments a WHERE a.operator_id = o.id AND a.returned_on IS NULL)
+        AND NOT EXISTS (
+          SELECT 1 FROM operator_deposits d
+          WHERE d.operator_id = o.id AND d.business_date >= ${monthStart}::date
+            AND NOT EXISTS (SELECT 1 FROM operator_deposit_reversals r WHERE r.deposit_id = d.id))
+    `)) as unknown as { operator_id: string }[];
+    await notifyOperators(
+      tx,
+      now,
+      idle.map((row) => ({
+        operatorId: row.operator_id,
+        kind: "saving_reminder",
+        body: "Jayngol: You have not started saving this month. Bring your saving to the office; it is given back at the month end.",
+        dedupeKey: `saving_reminder:${monthStart}`,
+      })),
+    );
+  }
 }
 
 /**

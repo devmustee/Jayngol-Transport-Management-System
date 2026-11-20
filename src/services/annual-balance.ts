@@ -337,7 +337,7 @@ export const ANNUAL_COLUMNS: Column[] = [
   { key: "net", label: "Net", kind: "naira" },
   { key: "deposits", label: "Deposits taken", kind: "naira" },
   { key: "depositsReturned", label: "Deposits given back", kind: "naira" },
-  { key: "depositsKept", label: "Deposits kept", kind: "naira" },
+  { key: "depositsKept", label: "Deposits kept for damage", kind: "naira" },
 ];
 
 function csvRow(line: string, range: DateRange, f: YearFigures) {

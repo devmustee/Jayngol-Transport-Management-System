@@ -1265,7 +1265,12 @@ export const depositSettlements = pgTable(
     clearedKobo: bigint("cleared_kobo", { mode: "number" }).notNull(),
     givenBackKobo: bigint("given_back_kobo", { mode: "number" }).notNull(),
     keptKobo: bigint("kept_kobo", { mode: "number" }).notNull(),
+    /** Since monthly refunds: the deposit kept is for damage to the tricycle, and this says what was damaged. */
     keptReason: text("kept_reason"),
+    /** The damage was done on purpose. Recorded for the operator's history. */
+    damageOnPurpose: boolean("damage_on_purpose").notNull().default(false),
+    /** Damage the deposit could not cover, owed as a fine. Voided if the refund is undone. */
+    damageChargeId: uuid("damage_charge_id").references(() => charges.id),
     /** The "Paid from deposit" receipt, when anything owed was cleared. */
     paymentId: uuid("payment_id").references(() => payments.id),
     /** Where the money given back came from: a person's cash, or the bank or owner. */

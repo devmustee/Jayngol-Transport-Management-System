@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { settleDepositAction } from "@/app/actions";
-import { ActionForm, Field, FieldError, SelectField, SubmitButton, TextareaField } from "@/components/form";
+import { ActionForm, Field, FieldError, SelectField, SubmitButton } from "@/components/form";
 import { formatNaira, parseNairaToKobo } from "@/lib/money";
 
 type Kind = "daily_balance" | "penalty" | "loan" | "contribution";
@@ -15,18 +15,18 @@ const LINES: { kind: Kind; label: string; unit: [string, string] }[] = [
 ];
 
 /**
- * Settles what is held: each debt has a tick box, ticked by default, and the
- * figures follow the ticks. Whatever is not used or given back is kept, and
- * keeping needs a reason. The service clears oldest debts first.
+ * Refunds what is saved: each debt has a tick box, ticked by default, then
+ * any damage to the tricycle comes off, and the rest is given back. Damage
+ * beyond what is left is owed as a fine. The figures follow what is typed.
  */
 export function DepositSettleForm({
   operatorId,
-  heldKobo,
+  dueKobo,
   owed,
   sources,
 }: {
   operatorId: string;
-  heldKobo: number;
+  dueKobo: number;
   owed: Record<Kind, { kobo: number; count: number }>;
   sources: { id: string; name: string; availableKobo: number }[];
 }) {
@@ -36,13 +36,14 @@ export function DepositSettleForm({
     loan: true,
     contribution: true,
   });
-  const [giveBack, setGiveBack] = useState("");
+  const [damage, setDamage] = useState("");
   const owedTicked = LINES.reduce((sum, line) => sum + (ticked[line.kind] ? owed[line.kind].kobo : 0), 0);
-  const cleared = Math.min(heldKobo, owedTicked);
-  const left = heldKobo - cleared;
-  const typed = giveBack.trim() === "" ? left : parseNairaToKobo(giveBack);
-  const given = typed === null ? null : Math.min(typed, left);
-  const kept = given === null ? 0 : left - given;
+  const cleared = Math.min(dueKobo, owedTicked);
+  const left = dueKobo - cleared;
+  const damageKobo = damage.trim() === "" ? 0 : (parseNairaToKobo(damage) ?? 0);
+  const kept = Math.min(damageKobo, left);
+  const fine = damageKobo - kept;
+  const given = left - kept;
   const stillOwed = owedTicked - cleared;
 
   return (
@@ -50,8 +51,8 @@ export function DepositSettleForm({
       <input type="hidden" name="operatorId" value={operatorId} />
       <dl className="divide-y divide-line rounded-xl border border-line">
         <div className="flex items-center justify-between gap-3 px-3.5 py-3">
-          <dt className="font-semibold">Deposit held</dt>
-          <dd className="font-bold tabular-nums">{formatNaira(heldKobo)}</dd>
+          <dt className="font-semibold">Saved</dt>
+          <dd className="font-bold tabular-nums">{formatNaira(dueKobo)}</dd>
         </div>
         {LINES.map(({ kind, label, unit }) => {
           const line = owed[kind];
@@ -86,61 +87,73 @@ export function DepositSettleForm({
           <dt className="font-semibold">Used to clear what is owed</dt>
           <dd className="font-bold tabular-nums">{formatNaira(cleared)}</dd>
         </div>
+        {kept > 0 ? (
+          <div className="flex items-center justify-between gap-3 bg-card-subtle px-3.5 py-3">
+            <dt className="font-semibold">Deducted for damage</dt>
+            <dd className="font-bold tabular-nums">{formatNaira(kept)}</dd>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between gap-3 bg-gold-wash px-3.5 py-3">
           <dt className="font-semibold">To give back</dt>
-          <dd className="font-bold tabular-nums">{formatNaira(left)}</dd>
+          <dd className="font-bold tabular-nums">{formatNaira(given)}</dd>
         </div>
       </dl>
       {stillOwed > 0 ? (
         <p className="text-sm text-muted">
-          The deposit is smaller than what is ticked. The oldest debts are cleared first and {formatNaira(stillOwed)} stays owed.
+          The savings are smaller than what is ticked. The oldest debts are cleared first and {formatNaira(stillOwed)} stays owed.
         </p>
       ) : null}
       <FieldError name="clear" />
 
-      {left > 0 ? (
+      <fieldset className="space-y-3 rounded-xl border border-line p-3.5">
+        <legend className="px-1 text-sm font-semibold">Damage to the tricycle (optional)</legend>
+        <Field
+          name="damage"
+          label="Amount (₦)"
+          inputMode="decimal"
+          autoComplete="off"
+          value={damage}
+          onChange={(event) => setDamage(event.target.value)}
+          hint="Only if the operator damaged the tricycle."
+        />
+        {damageKobo > 0 ? (
+          <>
+            <Field name="damageWhat" label="What was damaged" autoComplete="off" placeholder="Broken windscreen" />
+            <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm">
+              <input type="checkbox" name="damageOnPurpose" className="size-5 shrink-0 accent-ink" />
+              Done on purpose
+            </label>
+            {fine > 0 ? (
+              <p className="rounded-xl border border-danger-border bg-danger-wash p-3 text-sm text-danger">
+                {formatNaira(damageKobo)} damage: {formatNaira(kept)} from the savings, {formatNaira(fine)} owed as a fine.
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </fieldset>
+
+      {given > 0 ? (
         <>
-          <Field
-            name="giveBack"
-            label="Amount given back (₦)"
-            inputMode="decimal"
-            autoComplete="off"
-            placeholder={(left / 100).toLocaleString("en-NG")}
-            hint={`Leave empty to give back all ${formatNaira(left)}.`}
-            value={giveBack}
-            onChange={(event) => setGiveBack(event.target.value)}
-          />
-          {given !== null && given > 0 ? (
-            <>
-              <SelectField name="source" label="Given back from" defaultValue="">
-                <option value="" disabled>Choose…</option>
-                {sources.map((person) => (
-                  <option key={person.id} value={person.id}>
-                    Cash held by {person.name} ({formatNaira(person.availableKobo)} today)
-                  </option>
-                ))}
-                <option value="bank">Bank transfer</option>
-              </SelectField>
-              <Field name="reference" label="Transfer reference (optional)" autoComplete="off" />
-            </>
-          ) : null}
-          {kept > 0 ? (
-            <TextareaField
-              name="keptReason"
-              label={`Why ${formatNaira(kept)} is kept`}
-              hint="For example: broken windscreen. It is recorded as Deposit kept."
-              rows={2}
-            />
-          ) : null}
+          <SelectField name="source" label="Given back from" defaultValue="">
+            <option value="" disabled>Choose…</option>
+            {sources.map((person) => (
+              <option key={person.id} value={person.id}>
+                Cash held by {person.name} ({formatNaira(person.availableKobo)} today)
+              </option>
+            ))}
+            <option value="bank">Bank transfer</option>
+          </SelectField>
+          <Field name="reference" label="Transfer reference (optional)" autoComplete="off" />
         </>
       ) : null}
 
       <p className="rounded-xl border border-gold/40 bg-gold-wash p-3 text-sm text-ink" aria-live="polite">
         {cleared > 0 ? `${formatNaira(cleared)} clears what is owed` : "Nothing is cleared"}
-        {given ? `, ${formatNaira(given)} is given back` : ""}
-        {kept > 0 ? `, ${formatNaira(kept)} is kept` : ""}. This can be undone today only.
+        {kept > 0 ? `, ${formatNaira(kept)} is deducted for damage` : ""}
+        {fine > 0 ? `, ${formatNaira(fine)} is owed as a fine` : ""}
+        {given > 0 ? `, ${formatNaira(given)} is given back` : ", nothing is given back"}. This can be undone today only.
       </p>
-      <SubmitButton>Save settlement</SubmitButton>
+      <SubmitButton>Give back savings</SubmitButton>
     </ActionForm>
   );
 }

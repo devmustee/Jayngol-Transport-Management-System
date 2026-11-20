@@ -11,14 +11,17 @@ import {
   depositPosition,
   depositsToSettle,
   getMySettlements,
+  notSavingThisMonth,
+  refundAllDue,
   settleDeposit,
   undoSettlement,
 } from "@/services/deposit-settlements";
+import { issueTricycle } from "@/services/assignments";
 import { listDeposits, operatorDepositsFor, recordDeposit, reverseDeposit } from "@/services/deposits";
 import { openCharges } from "@/services/ledger";
 import { markOperatorLeft } from "@/services/operators";
 import { reversePayment } from "@/services/payments";
-import { makeOperator, makeUser, noticesFor } from "./helpers";
+import { makeOperator, makeTricycle, makeUser, noticesFor } from "./helpers";
 
 const wat = (date: string, time = "12:00") => new Date(`${date}T${time}:00+01:00`);
 const on = (ctx: Ctx, date: string, time?: string): Ctx => ({ ...ctx, clock: () => wat(date, time) });
@@ -123,14 +126,29 @@ describe("settling a deposit", () => {
     expect(open.map((c) => [c.businessDate, c.outstandingKobo])).toEqual([["2038-03-03", 500_000]]);
   });
 
-  it("needs a reason to keep part, and records it as kept", async () => {
-    const operator = await leaver("10,000", []);
-    const keep = { operatorId: operator.id, clear: [], giveBack: "2,000", source: "bank" };
-    await expect(settleDeposit(manager, keep)).rejects.toMatchObject({ fieldErrors: { keptReason: expect.anything() } });
-    const result = await settleDeposit(manager, { ...keep, keptReason: "Broken windscreen" });
-    expect(result).toMatchObject({ givenBackKobo: 200_000, keptKobo: 800_000 });
+  it("takes damage off what is left, and needs to say what was damaged", async () => {
+    const operator = await leaver("50,000", [{ type: "daily_balance", kobo: 1_200_000, date: "2038-03-01" }]);
+    const base = { operatorId: operator.id, clear: ["daily_balance"], damage: "8,000", source: "bank" };
+    await expect(settleDeposit(manager, base)).rejects.toMatchObject({ fieldErrors: { damageWhat: expect.anything() } });
+    const result = await settleDeposit(manager, { ...base, damageWhat: "Broken windscreen", damageOnPurpose: "on" });
+    expect(result).toMatchObject({ clearedKobo: 1_200_000, keptKobo: 800_000, givenBackKobo: 3_000_000, owedFineKobo: 0 });
     const position = await depositPosition(manager, operator.id);
-    expect(position!.settlements[0]).toMatchObject({ keptKobo: 800_000, keptReason: "Broken windscreen" });
+    expect(position!.settlements[0]).toMatchObject({ keptKobo: 800_000, keptReason: "Broken windscreen", damageOnPurpose: true });
+    expect((await noticesFor(operator.id, "receipt")).some((n) => n.body.includes("₦8,000 for damage: Broken windscreen"))).toBe(true);
+  });
+
+  it("owes damage beyond the savings as a fine, which undo removes", async () => {
+    const operator = await leaver("30,000", []);
+    const result = await settleDeposit(manager, {
+      operatorId: operator.id,
+      damage: "50,000",
+      damageWhat: "Engine burnt",
+    });
+    expect(result).toMatchObject({ keptKobo: 3_000_000, givenBackKobo: 0, owedFineKobo: 2_000_000 });
+    expect(await owedOf(operator.id, "penalty")).toBe(2_000_000);
+    await undoSettlement(manager, result.id);
+    expect(await owedOf(operator.id, "penalty")).toBe(0);
+    expect((await operatorDepositsFor(manager, operator.id)).heldKobo).toBe(3_000_000);
   });
 
   it("asks where the money given back comes from", async () => {
@@ -140,12 +158,85 @@ describe("settling a deposit", () => {
     });
   });
 
-  it("is refused while the operator still works, and for anyone but the Manager", async () => {
-    const working = await makeOperator(manager);
-    await recordDeposit(manager, { operatorId: working.id, clientId: randomUUID(), amount: "10,000", method: "cash" });
-    await expect(settleDeposit(manager, { operatorId: working.id, source: "bank" })).rejects.toThrow(/left or been sacked/);
+  it("is refused for anyone but the Manager, and while a leaver still holds the tricycle", async () => {
     const operator = await leaver("10,000", []);
     await expect(settleDeposit(assistant, { operatorId: operator.id, source: "bank" })).rejects.toBeInstanceOf(ForbiddenError);
+  });
+});
+
+describe("monthly savings", () => {
+  /** A working operator who saved ₦1,000 on each given day. */
+  async function saver(days: string[]) {
+    const operator = await makeOperator(manager);
+    for (const day of days) {
+      await recordDeposit(on(manager, day), { operatorId: operator.id, clientId: randomUUID(), amount: "1,000", method: "cash" });
+    }
+    return operator;
+  }
+
+  it("gives back a working operator's month of savings on the month end, not before", async () => {
+    const operator = await saver(["2038-04-03", "2038-04-04", "2038-04-05"]);
+    const before = await depositPosition(on(manager, "2038-04-29"), operator.id);
+    expect(before).toMatchObject({ heldKobo: 300_000, dueKobo: 0, savedThisMonthKobo: 300_000 });
+    expect(before!.notYet).toMatch(/30 Apr 2038/);
+    await expect(
+      settleDeposit(on(manager, "2038-04-29"), { operatorId: operator.id, source: "bank" }),
+    ).rejects.toThrow(/given back on 30 Apr 2038/);
+    expect((await depositsToSettle(db, "2038-04-29")).map((r) => r.operator_id)).not.toContain(operator.id);
+
+    const monthEnd = on(manager, "2038-04-30", "09:00");
+    expect((await depositsToSettle(db, "2038-04-30")).map((r) => r.operator_id)).toContain(operator.id);
+    const result = await settleDeposit(monthEnd, { operatorId: operator.id, source: "bank" });
+    expect(result).toMatchObject({ heldKobo: 300_000, givenBackKobo: 300_000 });
+    expect((await noticesFor(operator.id, "receipt")).some((n) => n.body.includes("Start saving for May"))).toBe(true);
+
+    // Saved later on refund day: held for May.
+    await recordDeposit(on(manager, "2038-04-30", "15:00"), {
+      operatorId: operator.id,
+      clientId: randomUUID(),
+      amount: "1,000",
+      method: "cash",
+    });
+    const after = await depositPosition(on(manager, "2038-04-30", "16:00"), operator.id);
+    expect(after).toMatchObject({ heldKobo: 100_000, dueKobo: 0 });
+    expect((await depositsToSettle(db, "2038-04-30")).map((r) => r.operator_id)).not.toContain(operator.id);
+  });
+
+  it("keeps savings from a month that was never given back due on any later day", async () => {
+    const operator = await saver(["2038-05-10"]);
+    await recordDeposit(on(manager, "2038-06-02"), { operatorId: operator.id, clientId: randomUUID(), amount: "1,000", method: "cash" });
+    const position = await depositPosition(on(manager, "2038-06-03"), operator.id);
+    expect(position).toMatchObject({ heldKobo: 200_000, dueKobo: 100_000 });
+    const result = await settleDeposit(on(manager, "2038-06-03"), { operatorId: operator.id, source: "bank" });
+    expect(result.heldKobo).toBe(100_000);
+  });
+
+  it("gives back all ticked operators at once, clearing their debts, from one source", async () => {
+    const one = await saver(["2038-07-01", "2038-07-02"]);
+    const two = await saver(["2038-07-03"]);
+    await db.insert(charges).values({ type: "daily_balance", operatorId: two.id, amountKobo: 50_000, businessDate: "2038-07-05", dueOn: "2038-07-05" });
+    const day = on(manager, "2038-07-31");
+    await expect(refundAllDue(assistant, { operatorIds: [one.id], source: "bank" })).rejects.toBeInstanceOf(ForbiddenError);
+    const done = await refundAllDue(day, { operatorIds: [one.id, two.id], source: "bank" });
+    expect(done).toMatchObject({ count: 2, clearedKobo: 50_000, givenBackKobo: 250_000 });
+    expect(await owedOf(two.id, "daily_balance")).toBe(0);
+    await expect(refundAllDue(day, { operatorIds: [one.id], source: "bank" })).rejects.toThrow(/Refunded today/);
+  });
+
+  it("refuses all at once when the chosen cash is too small, saving nothing", async () => {
+    const poor = (await makeUser("assistant_manager")).ctx;
+    const one = await saver(["2038-08-01"]);
+    await expect(
+      refundAllDue(on(manager, "2038-08-31"), { operatorIds: [one.id], source: poor.actor.userId }),
+    ).rejects.toMatchObject({ fieldErrors: { source: expect.anything() } });
+    expect((await depositPosition(on(manager, "2038-08-31"), one.id))!.dueKobo).toBe(100_000);
+  });
+
+  it("lists working operators with nothing saved this month", async () => {
+    const idle = await makeOperator(manager);
+    const t = await makeTricycle(manager);
+    await issueTricycle(on(manager, "2038-09-01"), { tricycleId: t.id, operatorId: idle.id, issuedOn: "2038-09-01" });
+    expect((await notSavingThisMonth(db, "2038-09-10")).map((r) => r.operator_id)).toContain(idle.id);
   });
 });
 

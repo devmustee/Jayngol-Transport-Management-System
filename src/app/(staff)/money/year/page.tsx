@@ -337,7 +337,7 @@ export default async function AnnualBalancePage({ searchParams }: { searchParams
           <MonthTable months={report.months} total={total} columns={[
             { label: "Taken", value: (f) => f.depositsKobo },
             { label: "Given back", value: (f) => f.depositsReturnedKobo },
-            { label: "Kept", value: (f) => f.depositsKeptKobo },
+            { label: "For damage", value: (f) => f.depositsKeptKobo },
           ]} />
         </Card>
       </div>
