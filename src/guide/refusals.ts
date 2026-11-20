@@ -17,6 +17,7 @@ export const REFUSALS: { says: string; topic: string }[] = [
   { says: "This reference has already been used on another payment or deposit", topic: "record-payment" },
   { says: "This teller or slip number has already been used", topic: "move-money" },
   { says: "which you recorded.", topic: "bank-confirm" },
+  { says: "which was paid in from your cash.", topic: "bank-confirm" },
   { says: "Only the person who confirmed it can undo it.", topic: "bank-confirm" },
   { says: "Only a confirmation made today can be undone.", topic: "bank-confirm" },
   { says: "Set the opening bank balance first", topic: "bank-reconcile" },

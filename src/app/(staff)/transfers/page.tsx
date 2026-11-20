@@ -26,7 +26,7 @@ export default async function TransfersPage({ searchParams }: { searchParams: Pr
   const ctx = await requirePage("finance.view");
   const asked = Number(queryValue((await searchParams).page));
   const [{ pending, recent, userId, canMove, isManager, page, pages, total, held }, people] = await Promise.all([
-    listTransfers(ctx, { page: Number.isFinite(asked) ? asked : 1 }),
+    listTransfers(ctx, { page: Number.isFinite(asked) ? asked : 1, move: queryValue((await searchParams).move) }),
     moneySources(ctx),
   ]);
   const first = (page - 1) * MOVES_PER_PAGE + 1;

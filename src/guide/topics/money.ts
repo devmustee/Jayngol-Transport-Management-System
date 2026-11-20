@@ -156,7 +156,7 @@ export const MONEY_TOPICS: GuideTopic[] = [
       "Tap Confirm ticked.",
     ],
     goodToKnow: [
-      "You cannot confirm money you recorded yourself, or a teller deposit you paid in.",
+      "You cannot confirm money you recorded yourself, or a teller deposit you recorded or that came from your cash.",
       "A reversed teller deposit leaves the Bank check.",
       "Ticked items are confirmed all together, or none if one cannot be.",
       "Confirmed one by mistake? Undo it from Confirmed today, the same day.",

@@ -8,7 +8,7 @@ import { formatNaira } from "@/lib/money";
 import { can } from "@/lib/permissions";
 import { photoField } from "@/lib/photo";
 import { auditFrom } from "./audit";
-import { bankAndOwnerHeld, checkBankHolds } from "./bank";
+import { bankAndOwnerHeld, checkBankHolds, lockBank } from "./bank";
 import { assertCashHeld, lockCashHolder, recordMovement, takeMoneyOut, type BankSide } from "./cash-book";
 import { requirePermission, type Ctx } from "./context";
 import { savePhoto } from "./violations";
@@ -112,16 +112,18 @@ export async function createTransfer(ctx: Ctx, raw: unknown) {
 
   try {
     return await db.transaction(async (tx) => {
+      if (to.custodianId) await lockCashHolder(tx, to.custodianId, "to");
+      if (from.custodianId) await lockCashHolder(tx, from.custodianId, "from");
+      if (from.place === "bank") await lockBank(tx);
+      // Looked for only once the locks are held: a second tap waits here for the
+      // first, then finds its move, rather than failing the checks below on
+      // cash the first tap has just spent.
       if (input.clientId) {
         const [already] = await tx.select().from(moneyTransfers).where(eq(moneyTransfers.clientId, input.clientId));
         if (already && already.createdBy !== ctx.actor.userId) throw new ForbiddenError();
         if (already) return { ...already, message: "This move was already saved." };
       }
-      if (to.custodianId) await lockCashHolder(tx, to.custodianId, "to");
-      if (from.custodianId) {
-        await lockCashHolder(tx, from.custodianId, "from");
-        await assertCashHeld(tx, from.custodianId, input.amount, now, "from");
-      }
+      if (from.custodianId) await assertCashHeld(tx, from.custodianId, input.amount, now, "from");
       const bank = from.place === "bank" ? await checkBankHolds(tx, input.amount, "amount") : null;
       if (deposit) await refuseUsedTeller(tx, input.reference!);
       const photoId = input.photo ? await savePhoto(tx, ctx, input.photo) : null;
@@ -342,11 +344,23 @@ export async function voidTransfer(ctx: Ctx, rawId: unknown, raw: unknown) {
 
 export const MOVES_PER_PAGE = 40;
 
+/** The page of Recent moves a decided move is on, so a link to it from elsewhere lands on it. */
+async function pageOfMove(id: string) {
+  if (!isUuid(id)) return null;
+  const rows = (await db.execute(sql`
+    SELECT COUNT(*)::int AS newer FROM money_transfers n, money_transfers t
+    WHERE t.id = ${id} AND t.status <> 'pending' AND n.status <> 'pending'
+      AND (n.created_at, n.id) > (t.created_at, t.id)
+    GROUP BY t.id
+  `)) as unknown as { newer: number }[];
+  return rows[0] ? Math.floor(rows[0].newer / MOVES_PER_PAGE) + 1 : null;
+}
+
 /** Handovers waiting, and the decided moves a page at a time, newest first. */
-export async function listTransfers(ctx: Ctx, options: { page?: number } = {}) {
+export async function listTransfers(ctx: Ctx, options: { page?: number; move?: string | null } = {}) {
   requirePermission(ctx, "finance.view");
-  const page = Math.max(1, Math.floor(options.page ?? 1)) || 1;
   const decided = ne(moneyTransfers.status, "pending");
+  const page = (options.move && (await pageOfMove(options.move))) || Math.max(1, Math.floor(options.page ?? 1)) || 1;
   const [pendingRows, doneRows, [count], held] = await Promise.all([
     db.select().from(moneyTransfers).where(eq(moneyTransfers.status, "pending")).orderBy(desc(moneyTransfers.createdAt)),
     db

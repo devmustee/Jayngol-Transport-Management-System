@@ -31,7 +31,7 @@ function ItemText({ item }: { item: ToConfirm }) {
       {item.kind === "transfer" ? (
         <div className="break-words text-sm text-muted">
           Cash paid in by teller · {item.reference} · {formatDate(item.date)} ·{" "}
-          <a href={`/transfers#move-${item.id}`} className="text-gold-deep underline">See the move</a>
+          <a href={`/transfers?move=${item.id}#move-${item.id}`} className="text-gold-deep underline">See the move</a>
         </div>
       ) : (
         <div className="break-words text-sm text-muted">

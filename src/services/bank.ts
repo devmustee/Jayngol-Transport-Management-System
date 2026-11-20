@@ -21,7 +21,7 @@ import { auditFrom } from "./audit";
 import { requirePermission, type Ctx } from "./context";
 
 /** Keeps two bank changes from both seeing the same book. */
-const lockBank = (tx: Executor) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bank_book'))`);
+export const lockBank = (tx: Executor) => tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('bank_book'))`);
 
 /** The opening balance in force: the latest correction, else the figure first set. */
 const OPENING = sql`(SELECT o.id, o.account, o.at, o.source_type, o.source_id,
@@ -60,7 +60,12 @@ async function lockReference(tx: Executor, kind: Kind, id: string) {
   const state = { released: paymentReferences.releasedAt, confirmed: paymentReferences.confirmedAt };
   if (kind === "transfer") {
     const [row] = await tx
-      .select({ ...state, receivedBy: moneyTransfers.createdBy, receipt: sql<string>`'teller ' || ${paymentReferences.reference}` })
+      .select({
+        ...state,
+        receivedBy: moneyTransfers.createdBy,
+        cashOf: moneyTransfers.fromCustodian,
+        receipt: sql<string>`'teller ' || ${paymentReferences.reference}`,
+      })
       .from(paymentReferences)
       .innerJoin(moneyTransfers, eq(moneyTransfers.id, link))
       .where(eq(link, id))
@@ -69,7 +74,7 @@ async function lockReference(tx: Executor, kind: Kind, id: string) {
   }
   const owner = kind === "payment" ? payments : operatorDeposits;
   const [row] = await tx
-    .select({ ...state, receivedBy: owner.receivedBy, receipt: owner.receiptNumber })
+    .select({ ...state, receivedBy: owner.receivedBy, cashOf: sql<string | null>`NULL`, receipt: owner.receiptNumber })
     .from(paymentReferences)
     .innerJoin(owner, eq(owner.id, link))
     .where(eq(link, id))
@@ -86,6 +91,10 @@ async function confirmOne(tx: Executor, ctx: Ctx, kind: Kind, id: string, now: D
   if (row.confirmed) return false;
   if (row.receivedBy === ctx.actor.userId) {
     throw new DomainError(`A different person must confirm ${row.receipt}, which you recorded.`);
+  }
+  // The person whose cash was paid in has most reason to say it arrived, so they cannot confirm it either.
+  if (row.cashOf === ctx.actor.userId) {
+    throw new DomainError(`A different person must confirm ${row.receipt}, which was paid in from your cash.`);
   }
   await tx
     .update(paymentReferences)

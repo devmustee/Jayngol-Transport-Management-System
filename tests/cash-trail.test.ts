@@ -797,6 +797,20 @@ describe("transfer guards", () => {
     await expect(createTransfer(on(manager, "2034-09-01"), { ...move, from: manager.actor.userId })).rejects.toBeInstanceOf(ForbiddenError);
   });
 
+  it("answers a double tap with the saved move, even when it used all the cash", async () => {
+    const person = on(await someone(), "2034-09-01");
+    await collect(person, "4,000");
+    const whole = { from: person.actor.userId, to: "owner", amount: "4,000", clientId: randomUUID() };
+    const [a, b] = await Promise.all([createTransfer(person, whole), createTransfer(person, whole)]);
+    expect(a.id).toBe(b.id);
+    const teller = { from: person.actor.userId, to: "bank", amount: "4,000", photo: PHOTO, clientId: randomUUID() };
+    await collect(person, "4,000");
+    const deposit = { ...teller, reference: `DT-${randomUUID().slice(0, 6)}` };
+    const [c, d] = await Promise.all([createTransfer(person, deposit), createTransfer(person, deposit)]);
+    expect(c.id).toBe(d.id);
+    expect(await expectedCash(db, person.actor.userId, "2034-09-01")).toBe(0);
+  });
+
   it("uses a teller number once, however it is typed, and frees it when reversed", async () => {
     const person = on(await someone(), "2034-09-02");
     await collect(person, "20,000");
@@ -845,6 +859,32 @@ describe("transfer guards", () => {
     expect(row!.confirmed_at).toBeNull();
     const { unconfirmedKobo } = await bookAt(db, "infinity");
     expect(unconfirmedKobo).toBeGreaterThanOrEqual(900_000);
+  });
+
+  it("does not let the person whose cash was banked confirm the deposit", async () => {
+    const holderCtx = on(await someone(), DAY);
+    await collect(holderCtx, "2,000");
+    const deposit = await createTransfer(on(manager, DAY), {
+      from: holderCtx.actor.userId,
+      to: "bank",
+      amount: "2,000",
+      reference: `CO-${randomUUID().slice(0, 6)}`,
+      photo: PHOTO,
+    });
+    await expect(confirmBankItems(holderCtx, { items: [`transfer:${deposit.id}`] })).rejects.toThrow(/paid in from your cash/);
+    await expect(confirmBankItems(on(manager, DAY), { items: [`transfer:${deposit.id}`] })).rejects.toThrow(/which you recorded/);
+    expect(await confirmBankItems(on(await someone(), DAY), { items: [`transfer:${deposit.id}`] })).toEqual({ confirmed: 1 });
+  });
+
+  it("opens Recent moves on the page that holds a linked move", async () => {
+    const person = on(await someone(), "2034-09-07");
+    await collect(person, "1,000");
+    const move = await createTransfer(person, { from: person.actor.userId, to: "owner", amount: "1,000" });
+    const found = await listTransfers(manager, { move: move.id, page: 99 });
+    expect(found.recent.map((row) => row.id)).toContain(move.id);
+    // Unknown or bad ids fall back to the page asked for.
+    expect((await listTransfers(manager, { move: randomUUID(), page: 1 })).page).toBe(1);
+    expect((await listTransfers(manager, { move: "nonsense", page: 1 })).page).toBe(1);
   });
 
   it("waits for the receiver to accept cash from the Owner, and tells the Owner", async () => {
